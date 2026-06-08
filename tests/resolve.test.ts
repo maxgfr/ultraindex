@@ -63,6 +63,18 @@ describe("resolveImport — JS/TS", () => {
       reason: "missing-module",
     });
   });
+  it("treats an asset import (.svg) as external, never dangling", () => {
+    expect(resolveImport("src/client.ts", ".ts", "../logo.svg", c).kind).toBe("external");
+    expect(resolveImport("src/client.ts", ".ts", "./icon.png", c).kind).toBe("external");
+  });
+});
+
+describe("resolveDocLink — directories", () => {
+  const c = ctx();
+  it("treats a link to a real directory (no README) as external, not dangling", () => {
+    expect(resolveDocLink("README.md", "gopkg", c).kind).toBe("external");
+    expect(resolveDocLink("README.md", "./gopkg/sub", c).kind).toBe("external");
+  });
 });
 
 describe("resolveImport — Python", () => {

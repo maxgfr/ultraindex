@@ -40,10 +40,12 @@ function isExternalTarget(spec: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(spec); // http:, https:, mailto:, tel:, data:, …
 }
 
-// One line of human-meaningful prose for the summary: strip leading markdown
-// markers and inline emphasis, collapse whitespace.
+// One line of human-meaningful prose for the summary: drop images/badges
+// ENTIRELY (so a badge-only line yields nothing, not its alt text), keep link
+// text, strip emphasis, collapse whitespace.
 function cleanProse(line: string): string {
   return line
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "") // images/badges → removed, not kept as alt
     .replace(/`([^`]*)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/\*([^*]+)\*/g, "$1")
@@ -51,6 +53,12 @@ function cleanProse(line: string): string {
     .replace(/[#>*_~-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// Does a cleaned line carry actual prose (a word with letters), or is it just
+// punctuation/leftovers from a badge row?
+function hasProse(s: string): boolean {
+  return /[A-Za-zÀ-ɏ]{3,}/.test(s);
 }
 
 // Extract title, section headings, a one-line summary, and local doc-link refs
@@ -86,7 +94,7 @@ export function extractMarkdown(content: string): MarkdownInfo {
       // First real prose paragraph: not a heading, list bullet, table, html or blank.
       if (t && !/^([-*+]|\d+\.)\s/.test(t) && !t.startsWith("|") && !t.startsWith("<")) {
         const cleaned = cleanProse(t);
-        if (cleaned.length >= 8) summary = cleaned.slice(0, 200);
+        if (cleaned.length >= 8 && hasProse(cleaned)) summary = cleaned.slice(0, 200);
       }
     }
   }

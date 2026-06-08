@@ -18,19 +18,30 @@ export interface ModuleInfo {
 
 const ROOT_PATH = "(root)";
 
-// Foundations: shared building blocks features depend on.
+// Foundations: shared building blocks features depend on (matched on the leaf).
 const TIER0 = /(^|\/)(types?|util|utils|lib|libs|common|core|config|configs|constants|shared|helpers|internal)$/i;
-// Tail: supporting material, not the product itself.
-const TIER2 = /(^|\/)(tests?|__tests__|spec|specs|examples?|example|benchmark|benchmarks|fixtures?|docs?|documentation|scripts?|\.github)$/i;
+// Tail: supporting material, not the product itself. Matched on ANY path
+// segment — `a/__tests__/b` is still test material, not a feature.
+const TIER2_ANY = /(^|\/)(tests?|__tests__|spec|specs|__mocks__|__snapshots__|examples?|example|benchmark|benchmarks|fixtures?|docs?|documentation|\.github)(\/|$)/i;
+// Scripts/CI only count as tail when they're the leaf (a `scripts/` dir), not
+// when "scripts" merely appears mid-path.
+const TIER2_LEAF = /(^|\/)(scripts?|bin|\.storybook)$/i;
 
 function dirOf(rel: string): string {
   return rel.includes("/") ? posix.dirname(rel) : ROOT_PATH;
 }
 
-function tierOf(path: string, members: FileRecord[]): Tier {
+// Path-only tier decision; returns null when the path alone is undecided.
+export function tierForPath(path: string): Tier | null {
   if (path === ROOT_PATH) return 0; // root manifests/READMEs are foundational context
-  if (TIER2.test(path)) return 2;
+  if (TIER2_ANY.test(path) || TIER2_LEAF.test(path)) return 2;
   if (TIER0.test(path)) return 0;
+  return null;
+}
+
+function tierOf(path: string, members: FileRecord[]): Tier {
+  const byPath = tierForPath(path);
+  if (byPath !== null) return byPath;
   // A directory that is entirely docs/config is tail material regardless of name.
   if (members.every((m) => m.kind === "doc" || m.kind === "config")) return 2;
   return 1;

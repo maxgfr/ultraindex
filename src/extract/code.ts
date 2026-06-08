@@ -10,6 +10,15 @@ export interface CodeInfo {
 const JS_TS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 const PY = new Set([".py", ".pyi"]);
 
+// Tooling pragmas and boilerplate that are technically the first comment but say
+// nothing about what the file does — never use them as a summary.
+const DIRECTIVE_RE =
+  /^(eslint\b|eslint-|prettier\b|prettier-|tslint\b|jshint\b|jslint\b|globals?\b|istanbul\b|c8\s|v8\s|@ts-|ts-|@flow\b|@jsx\b|@jsxRuntime\b|@license\b|@preserve\b|@copyright\b|copyright\b|spdx-|use strict|biome-|deno-lint|noqa\b|type:\s*ignore|pylint:|flake8:|mypy:|coding[:=])/i;
+
+function isDirective(line: string): boolean {
+  return DIRECTIVE_RE.test(line.trim());
+}
+
 // The leading comment block of a file, turned into one summary line. Handles
 // `//`, `#`, and `/* … */` / `""" … """` openers. Stops at the first code line.
 function topDocComment(content: string): string | undefined {
@@ -57,7 +66,11 @@ function topDocComment(content: string): string | undefined {
     }
     break; // first real code line
   }
-  const text = collected.join(" ").replace(/\s+/g, " ").trim();
+  const text = collected
+    .filter((l) => l && !isDirective(l))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (text.length < 8) return undefined;
   // First sentence, capped.
   const sentence = /^(.*?[.!?])(\s|$)/.exec(text);

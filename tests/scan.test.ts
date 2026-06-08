@@ -67,4 +67,18 @@ describe("extractCode", () => {
     const info = extractCode("x.ts", ".ts", "// The widget factory. Builds widgets.\nexport function make() {}");
     expect(info.summary).toBe("The widget factory.");
   });
+  it("skips eslint/pragma directive comments", () => {
+    const onlyDirective = extractCode("x.ts", ".ts", "/* eslint @typescript-eslint/naming-convention: 0 */\nexport const x = 1;");
+    expect(onlyDirective.summary).toBeUndefined();
+    const directiveThenProse = extractCode("x.ts", ".ts", "// eslint-disable-next-line\n// Parses the config file.\nexport function p() {}");
+    expect(directiveThenProse.summary).toBe("Parses the config file.");
+  });
+});
+
+describe("extractMarkdown — badges", () => {
+  it("does not use a badge/image-only line as the summary", () => {
+    const info = extractMarkdown("# Project\n\n[![Quality Status](https://x/badge.svg)](https://x/ci)\n\nThe real description of the project.");
+    expect(info.summary).toBe("The real description of the project.");
+    expect(info.summary).not.toContain("Quality");
+  });
 });

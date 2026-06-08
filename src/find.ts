@@ -58,11 +58,19 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K): FindRes
       })
       .sort((a, b) => b.score - a.score || b.degree - a.degree || byStr(a.f.rel, b.f.rel));
 
-    const fileScore = scoredFiles.reduce((acc, x) => acc + x.score, 0);
+    // Use the best-matching file plus a small breadth bonus — NOT the raw sum —
+    // so a 50-file __tests__ dir can't outrank the real implementation just by
+    // having many keyword-bearing filenames.
+    const bestFile = scoredFiles[0]?.score ?? 0;
+    const matchCount = scoredFiles.filter((x) => x.score > 0).length;
     // Require an actual keyword hit — a module with no match shouldn't surface
     // just because it's well-connected. Degree only breaks ties among matches.
-    if (mod.score === 0 && fileScore === 0) continue;
-    const total = mod.score * 2 + fileScore + Math.min(m.degIn + m.degOut, 5) * 0.25;
+    if (mod.score === 0 && bestFile === 0) continue;
+    // Tail modules (tests/docs/examples) are down-weighted so implementation
+    // ranks above its tests for the same query.
+    const tierWeight = m.tier === 2 ? 0.45 : 1;
+    const keywordScore = mod.score * 2 + bestFile + Math.min(matchCount, 5) * 0.5;
+    const total = keywordScore * tierWeight + Math.min(m.degIn + m.degOut, 5) * 0.25;
 
     const matched = [...new Set([...mod.matched, ...scoredFiles.flatMap((x) => x.matched)])].sort(byStr);
     // Files to open: prefer those that matched; fall back to the module's

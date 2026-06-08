@@ -832,7 +832,10 @@ function isExternalTarget(spec) {
   return /^[a-z][a-z0-9+.-]*:/i.test(spec);
 }
 function cleanProse(line) {
-  return line.replace(/`([^`]*)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*]+)\*/g, "$1").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[#>*_~-]+/g, " ").replace(/\s+/g, " ").trim();
+  return line.replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/`([^`]*)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*]+)\*/g, "$1").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[#>*_~-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+function hasProse(s) {
+  return /[A-Za-zÀ-ɏ]{3,}/.test(s);
 }
 function extractMarkdown(content) {
   let body = content;
@@ -860,7 +863,7 @@ function extractMarkdown(content) {
       const t = line.trim();
       if (t && !/^([-*+]|\d+\.)\s/.test(t) && !t.startsWith("|") && !t.startsWith("<")) {
         const cleaned = cleanProse(t);
-        if (cleaned.length >= 8) summary = cleaned.slice(0, 200);
+        if (cleaned.length >= 8 && hasProse(cleaned)) summary = cleaned.slice(0, 200);
       }
     }
   }
@@ -886,6 +889,10 @@ function extractMarkdown(content) {
 // src/extract/code.ts
 var JS_TS = /* @__PURE__ */ new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 var PY = /* @__PURE__ */ new Set([".py", ".pyi"]);
+var DIRECTIVE_RE = /^(eslint\b|eslint-|prettier\b|prettier-|tslint\b|jshint\b|jslint\b|globals?\b|istanbul\b|c8\s|v8\s|@ts-|ts-|@flow\b|@jsx\b|@jsxRuntime\b|@license\b|@preserve\b|@copyright\b|copyright\b|spdx-|use strict|biome-|deno-lint|noqa\b|type:\s*ignore|pylint:|flake8:|mypy:|coding[:=])/i;
+function isDirective(line) {
+  return DIRECTIVE_RE.test(line.trim());
+}
 function topDocComment(content) {
   const lines = content.split(/\r?\n/);
   const collected = [];
@@ -931,7 +938,7 @@ function topDocComment(content) {
     }
     break;
   }
-  const text = collected.join(" ").replace(/\s+/g, " ").trim();
+  const text = collected.filter((l) => l && !isDirective(l)).join(" ").replace(/\s+/g, " ").trim();
   if (text.length < 8) return void 0;
   const sentence = /^(.*?[.!?])(\s|$)/.exec(text);
   return (sentence ? sentence[1] : text).slice(0, 200);
@@ -1061,6 +1068,32 @@ function scanRepo(root, opts = {}) {
 // src/resolve.ts
 import { posix } from "path";
 import { join as join2 } from "path";
+var ASSET_EXT = /* @__PURE__ */ new Set([
+  ".svg",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".bmp",
+  ".ico",
+  ".icns",
+  ".pdf",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".eot",
+  ".mp3",
+  ".mp4",
+  ".mov",
+  ".avi",
+  ".webm",
+  ".wav",
+  ".flac",
+  ".ogg",
+  ".map"
+]);
 var JS_EXT_PROBES = ["", ".ts", ".tsx", ".d.ts", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
 var JS_INDEX = ["index.ts", "index.tsx", "index.js", "index.jsx", "index.mjs", "index.cjs"];
 var JS_TS2 = /* @__PURE__ */ new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -1081,11 +1114,18 @@ function tolerantJsonParse(text) {
 function buildResolveContext(scan2) {
   const fileSet = new Set(scan2.files.map((f) => f.rel));
   const filesByDir = /* @__PURE__ */ new Map();
+  const dirSet = /* @__PURE__ */ new Set();
   for (const f of scan2.files) {
     const dir = f.rel.includes("/") ? posix.dirname(f.rel) : "";
     let list = filesByDir.get(dir);
     if (!list) filesByDir.set(dir, list = []);
     list.push(f.rel);
+    let d = dir;
+    while (d) {
+      if (dirSet.has(d)) break;
+      dirSet.add(d);
+      d = d.includes("/") ? posix.dirname(d) : "";
+    }
   }
   let tsBaseUrl = "";
   const tsPaths = [];
@@ -1115,7 +1155,7 @@ function buildResolveContext(scan2) {
       pyRoots.add(rel.includes("/") ? posix.dirname(rel) : "");
     }
   }
-  return { fileSet, filesByDir, tsBaseUrl, tsPaths, goModule, goModuleDir, pyRoots: [...pyRoots] };
+  return { fileSet, dirSet, filesByDir, tsBaseUrl, tsPaths, goModule, goModuleDir, pyRoots: [...pyRoots] };
 }
 function firstExisting(ctx, candidates) {
   for (const c2 of candidates) {
@@ -1140,7 +1180,9 @@ function resolveDocLink(fromRel, spec, ctx) {
     posix.join(p, "index.md"),
     posix.join(p, "index.mdx")
   ]);
-  return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-target" };
+  if (hit) return { kind: "resolved", target: hit };
+  if (ctx.dirSet.has(p)) return { kind: "external" };
+  return { kind: "dangling", reason: "missing-target" };
 }
 function resolveJs(fromRel, spec, ctx) {
   const probe = (p) => firstExisting(ctx, [...JS_EXT_PROBES.map((e) => p + e), ...JS_INDEX.map((i) => posix.join(p, i))]);
@@ -1201,6 +1243,10 @@ function resolveGo(spec, ctx) {
   return inDir.length ? { kind: "resolved", target: inDir[0] } : { kind: "dangling", reason: "missing-package" };
 }
 function resolveImport(fromRel, ext, spec, ctx) {
+  const dot = spec.lastIndexOf(".");
+  if (dot !== -1 && ASSET_EXT.has(spec.slice(dot).toLowerCase().replace(/[?#].*$/, ""))) {
+    return { kind: "external" };
+  }
   if (JS_TS2.has(ext)) return resolveJs(fromRel, spec, ctx);
   if (PY2.has(ext)) return resolvePython(fromRel, spec, ctx);
   if (ext === ".go") return resolveGo(spec, ctx);
@@ -1211,14 +1257,20 @@ function resolveImport(fromRel, ext, spec, ctx) {
 import { posix as posix2 } from "path";
 var ROOT_PATH = "(root)";
 var TIER0 = /(^|\/)(types?|util|utils|lib|libs|common|core|config|configs|constants|shared|helpers|internal)$/i;
-var TIER2 = /(^|\/)(tests?|__tests__|spec|specs|examples?|example|benchmark|benchmarks|fixtures?|docs?|documentation|scripts?|\.github)$/i;
+var TIER2_ANY = /(^|\/)(tests?|__tests__|spec|specs|__mocks__|__snapshots__|examples?|example|benchmark|benchmarks|fixtures?|docs?|documentation|\.github)(\/|$)/i;
+var TIER2_LEAF = /(^|\/)(scripts?|bin|\.storybook)$/i;
 function dirOf(rel) {
   return rel.includes("/") ? posix2.dirname(rel) : ROOT_PATH;
 }
-function tierOf(path, members) {
+function tierForPath(path) {
   if (path === ROOT_PATH) return 0;
-  if (TIER2.test(path)) return 2;
+  if (TIER2_ANY.test(path) || TIER2_LEAF.test(path)) return 2;
   if (TIER0.test(path)) return 0;
+  return null;
+}
+function tierOf(path, members) {
+  const byPath = tierForPath(path);
+  if (byPath !== null) return byPath;
   if (members.every((m) => m.kind === "doc" || m.kind === "config")) return 2;
   return 1;
 }
@@ -1870,8 +1922,8 @@ function syncEntries(outDir, entries, prevModules) {
     const text = readIfExists(path);
     if (text === void 0) continue;
     const human = humanBodies(text);
-    const hasProse = [...human.values()].some((b) => b.trim().length > 0);
-    if (hasProse) {
+    const hasProse2 = [...human.values()].some((b) => b.trim().length > 0);
+    if (hasProse2) {
       moveFile(path, join5(orphanDir, `${old}.md`));
       orphaned.push(old);
       notes.push(`orphaned prose for removed module "${old}" \u2192 encyclopedia/_orphaned/${old}.md`);
@@ -1992,9 +2044,12 @@ function findModules(graph, query, k = DEFAULT_K) {
       const s = scoreText(hay, kws);
       return { f, score: s.score, matched: s.matched, degree: f.degIn + f.degOut };
     }).sort((a, b) => b.score - a.score || b.degree - a.degree || byStr(a.f.rel, b.f.rel));
-    const fileScore = scoredFiles.reduce((acc, x) => acc + x.score, 0);
-    if (mod.score === 0 && fileScore === 0) continue;
-    const total = mod.score * 2 + fileScore + Math.min(m.degIn + m.degOut, 5) * 0.25;
+    const bestFile = scoredFiles[0]?.score ?? 0;
+    const matchCount = scoredFiles.filter((x) => x.score > 0).length;
+    if (mod.score === 0 && bestFile === 0) continue;
+    const tierWeight = m.tier === 2 ? 0.45 : 1;
+    const keywordScore = mod.score * 2 + bestFile + Math.min(matchCount, 5) * 0.5;
+    const total = keywordScore * tierWeight + Math.min(m.degIn + m.degOut, 5) * 0.25;
     const matched = [.../* @__PURE__ */ new Set([...mod.matched, ...scoredFiles.flatMap((x) => x.matched)])].sort(byStr);
     let files = scoredFiles.filter((x) => x.score > 0).map((x) => x.f.rel);
     if (files.length === 0) {

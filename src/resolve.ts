@@ -19,6 +19,7 @@ interface TsPath {
 
 export interface ResolveContext {
   fileSet: Set<string>;
+  dirSet: Set<string>; // every directory that has any file beneath it
   filesByDir: Map<string, string[]>; // dir (posix, "" for root) -> rel files
   tsBaseUrl: string; // posix dir, "" for repo root
   tsPaths: TsPath[];
@@ -26,6 +27,15 @@ export interface ResolveContext {
   goModuleDir: string; // posix dir of go.mod, "" for root
   pyRoots: string[]; // posix dirs that are python import roots ("" allowed)
 }
+
+// Extensions walk() skips (images, fonts, media, maps). An import of one of these
+// is a real asset dependency handled by a bundler — NOT a broken code edge — so
+// it resolves as `external`, never dangling.
+const ASSET_EXT = new Set([
+  ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".icns", ".pdf",
+  ".woff", ".woff2", ".ttf", ".otf", ".eot", ".mp3", ".mp4", ".mov", ".avi", ".webm",
+  ".wav", ".flac", ".ogg", ".map",
+]);
 
 const JS_EXT_PROBES = ["", ".ts", ".tsx", ".d.ts", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
 const JS_INDEX = ["index.ts", "index.tsx", "index.js", "index.jsx", "index.mjs", "index.cjs"];
@@ -55,11 +65,20 @@ function tolerantJsonParse(text: string): unknown {
 export function buildResolveContext(scan: RepoScan): ResolveContext {
   const fileSet = new Set(scan.files.map((f) => f.rel));
   const filesByDir = new Map<string, string[]>();
+  const dirSet = new Set<string>();
   for (const f of scan.files) {
     const dir = f.rel.includes("/") ? posix.dirname(f.rel) : "";
     let list = filesByDir.get(dir);
     if (!list) filesByDir.set(dir, (list = []));
     list.push(f.rel);
+    // Record every ancestor directory so a doc link to a real folder (even one
+    // with no README) isn't mistaken for a broken link.
+    let d = dir;
+    while (d) {
+      if (dirSet.has(d)) break;
+      dirSet.add(d);
+      d = d.includes("/") ? posix.dirname(d) : "";
+    }
   }
 
   // tsconfig.json at the repo root (nearest-to-root only, by design for v1).
@@ -98,7 +117,7 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
     }
   }
 
-  return { fileSet, filesByDir, tsBaseUrl, tsPaths, goModule, goModuleDir, pyRoots: [...pyRoots] };
+  return { fileSet, dirSet, filesByDir, tsBaseUrl, tsPaths, goModule, goModuleDir, pyRoots: [...pyRoots] };
 }
 
 function firstExisting(ctx: ResolveContext, candidates: string[]): string | undefined {
@@ -123,7 +142,11 @@ export function resolveDocLink(fromRel: string, spec: string, ctx: ResolveContex
     posix.join(p, "README.md"), posix.join(p, "readme.md"),
     posix.join(p, "index.md"), posix.join(p, "index.mdx"),
   ]);
-  return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-target" };
+  if (hit) return { kind: "resolved", target: hit };
+  // A link to a real directory (even one without a README/index) is valid — it's
+  // just not a file-node edge. Don't cry "broken link".
+  if (ctx.dirSet.has(p)) return { kind: "external" };
+  return { kind: "dangling", reason: "missing-target" };
 }
 
 function resolveJs(fromRel: string, spec: string, ctx: ResolveContext): Resolution {
@@ -212,6 +235,12 @@ export function resolveImport(
   spec: string,
   ctx: ResolveContext,
 ): Resolution {
+  // Asset imports (`import logo from './x.svg'`) target files walk() skips on
+  // purpose — a bundler dependency, not a broken code edge.
+  const dot = spec.lastIndexOf(".");
+  if (dot !== -1 && ASSET_EXT.has(spec.slice(dot).toLowerCase().replace(/[?#].*$/, ""))) {
+    return { kind: "external" };
+  }
   if (JS_TS.has(ext)) return resolveJs(fromRel, spec, ctx);
   if (PY.has(ext)) return resolvePython(fromRel, spec, ctx);
   if (ext === ".go") return resolveGo(spec, ctx);
