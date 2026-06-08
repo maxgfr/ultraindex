@@ -1,0 +1,59 @@
+{
+  "name": "ultraindex",
+  "version": "0.0.0",
+  "description": "Deterministically scan a whole repo (code + docs), build a typed link-graph between files, and emit a layered, navigable encyclopedia so an AI can work in huge codebases without filling its context window. A skills.sh agent skill (generator + light navigator).",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "bin": {
+    "ultraindex": "scripts/ultraindex.mjs"
+  },
+  "files": [
+    "scripts",
+    "src",
+    "skills"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup && node scripts/copy-bundle.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "check:build": "tsup && node scripts/copy-bundle.mjs && git diff --exit-code -- scripts/ultraindex.mjs skills/ultraindex/scripts/ultraindex.mjs skills/ultraindex-nav/scripts/ultraindex.mjs",
+    "demo": "node scripts/ultraindex.mjs build --repo tests/fixtures/mini-repo --out /tmp/ultraindex-demo && node scripts/ultraindex.mjs check --out /tmp/ultraindex-demo",
+    "release": "semantic-release"
+  },
+  "keywords": [
+    "skills",
+    "agent-skill",
+    "skills.sh",
+    "code-index",
+    "knowledge-graph",
+    "documentation",
+    "encyclopedia",
+    "ai-agent"
+  ],
+  "license": "MIT",
+  "author": "maxgfr",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maxgfr/ultraindex"
+  },
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@types/node": "^20.14.0",
+    "semantic-release": "^24.2.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.0",
+    "yaml": "^2.9.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
