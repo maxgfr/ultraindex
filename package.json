@@ -21,7 +21,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "check:build": "tsup && node scripts/copy-bundle.mjs && git diff --exit-code -- scripts/ultraindex.mjs skills/ultraindex/scripts/ultraindex.mjs skills/ultraindex-nav/scripts/ultraindex.mjs",
-    "demo": "node scripts/ultraindex.mjs build --repo tests/fixtures/mini-repo --out /tmp/ultraindex-demo && node scripts/ultraindex.mjs check --out /tmp/ultraindex-demo",
+    "demo": "node scripts/ultraindex.mjs build --repo tests/fixtures/mini-repo --out /tmp/ultraindex-demo && node scripts/ultraindex.mjs check --repo tests/fixtures/mini-repo --out /tmp/ultraindex-demo",
     "release": "semantic-release"
   },
   "keywords": [
