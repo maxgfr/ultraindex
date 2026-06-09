@@ -3,7 +3,7 @@ name: ultraindex
 description: "Use when a repo is too large for the model to hold in context and you need a compact, navigable map of it before working — or when the user asks to 'index this repo', 'build a codebase map/encyclopedia', 'generate a knowledge graph of the code and docs', or 'make this huge project AI-navigable'. Deterministically scans the WHOLE repo (code + markdown) with zero-dependency Node — no API keys, no LLM read of the repo — and emits a layered artifact: a small always-loadable INDEX.md (the map), per-module encyclopedia entries (business 'why/links' + code 'what/where'), a typed link-graph (graph.json + a Mermaid diagram) of imports, doc-links and mentions, and a manifest for staleness. You then do a light, module-by-module enrichment pass to fill the business prose. Pairs with the ultraindex-nav skill, which consumes the index so you only load the files a task needs. Triggers: 'index/map this codebase', 'build the encyclopedia', 'graph the links between files', 'this repo is too big for context'."
 license: MIT
 metadata:
-  version: 0.0.0
+  version: 1.0.0
 ---
 
 # ultraindex — a navigable encyclopedia of a whole repo
