@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.1.0](https://github.com/maxgfr/ultraindex/compare/v1.0.0...v1.1.0) (2026-06-09)
+
+
+### Bug Fixes
+
+* harden the grounding gate (adversarial audit findings) ([1f75752](https://github.com/maxgfr/ultraindex/commit/1f7575226c24f94e409d50858f30d698e2808d08))
+
+
+### Features
+
+* grounded, citation-checked AI analysis (ultradoc-style) ([ff815d3](https://github.com/maxgfr/ultraindex/commit/ff815d3102805567979d4596e4d3135fe598403b))
+
 # 1.0.0 (2026-06-09)
 
 
