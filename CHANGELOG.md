@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [1.2.0](https://github.com/maxgfr/ultraindex/compare/v1.1.0...v1.2.0) (2026-06-09)
+
+
+### Bug Fixes
+
+* harden monorepo resolution, import extraction, grounding & encoding ([d133a16](https://github.com/maxgfr/ultraindex/commit/d133a16ac300c6e891c98bc507ed743f11a8b64e))
+* harden the index against real monorepos (tsconfig parsing, aliases, BOM) ([ef79cee](https://github.com/maxgfr/ultraindex/commit/ef79cee830fb7545872ad57891850b32a1a81ad6))
+
+
+### Features
+
+* **cli:** report resolution diagnostics in `build --json` ([ee2d6be](https://github.com/maxgfr/ultraindex/commit/ee2d6be04e2ff352ab2cd475b455c1df24858b29))
+
 # [1.1.0](https://github.com/maxgfr/ultraindex/compare/v1.0.0...v1.1.0) (2026-06-09)
 
 
