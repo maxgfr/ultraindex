@@ -107,6 +107,7 @@ export function mergeEntry(
   const specKeys = new Set(spec.filter((r) => r.type === "human").map((r) => r.key));
 
   let existingHuman = new Map<string, string>();
+  let dupConflict: string | undefined;
   if (existing && existing.trim()) {
     const parsed = parseRegions(existing);
     if (!parsed.ok) {
@@ -117,7 +118,17 @@ export function mergeEntry(
         conflict: "unparseable region fences — kept existing entry, refused to rewrite",
       };
     }
-    for (const r of parsed.regions) if (r.type === "human") existingHuman.set(r.key, r.body);
+    for (const r of parsed.regions) {
+      if (r.type !== "human") continue;
+      if (existingHuman.has(r.key) && existingHuman.get(r.key) !== r.body) {
+        // Duplicate human key (hand-edit / bad paste). Preserve BOTH — the extra
+        // under a content-stable key — rather than silently dropping prose.
+        existingHuman.set(`${r.key}-dup-${shortHash(r.body)}`, r.body);
+        dupConflict = `duplicate human region key "${r.key}" — preserved both bodies`;
+      } else {
+        existingHuman.set(r.key, r.body);
+      }
+    }
   }
 
   const migratedKeysUsed: string[] = [];
@@ -150,5 +161,5 @@ export function mergeEntry(
   }
 
   const humanKeys = out.filter((r) => r.type === "human").map((r) => r.key);
-  return { content: serializeRegions(out), humanKeys, migratedKeys: migratedKeysUsed };
+  return { content: serializeRegions(out), humanKeys, migratedKeys: migratedKeysUsed, conflict: dupConflict };
 }

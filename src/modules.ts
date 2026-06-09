@@ -21,11 +21,19 @@ const ROOT_PATH = "(root)";
 // Foundations: shared building blocks features depend on (matched on the leaf).
 const TIER0 = /(^|\/)(types?|util|utils|lib|libs|common|core|config|configs|constants|shared|helpers|internal)$/i;
 // Tail: supporting material, not the product itself. Matched on ANY path
-// segment — `a/__tests__/b` is still test material, not a feature.
-const TIER2_ANY = /(^|\/)(tests?|__tests__|spec|specs|__mocks__|__snapshots__|examples?|example|benchmark|benchmarks|fixtures?|docs?|documentation|\.github)(\/|$)/i;
+// segment — `a/__tests__/b` is still test material, not a feature. Covers both
+// singular/plural jest dunder dirs and e2e suites.
+const TIER2_ANY = /(^|\/)(tests?|__tests?__|__mocks?__|__snapshots?__|spec|specs|e2e|examples?|example|benchmark|benchmarks|fixtures?|docs?|documentation|\.github)(\/|$)/i;
 // Scripts/CI only count as tail when they're the leaf (a `scripts/` dir), not
 // when "scripts" merely appears mid-path.
 const TIER2_LEAF = /(^|\/)(scripts?|bin|\.storybook)$/i;
+// A file that is itself a test/spec/e2e, by basename — so a directory of only
+// these is tail even when its own name is unconventional.
+const TEST_FILE = /\.(test|spec|e2e|stories|story)\.[cm]?[jt]sx?$/i;
+
+export function isTestFile(rel: string): boolean {
+  return TEST_FILE.test(rel.split("/").pop()!);
+}
 
 function dirOf(rel: string): string {
   return rel.includes("/") ? posix.dirname(rel) : ROOT_PATH;
@@ -42,8 +50,9 @@ export function tierForPath(path: string): Tier | null {
 function tierOf(path: string, members: FileRecord[]): Tier {
   const byPath = tierForPath(path);
   if (byPath !== null) return byPath;
-  // A directory that is entirely docs/config is tail material regardless of name.
-  if (members.every((m) => m.kind === "doc" || m.kind === "config")) return 2;
+  // A directory that is entirely docs/config/tests is tail material regardless
+  // of its (unconventional) name.
+  if (members.every((m) => m.kind === "doc" || m.kind === "config" || isTestFile(m.rel))) return 2;
   return 1;
 }
 
@@ -53,6 +62,7 @@ function tierOf(path: string, members: FileRecord[]): Tier {
 function summaryOf(path: string, members: FileRecord[]): string {
   const readme = members.find((m) => /^(readme|index)\.(md|mdx)$/i.test(m.rel.split("/").pop()!));
   if (readme?.summary) return readme.summary;
+  if (readme?.title) return readme.title; // a README with only a title is still a better name than a file count
   const withSummary = members
     .filter((m) => m.summary)
     .sort((a, b) => (b.summary?.length ?? 0) - (a.summary?.length ?? 0));

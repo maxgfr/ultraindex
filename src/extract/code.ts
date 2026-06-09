@@ -13,7 +13,7 @@ const PY = new Set([".py", ".pyi"]);
 // Tooling pragmas and boilerplate that are technically the first comment but say
 // nothing about what the file does — never use them as a summary.
 const DIRECTIVE_RE =
-  /^(eslint\b|eslint-|prettier\b|prettier-|tslint\b|jshint\b|jslint\b|globals?\b|istanbul\b|c8\s|v8\s|@ts-|ts-|@flow\b|@jsx\b|@jsxRuntime\b|@license\b|@preserve\b|@copyright\b|copyright\b|spdx-|use strict|biome-|deno-lint|noqa\b|type:\s*ignore|pylint:|flake8:|mypy:|coding[:=])/i;
+  /^(eslint\b|eslint-|prettier\b|prettier-|tslint\b|jshint\b|jslint\b|globals?\b|istanbul\b|c8\s|v8\s|@ts-|ts-|@flow\b|@jsx\b|@jsxRuntime\b|@jest-environment\b|@vitest-environment\b|@license\b|@preserve\b|@copyright\b|copyright\b|spdx-|<reference\b|use strict|biome-|deno-lint|noqa\b|type:\s*ignore|pylint:|flake8:|mypy:|coding[:=])/i;
 
 function isDirective(line: string): boolean {
   return DIRECTIVE_RE.test(line.trim());
@@ -135,9 +135,57 @@ function extractImports(ext: string, content: string): RawRef[] {
   return [...specs].map((spec) => ({ kind: "import" as const, spec }));
 }
 
+// Barrel re-exports (`export { A, B as C } from './x'`, `export * from './y'`).
+// The line-based lang extractor can't capture multi-name lists, but these ARE
+// the public facade of a module — so list them as exported symbols here.
+function extractReexports(rel: string, content: string): CodeSymbol[] {
+  if (!JS_TS.has(rel.slice(rel.lastIndexOf(".")))) return [];
+  const lang = /\.(ts|tsx|mts|cts)$/.test(rel) ? "typescript" : "javascript";
+  const out: CodeSymbol[] = [];
+  const seen = new Set<string>();
+  const lineAt = (idx: number): number => content.slice(0, idx).split(/\r?\n/).length;
+
+  const named = /export\s*\{([\s\S]*?)\}\s*(?:from\s*['"]([^'"]+)['"])?\s*;?/g;
+  let m: RegExpExecArray | null;
+  while ((m = named.exec(content)) && out.length < 60) {
+    const from = m[2];
+    for (const part of m[1]!.split(",")) {
+      const p = part.trim().replace(/^type\s+/, "");
+      const as = /^(\S+)\s+as\s+([A-Za-z_$][\w$]*)$/.exec(p);
+      const name = as ? as[2]! : p;
+      if (!/^[A-Za-z_$][\w$]*$/.test(name) || name === "default" || seen.has(name)) continue;
+      seen.add(name);
+      out.push({
+        name, kind: "reexport", file: rel, line: lineAt(m.index),
+        signature: from ? `export { ${name} } from "${from}"` : `export { ${name} }`,
+        exported: true, lang,
+      });
+    }
+  }
+
+  const star = /export\s*\*\s*(?:as\s+([A-Za-z_$][\w$]*)\s+)?from\s*['"]([^'"]+)['"]/g;
+  while ((m = star.exec(content)) && out.length < 60) {
+    const ns = m[1];
+    const from = m[2]!;
+    const key = "*" + (ns ?? from);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      name: ns ?? `* (${from})`, kind: ns ? "reexport" : "reexport-all", file: rel,
+      line: lineAt(m.index), signature: `export * ${ns ? `as ${ns} ` : ""}from "${from}"`,
+      exported: true, lang,
+    });
+  }
+  return out;
+}
+
 export function extractCode(rel: string, ext: string, content: string): CodeInfo {
+  const symbols = extractSymbols(rel, ext, content).slice(0, 400);
+  // Add barrel re-exports the local def didn't already cover.
+  const known = new Set(symbols.map((s) => s.name));
+  const reexports = extractReexports(rel, content).filter((s) => !known.has(s.name));
   return {
-    symbols: extractSymbols(rel, ext, content).slice(0, 400),
+    symbols: [...symbols, ...reexports],
     summary: topDocComment(content),
     refs: extractImports(ext, content),
   };

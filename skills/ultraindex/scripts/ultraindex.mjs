@@ -422,6 +422,7 @@ function extToLang(ext) {
 var RULES = [
   { re: /^\s*export\s+(?:async\s+)?function\s+(?<name>[\w$]+)/, kind: "function", exported: true },
   { re: /^\s*export\s+default\s+(?:async\s+)?function\s+(?<name>[\w$]+)/, kind: "function", exported: true },
+  { re: /^\s*export\s+default\s+(?:abstract\s+)?class\s+(?<name>[\w$]+)/, kind: "class", exported: true },
   { re: /^\s*(?:async\s+)?function\s+(?<name>[\w$]+)/, kind: "function", exported: false },
   { re: /^\s*export\s+(?:abstract\s+)?class\s+(?<name>[\w$]+)/, kind: "class", exported: true },
   { re: /^\s*(?:abstract\s+)?class\s+(?<name>[\w$]+)/, kind: "class", exported: false },
@@ -434,7 +435,9 @@ var RULES = [
   // exported const/let bound to an arrow fn or value
   { re: /^\s*export\s+(?:const|let|var)\s+(?<name>[\w$]+)\s*[:=]/, kind: "const", exported: true },
   // top-level const arrow function (not exported)
-  { re: /^\s*(?:const|let)\s+(?<name>[\w$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*(?::[^=]+)?=>/, kind: "const", exported: false }
+  { re: /^\s*(?:const|let)\s+(?<name>[\w$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*(?::[^=]+)?=>/, kind: "const", exported: false },
+  // `export default Foo;` — a class/const declared above and exported by reference.
+  { re: /^\s*export\s+default\s+(?<name>[A-Za-z_$][\w$]*)\s*;?\s*$/, kind: "default", exported: true }
 ];
 var jsTs = {
   lang: "javascript/typescript",
@@ -763,9 +766,9 @@ function isCode(ext) {
   return !NON_CODE_LANGS.has(languageOf(ext));
 }
 function classify(rel, ext) {
+  if (isCode(ext)) return "code";
   if (isDoc(rel, ext)) return "doc";
   if (isConfig(rel, ext)) return "config";
-  if (isCode(ext)) return "code";
   return "other";
 }
 
@@ -837,6 +840,9 @@ function cleanProse(line) {
 function hasProse(s) {
   return /[A-Za-zÀ-ɏ]{3,}/.test(s);
 }
+function isBoilerplate(s) {
+  return /^(all notable changes to this project|in the interest of fostering|this project adheres to|we as members and leaders|table of contents)\b/i.test(s);
+}
 function extractMarkdown(content) {
   let body = content;
   let frontTitle;
@@ -851,19 +857,23 @@ function extractMarkdown(content) {
   const headings = [];
   let title = frontTitle;
   let summary;
+  let summaryClosed = false;
   for (const line of lines) {
     const h = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
     if (h) {
       const text = cleanProse(h[2]);
       headings.push(text);
       if (!title && h[1].length === 1) title = text;
+      if (!summary && h[1].length >= 2) summaryClosed = true;
       continue;
     }
-    if (!summary) {
+    if (!summary && !summaryClosed) {
       const t = line.trim();
       if (t && !/^([-*+]|\d+\.)\s/.test(t) && !t.startsWith("|") && !t.startsWith("<")) {
         const cleaned = cleanProse(t);
-        if (cleaned.length >= 8 && hasProse(cleaned)) summary = cleaned.slice(0, 200);
+        if (cleaned.length >= 8 && hasProse(cleaned) && !cleaned.endsWith(":") && !isBoilerplate(cleaned)) {
+          summary = cleaned.slice(0, 200);
+        }
       }
     }
   }
@@ -889,7 +899,7 @@ function extractMarkdown(content) {
 // src/extract/code.ts
 var JS_TS = /* @__PURE__ */ new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 var PY = /* @__PURE__ */ new Set([".py", ".pyi"]);
-var DIRECTIVE_RE = /^(eslint\b|eslint-|prettier\b|prettier-|tslint\b|jshint\b|jslint\b|globals?\b|istanbul\b|c8\s|v8\s|@ts-|ts-|@flow\b|@jsx\b|@jsxRuntime\b|@license\b|@preserve\b|@copyright\b|copyright\b|spdx-|use strict|biome-|deno-lint|noqa\b|type:\s*ignore|pylint:|flake8:|mypy:|coding[:=])/i;
+var DIRECTIVE_RE = /^(eslint\b|eslint-|prettier\b|prettier-|tslint\b|jshint\b|jslint\b|globals?\b|istanbul\b|c8\s|v8\s|@ts-|ts-|@flow\b|@jsx\b|@jsxRuntime\b|@jest-environment\b|@vitest-environment\b|@license\b|@preserve\b|@copyright\b|copyright\b|spdx-|<reference\b|use strict|biome-|deno-lint|noqa\b|type:\s*ignore|pylint:|flake8:|mypy:|coding[:=])/i;
 function isDirective(line) {
   return DIRECTIVE_RE.test(line.trim());
 }
@@ -996,9 +1006,58 @@ function extractImports(ext, content) {
   }
   return [...specs].map((spec) => ({ kind: "import", spec }));
 }
+function extractReexports(rel, content) {
+  if (!JS_TS.has(rel.slice(rel.lastIndexOf(".")))) return [];
+  const lang = /\.(ts|tsx|mts|cts)$/.test(rel) ? "typescript" : "javascript";
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  const lineAt = (idx) => content.slice(0, idx).split(/\r?\n/).length;
+  const named = /export\s*\{([\s\S]*?)\}\s*(?:from\s*['"]([^'"]+)['"])?\s*;?/g;
+  let m;
+  while ((m = named.exec(content)) && out.length < 60) {
+    const from = m[2];
+    for (const part of m[1].split(",")) {
+      const p = part.trim().replace(/^type\s+/, "");
+      const as = /^(\S+)\s+as\s+([A-Za-z_$][\w$]*)$/.exec(p);
+      const name = as ? as[2] : p;
+      if (!/^[A-Za-z_$][\w$]*$/.test(name) || name === "default" || seen.has(name)) continue;
+      seen.add(name);
+      out.push({
+        name,
+        kind: "reexport",
+        file: rel,
+        line: lineAt(m.index),
+        signature: from ? `export { ${name} } from "${from}"` : `export { ${name} }`,
+        exported: true,
+        lang
+      });
+    }
+  }
+  const star = /export\s*\*\s*(?:as\s+([A-Za-z_$][\w$]*)\s+)?from\s*['"]([^'"]+)['"]/g;
+  while ((m = star.exec(content)) && out.length < 60) {
+    const ns = m[1];
+    const from = m[2];
+    const key = "*" + (ns ?? from);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      name: ns ?? `* (${from})`,
+      kind: ns ? "reexport" : "reexport-all",
+      file: rel,
+      line: lineAt(m.index),
+      signature: `export * ${ns ? `as ${ns} ` : ""}from "${from}"`,
+      exported: true,
+      lang
+    });
+  }
+  return out;
+}
 function extractCode(rel, ext, content) {
+  const symbols = extractSymbols(rel, ext, content).slice(0, 400);
+  const known = new Set(symbols.map((s) => s.name));
+  const reexports = extractReexports(rel, content).filter((s) => !known.has(s.name));
   return {
-    symbols: extractSymbols(rel, ext, content).slice(0, 400),
+    symbols: [...symbols, ...reexports],
     summary: topDocComment(content),
     refs: extractImports(ext, content)
   };
@@ -1155,7 +1214,17 @@ function buildResolveContext(scan2) {
       pyRoots.add(rel.includes("/") ? posix.dirname(rel) : "");
     }
   }
-  return { fileSet, dirSet, filesByDir, tsBaseUrl, tsPaths, goModule, goModuleDir, pyRoots: [...pyRoots] };
+  const workspacePackages = [];
+  for (const rel of fileSet) {
+    if (rel !== "package.json" && !rel.endsWith("/package.json")) continue;
+    try {
+      const pkg = JSON.parse(readText(join2(scan2.root, rel)));
+      if (pkg?.name) workspacePackages.push({ name: pkg.name, dir: rel.includes("/") ? posix.dirname(rel) : "" });
+    } catch {
+    }
+  }
+  workspacePackages.sort((a, b) => b.name.length - a.name.length);
+  return { fileSet, dirSet, filesByDir, tsBaseUrl, tsPaths, goModule, goModuleDir, pyRoots: [...pyRoots], workspacePackages };
 }
 function firstExisting(ctx, candidates) {
   for (const c2 of candidates) {
@@ -1211,6 +1280,16 @@ function resolveJs(fromRel, spec, ctx) {
       return { kind: "dangling", reason: "alias-unresolved" };
     }
   }
+  for (const pkg of ctx.workspacePackages) {
+    if (spec !== pkg.name && !spec.startsWith(pkg.name + "/")) continue;
+    const sub = spec.slice(pkg.name.length).replace(/^\//, "");
+    const bases = sub ? [posix.join(pkg.dir, "src", sub), posix.join(pkg.dir, sub)] : [posix.join(pkg.dir, "src", "index"), posix.join(pkg.dir, "index"), posix.join(pkg.dir, "src")];
+    for (const b of bases) {
+      const hit = tryResolve(norm(b));
+      if (hit) return { kind: "resolved", target: hit };
+    }
+    return { kind: "external" };
+  }
   return { kind: "external" };
 }
 function resolvePython(fromRel, spec, ctx) {
@@ -1257,8 +1336,12 @@ function resolveImport(fromRel, ext, spec, ctx) {
 import { posix as posix2 } from "path";
 var ROOT_PATH = "(root)";
 var TIER0 = /(^|\/)(types?|util|utils|lib|libs|common|core|config|configs|constants|shared|helpers|internal)$/i;
-var TIER2_ANY = /(^|\/)(tests?|__tests__|spec|specs|__mocks__|__snapshots__|examples?|example|benchmark|benchmarks|fixtures?|docs?|documentation|\.github)(\/|$)/i;
+var TIER2_ANY = /(^|\/)(tests?|__tests?__|__mocks?__|__snapshots?__|spec|specs|e2e|examples?|example|benchmark|benchmarks|fixtures?|docs?|documentation|\.github)(\/|$)/i;
 var TIER2_LEAF = /(^|\/)(scripts?|bin|\.storybook)$/i;
+var TEST_FILE = /\.(test|spec|e2e|stories|story)\.[cm]?[jt]sx?$/i;
+function isTestFile(rel) {
+  return TEST_FILE.test(rel.split("/").pop());
+}
 function dirOf(rel) {
   return rel.includes("/") ? posix2.dirname(rel) : ROOT_PATH;
 }
@@ -1271,12 +1354,13 @@ function tierForPath(path) {
 function tierOf(path, members) {
   const byPath = tierForPath(path);
   if (byPath !== null) return byPath;
-  if (members.every((m) => m.kind === "doc" || m.kind === "config")) return 2;
+  if (members.every((m) => m.kind === "doc" || m.kind === "config" || isTestFile(m.rel))) return 2;
   return 1;
 }
 function summaryOf(path, members) {
   const readme = members.find((m) => /^(readme|index)\.(md|mdx)$/i.test(m.rel.split("/").pop()));
   if (readme?.summary) return readme.summary;
+  if (readme?.title) return readme.title;
   const withSummary = members.filter((m) => m.summary).sort((a, b) => (b.summary?.length ?? 0) - (a.summary?.length ?? 0));
   if (withSummary[0]?.summary) return withSummary[0].summary;
   const langs = [...new Set(members.map((m) => m.lang))].filter((l) => l !== "other");
@@ -1324,14 +1408,15 @@ function buildModules(scan2) {
 import { join as join3 } from "path";
 function isDistinctive(name) {
   if (name.length < 5) return false;
-  const mixedCase = /[a-z]/.test(name) && /[A-Z]/.test(name);
-  return mixedCase || name.includes("_");
+  const internalUpper = /[a-z][A-Z]/.test(name) || /[A-Z]{2}/.test(name);
+  return internalUpper || name.includes("_") || /\d/.test(name);
 }
+var REFERENCE_KINDS = /* @__PURE__ */ new Set(["reexport", "reexport-all", "default"]);
 function uniqueSymbolDefs(scan2) {
   const byName = /* @__PURE__ */ new Map();
   for (const f of scan2.files) {
     for (const s of f.symbols) {
-      if (!s.exported || !isDistinctive(s.name)) continue;
+      if (!s.exported || REFERENCE_KINDS.has(s.kind) || !isDistinctive(s.name)) continue;
       let set = byName.get(s.name);
       if (!set) byName.set(s.name, set = /* @__PURE__ */ new Set());
       set.add(f.rel);
@@ -1474,6 +1559,7 @@ function buildGraph(scan2, ctx, modules, moduleOf) {
 var TIER_LABEL = { 0: "Foundations", 1: "Features", 2: "Tail" };
 var MAX_SYMBOLS_PER_FILE = 15;
 var MAX_DANGLING = 12;
+var MAX_LINKS = 30;
 function headerRegion(m) {
   const where = m.path === "(root)" ? "Repository root" : m.path;
   const body = [
@@ -1532,14 +1618,26 @@ function codeViewRegion(m, records) {
   return { type: "gen", key: "code-view", body: lines.join("\n") };
 }
 function linksRegion(m, graph, moduleOf) {
-  const out = graph.moduleEdges.filter((e) => e.from === m.slug).sort((a, b) => byStr(a.to, b.to)).map((e) => `[\`${e.to}\`](${e.to}.md) (${e.kind}${e.weight > 1 ? ` \xD7${e.weight}` : ""})`);
-  const inc = graph.moduleEdges.filter((e) => e.to === m.slug).sort((a, b) => byStr(a.from, b.from)).map((e) => `[\`${e.from}\`](${e.from}.md) (${e.kind}${e.weight > 1 ? ` \xD7${e.weight}` : ""})`);
+  const render = (edges, other) => {
+    const sorted = edges.sort((a, b) => b.weight - a.weight || byStr(other(a), other(b)));
+    const shown = sorted.slice(0, MAX_LINKS).map((e) => {
+      const o = other(e);
+      return `[\`${o}\`](${o}.md) (${e.kind}${e.weight > 1 ? ` \xD7${e.weight}` : ""})`;
+    });
+    if (sorted.length > MAX_LINKS) shown.push(`\u2026and ${sorted.length - MAX_LINKS} more`);
+    return shown;
+  };
+  const out = render(graph.moduleEdges.filter((e) => e.from === m.slug), (e) => e.to);
+  const inc = render(graph.moduleEdges.filter((e) => e.to === m.slug), (e) => e.from);
   const dangling = graph.fileEdges.filter((e) => e.dangling && moduleOf.get(e.from) === m.slug).sort((a, b) => byStr(a.from, b.from) || byStr(a.to, b.to)).slice(0, MAX_DANGLING).map((e) => `\`${e.to}\` (${e.kind}, ${e.reason}) \u2014 from \`${e.from}\``);
+  const bulletList = (items) => items.length ? items.map((i) => `- ${i}`) : ["_none_"];
   const lines = ["## Links"];
   lines.push("");
-  lines.push(`**Depends on / links out:** ${out.length ? out.join(", ") : "_none_"}`);
+  lines.push("**Depends on / links out:**");
+  lines.push(...bulletList(out));
   lines.push("");
-  lines.push(`**Used by / linked from:** ${inc.length ? inc.join(", ") : "_none_"}`);
+  lines.push("**Used by / linked from:**");
+  lines.push(...bulletList(inc));
   if (dangling.length) {
     lines.push("");
     lines.push("**Dangling references:**");
@@ -1793,6 +1891,7 @@ function humanBodies(text) {
 function mergeEntry(spec, existing, migrated) {
   const specKeys = new Set(spec.filter((r) => r.type === "human").map((r) => r.key));
   let existingHuman = /* @__PURE__ */ new Map();
+  let dupConflict;
   if (existing && existing.trim()) {
     const parsed = parseRegions(existing);
     if (!parsed.ok) {
@@ -1803,7 +1902,15 @@ function mergeEntry(spec, existing, migrated) {
         conflict: "unparseable region fences \u2014 kept existing entry, refused to rewrite"
       };
     }
-    for (const r of parsed.regions) if (r.type === "human") existingHuman.set(r.key, r.body);
+    for (const r of parsed.regions) {
+      if (r.type !== "human") continue;
+      if (existingHuman.has(r.key) && existingHuman.get(r.key) !== r.body) {
+        existingHuman.set(`${r.key}-dup-${shortHash(r.body)}`, r.body);
+        dupConflict = `duplicate human region key "${r.key}" \u2014 preserved both bodies`;
+      } else {
+        existingHuman.set(r.key, r.body);
+      }
+    }
   }
   const migratedKeysUsed = [];
   const out = spec.map((r) => {
@@ -1831,7 +1938,7 @@ function mergeEntry(spec, existing, migrated) {
     out.push({ type: "human", key, body: appended.get(key) });
   }
   const humanKeys = out.filter((r) => r.type === "human").map((r) => r.key);
-  return { content: serializeRegions(out), humanKeys, migratedKeys: migratedKeysUsed };
+  return { content: serializeRegions(out), humanKeys, migratedKeys: migratedKeysUsed, conflict: dupConflict };
 }
 
 // src/output.ts
@@ -2034,10 +2141,11 @@ function findModules(graph, query, k = DEFAULT_K) {
     if (!list) filesByModule.set(f.module, list = []);
     list.push(f);
   }
-  const results = [];
+  const scored = [];
   for (const m of graph.modules) {
     const members = filesByModule.get(m.slug) ?? [];
-    const moduleHay = textOf([m.slug, m.path, m.summary]);
+    const summary = /^\d+ file\(s\) in /.test(m.summary) ? void 0 : m.summary;
+    const moduleHay = textOf([m.slug, m.path, summary]);
     const mod = scoreText(moduleHay, kws);
     const scoredFiles = members.map((f) => {
       const hay = textOf([f.rel, f.title, f.summary]);
@@ -2047,10 +2155,15 @@ function findModules(graph, query, k = DEFAULT_K) {
     const bestFile = scoredFiles[0]?.score ?? 0;
     const matchCount = scoredFiles.filter((x) => x.score > 0).length;
     if (mod.score === 0 && bestFile === 0) continue;
+    const matchedTerms = /* @__PURE__ */ new Set([...mod.matched, ...scoredFiles.flatMap((x) => x.matched)]);
+    const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / kws.length);
     const tierWeight = m.tier === 2 ? 0.45 : 1;
+    const pathPenalty = /(^|\/|-|_)(tests?|demo|examples?|sandbox|stub|mock|fixtures?)(\/|-|_|$)/i.test(m.path) ? 0.55 : 1;
+    const leaf = m.path.split("/").pop() ?? "";
+    const genericPenalty = /^(stores?|components?|types?|utils?|hooks?|constants?|helpers?|styles?|assets?|queries|state)$/i.test(leaf) ? 0.8 : 1;
     const keywordScore = mod.score * 2 + bestFile + Math.min(matchCount, 5) * 0.5;
-    const total = keywordScore * tierWeight + Math.min(m.degIn + m.degOut, 5) * 0.25;
-    const matched = [.../* @__PURE__ */ new Set([...mod.matched, ...scoredFiles.flatMap((x) => x.matched)])].sort(byStr);
+    const total = keywordScore * tierWeight * pathPenalty * genericPenalty * coverageWeight + Math.min(m.degIn + m.degOut, 5) * 0.25;
+    const matched = [...matchedTerms].sort(byStr);
     let files = scoredFiles.filter((x) => x.score > 0).map((x) => x.f.rel);
     if (files.length === 0) {
       files = members.slice().sort((a, b) => b.degIn + b.degOut - (a.degIn + a.degOut) || byStr(a.rel, b.rel)).map((f) => f.rel);
@@ -2059,19 +2172,22 @@ function findModules(graph, query, k = DEFAULT_K) {
       ...graph.moduleEdges.filter((e) => e.from === m.slug).map((e) => e.to),
       ...graph.moduleEdges.filter((e) => e.to === m.slug).map((e) => e.from)
     ];
-    results.push({
-      slug: m.slug,
-      path: m.path,
-      title: m.title,
-      tier: m.tier,
-      score: Number(total.toFixed(3)),
-      matched,
-      files: files.slice(0, MAX_FILES),
-      neighbors: [...new Set(neighbors)].sort(byStr).slice(0, 8)
+    scored.push({
+      degree: m.degIn + m.degOut,
+      r: {
+        slug: m.slug,
+        path: m.path,
+        title: m.title,
+        tier: m.tier,
+        score: Number(total.toFixed(3)),
+        matched,
+        files: files.slice(0, MAX_FILES),
+        neighbors: [...new Set(neighbors)].sort(byStr).slice(0, 8)
+      }
     });
   }
-  results.sort((a, b) => b.score - a.score || byStr(a.slug, b.slug));
-  return results.slice(0, k);
+  scored.sort((a, b) => b.r.score - a.r.score || b.degree - a.degree || byStr(a.r.slug, b.r.slug));
+  return scored.slice(0, k).map((x) => x.r);
 }
 function runFind(outDir, query, k = DEFAULT_K) {
   const graph = loadGraph(outDir);

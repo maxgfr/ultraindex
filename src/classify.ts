@@ -42,12 +42,12 @@ export function isCode(ext: string): boolean {
   return !NON_CODE_LANGS.has(languageOf(ext));
 }
 
-// Classify a walked file. Order matters: docs win over config (a docs/api.json
-// is still reference material), config wins over code (package.json isn't code),
-// code wins over "other".
+// Classify a walked file. A real code extension ALWAYS wins — a `.ts`/`.tsx`
+// file named News.tsx or under docs/ is code, not documentation (otherwise its
+// imports are never extracted). After that: docs, then config, then other.
 export function classify(rel: string, ext: string): FileKind {
+  if (isCode(ext)) return "code";
   if (isDoc(rel, ext)) return "doc";
   if (isConfig(rel, ext)) return "config";
-  if (isCode(ext)) return "code";
   return "other";
 }

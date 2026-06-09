@@ -26,6 +26,7 @@ export interface ResolveContext {
   goModule?: string;
   goModuleDir: string; // posix dir of go.mod, "" for root
   pyRoots: string[]; // posix dirs that are python import roots ("" allowed)
+  workspacePackages: { name: string; dir: string }[]; // monorepo pkg name -> its dir
 }
 
 // Extensions walk() skips (images, fonts, media, maps). An import of one of these
@@ -117,7 +118,22 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
     }
   }
 
-  return { fileSet, dirSet, filesByDir, tsBaseUrl, tsPaths, goModule, goModuleDir, pyRoots: [...pyRoots] };
+  // Workspace packages: map each in-repo package.json `name` to its directory so
+  // bare cross-package imports (`@scope/pkg`) resolve to in-repo source, not
+  // "external". Longest name first so `@scope/a-b` wins over `@scope/a`.
+  const workspacePackages: { name: string; dir: string }[] = [];
+  for (const rel of fileSet) {
+    if (rel !== "package.json" && !rel.endsWith("/package.json")) continue;
+    try {
+      const pkg = JSON.parse(readText(join(scan.root, rel))) as { name?: string };
+      if (pkg?.name) workspacePackages.push({ name: pkg.name, dir: rel.includes("/") ? posix.dirname(rel) : "" });
+    } catch {
+      /* unreadable/non-JSON package.json — skip */
+    }
+  }
+  workspacePackages.sort((a, b) => b.name.length - a.name.length);
+
+  return { fileSet, dirSet, filesByDir, tsBaseUrl, tsPaths, goModule, goModuleDir, pyRoots: [...pyRoots], workspacePackages };
 }
 
 function firstExisting(ctx: ResolveContext, candidates: string[]): string | undefined {
@@ -181,6 +197,20 @@ function resolveJs(fromRel: string, spec: string, ctx: ResolveContext): Resoluti
       }
       return { kind: "dangling", reason: "alias-unresolved" };
     }
+  }
+
+  // Monorepo workspace package: resolve `@scope/pkg`(`/subpath`) to in-repo source.
+  for (const pkg of ctx.workspacePackages) {
+    if (spec !== pkg.name && !spec.startsWith(pkg.name + "/")) continue;
+    const sub = spec.slice(pkg.name.length).replace(/^\//, "");
+    const bases = sub
+      ? [posix.join(pkg.dir, "src", sub), posix.join(pkg.dir, sub)]
+      : [posix.join(pkg.dir, "src", "index"), posix.join(pkg.dir, "index"), posix.join(pkg.dir, "src")];
+    for (const b of bases) {
+      const hit = tryResolve(norm(b));
+      if (hit) return { kind: "resolved", target: hit };
+    }
+    return { kind: "external" }; // workspace pkg, but compiled-only/unmapped — no false dangling
   }
 
   return { kind: "external" }; // bare specifier — third-party / built-in

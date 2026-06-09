@@ -6,6 +6,7 @@ import { clip } from "../util.js";
 const TIER_LABEL: Record<Tier, string> = { 0: "Foundations", 1: "Features", 2: "Tail" };
 const MAX_SYMBOLS_PER_FILE = 15;
 const MAX_DANGLING = 12;
+const MAX_LINKS = 30; // cap per direction so a hub's entry stays readable / diffable
 
 function headerRegion(m: ModuleNode): Region {
   const where = m.path === "(root)" ? "Repository root" : m.path;
@@ -71,25 +72,35 @@ function codeViewRegion(m: ModuleNode, records: Map<string, FileRecord>): Region
 }
 
 function linksRegion(m: ModuleNode, graph: Graph, moduleOf: Map<string, string>): Region {
-  const out = graph.moduleEdges
-    .filter((e) => e.from === m.slug)
-    .sort((a, b) => byStr(a.to, b.to))
-    .map((e) => `[\`${e.to}\`](${e.to}.md) (${e.kind}${e.weight > 1 ? ` ×${e.weight}` : ""})`);
-  const inc = graph.moduleEdges
-    .filter((e) => e.to === m.slug)
-    .sort((a, b) => byStr(a.from, b.from))
-    .map((e) => `[\`${e.from}\`](${e.from}.md) (${e.kind}${e.weight > 1 ? ` ×${e.weight}` : ""})`);
+  // Heaviest links first, capped — a hub can have hundreds of dependents and an
+  // unbounded list makes the entry unreadable and its diffs enormous.
+  const render = (edges: typeof graph.moduleEdges, other: (e: { from: string; to: string }) => string): string[] => {
+    const sorted = edges.sort((a, b) => b.weight - a.weight || byStr(other(a), other(b)));
+    const shown = sorted.slice(0, MAX_LINKS).map((e) => {
+      const o = other(e);
+      return `[\`${o}\`](${o}.md) (${e.kind}${e.weight > 1 ? ` ×${e.weight}` : ""})`;
+    });
+    if (sorted.length > MAX_LINKS) shown.push(`…and ${sorted.length - MAX_LINKS} more`);
+    return shown;
+  };
+  const out = render(graph.moduleEdges.filter((e) => e.from === m.slug), (e) => e.to);
+  const inc = render(graph.moduleEdges.filter((e) => e.to === m.slug), (e) => e.from);
   const dangling = graph.fileEdges
     .filter((e) => e.dangling && moduleOf.get(e.from) === m.slug)
     .sort((a, b) => byStr(a.from, b.from) || byStr(a.to, b.to))
     .slice(0, MAX_DANGLING)
     .map((e) => `\`${e.to}\` (${e.kind}, ${e.reason}) — from \`${e.from}\``);
 
+  // One link per line (like dangling refs) so hub entries stay readable and their
+  // git diffs scale with what actually changed, not the whole list.
+  const bulletList = (items: string[]): string[] => (items.length ? items.map((i) => `- ${i}`) : ["_none_"]);
   const lines = ["## Links"];
   lines.push("");
-  lines.push(`**Depends on / links out:** ${out.length ? out.join(", ") : "_none_"}`);
+  lines.push("**Depends on / links out:**");
+  lines.push(...bulletList(out));
   lines.push("");
-  lines.push(`**Used by / linked from:** ${inc.length ? inc.join(", ") : "_none_"}`);
+  lines.push("**Used by / linked from:**");
+  lines.push(...bulletList(inc));
   if (dangling.length) {
     lines.push("");
     lines.push("**Dangling references:**");

@@ -61,6 +61,11 @@ function hasProse(s: string): boolean {
   return /[A-Za-zÀ-ɏ]{3,}/.test(s);
 }
 
+// Generic doc-template boilerplate that says nothing about THIS project.
+function isBoilerplate(s: string): boolean {
+  return /^(all notable changes to this project|in the interest of fostering|this project adheres to|we as members and leaders|table of contents)\b/i.test(s);
+}
+
 // Extract title, section headings, a one-line summary, and local doc-link refs
 // from a markdown document. Deterministic and dependency-free.
 export function extractMarkdown(content: string): MarkdownInfo {
@@ -81,20 +86,27 @@ export function extractMarkdown(content: string): MarkdownInfo {
   const headings: string[] = [];
   let title: string | undefined = frontTitle;
   let summary: string | undefined;
+  // The summary must come from the document's own intro — once a level-2+
+  // section starts, a later paragraph belongs to that sub-section, not the doc.
+  let summaryClosed = false;
   for (const line of lines) {
     const h = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
     if (h) {
       const text = cleanProse(h[2]!);
       headings.push(text);
       if (!title && h[1]!.length === 1) title = text;
+      if (!summary && h[1]!.length >= 2) summaryClosed = true;
       continue;
     }
-    if (!summary) {
+    if (!summary && !summaryClosed) {
       const t = line.trim();
       // First real prose paragraph: not a heading, list bullet, table, html or blank.
       if (t && !/^([-*+]|\d+\.)\s/.test(t) && !t.startsWith("|") && !t.startsWith("<")) {
         const cleaned = cleanProse(t);
-        if (cleaned.length >= 8 && hasProse(cleaned)) summary = cleaned.slice(0, 200);
+        // Reject list lead-ins ("Exemple :", "Nous avons :") and known boilerplate.
+        if (cleaned.length >= 8 && hasProse(cleaned) && !cleaned.endsWith(":") && !isBoilerplate(cleaned)) {
+          summary = cleaned.slice(0, 200);
+        }
       }
     }
   }
