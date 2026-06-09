@@ -2725,11 +2725,26 @@ function cmdBuild(p) {
     },
     (/* @__PURE__ */ new Date()).toISOString()
   );
-  const dangling = graph.fileEdges.filter((e) => e.dangling).length;
+  const danglingEdges = graph.fileEdges.filter((e) => e.dangling);
+  const dangling = danglingEdges.length;
   if (p.bools.has("json")) {
+    const danglingByReason = {};
+    for (const e of danglingEdges) {
+      const r = e.reason ?? "unknown";
+      danglingByReason[r] = (danglingByReason[r] ?? 0) + 1;
+    }
     process.stdout.write(
       JSON.stringify(
-        { out, files: graph.fileCount, modules: graph.modules.length, edges: graph.fileEdges.length, dangling, orphaned: manifest.orphaned },
+        {
+          out,
+          files: graph.fileCount,
+          modules: graph.modules.length,
+          edges: graph.fileEdges.length,
+          dangling,
+          ...dangling ? { danglingByReason } : {},
+          orphaned: manifest.orphaned,
+          ...manifest.notes.length ? { notes: manifest.notes } : {}
+        },
         null,
         2
       ) + "\n"
