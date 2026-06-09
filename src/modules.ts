@@ -2,6 +2,7 @@ import { posix } from "node:path";
 import type { FileRecord, Tier } from "./types.js";
 import type { RepoScan } from "./scan.js";
 import { slugify } from "./util.js";
+import { sha1 } from "./hash.js";
 import { byStr } from "./sort.js";
 
 // A module is a directory's worth of files — the unit a developer thinks in
@@ -86,21 +87,30 @@ export function buildModules(scan: RepoScan): {
     list.push(f);
   }
 
-  const usedSlugs = new Set<string>();
-  const uniqueSlug = (base: string): string => {
-    let slug = base || "module";
-    let n = 2;
-    while (usedSlugs.has(slug)) slug = `${base}-${n++}`;
-    usedSlugs.add(slug);
-    return slug;
+  const dirs = [...byDir.keys()].sort(byStr);
+  // Slug per directory: slugify the path, but when that is empty (an all-non-ASCII
+  // dir) or collides with another dir (slugify truncates at 120 chars, and two
+  // packages can share a leaf dir name), append a short STABLE hash of the full
+  // path. This keeps slugs injective AND order-independent — the slug is the
+  // persistence key for human prose, and the old positional "module"/"-2" scheme
+  // shuffled (re-gluing prose onto the wrong module) when a sibling changed.
+  const baseOf = new Map<string, string>();
+  const baseCount = new Map<string, number>();
+  for (const dir of dirs) {
+    const b = dir === ROOT_PATH ? "root" : slugify(dir);
+    baseOf.set(dir, b);
+    baseCount.set(b, (baseCount.get(b) ?? 0) + 1);
+  }
+  const slugForDir = (dir: string): string => {
+    const b = baseOf.get(dir)!;
+    return b && baseCount.get(b) === 1 ? b : `${b || "module"}-${sha1(dir).slice(0, 8)}`;
   };
 
   const modules: ModuleInfo[] = [];
   const moduleOf = new Map<string, string>();
-  const dirs = [...byDir.keys()].sort(byStr);
   for (const dir of dirs) {
     const members = byDir.get(dir)!.slice().sort((a, b) => byStr(a.rel, b.rel));
-    const slug = uniqueSlug(dir === ROOT_PATH ? "root" : slugify(dir));
+    const slug = slugForDir(dir);
     const info: ModuleInfo = {
       slug,
       path: dir,

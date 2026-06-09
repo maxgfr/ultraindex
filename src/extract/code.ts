@@ -84,17 +84,20 @@ function extractImports(ext: string, content: string): RawRef[] {
   const lines = content.split(/\r?\n/);
 
   if (JS_TS.has(ext)) {
-    for (const line of lines) {
-      let m: RegExpExecArray | null;
-      const from = /(?:^|\s)(?:import|export)\b[^'"]*?\bfrom\s*['"]([^'"]+)['"]/.exec(line);
-      if (from) specs.add(from[1]!);
-      const bare = /^\s*import\s*['"]([^'"]+)['"]/.exec(line);
-      if (bare) specs.add(bare[1]!);
-      const req = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g;
-      while ((m = req.exec(line))) specs.add(m[1]!);
-      const dyn = /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
-      while ((m = dyn.exec(line))) specs.add(m[1]!);
-    }
+    // Run over the WHOLE content, not line-by-line: a long `import { … } from "x"`
+    // (or `export { … } from "x"`) is routinely wrapped across several lines by
+    // formatters, and a per-line scan never sees the `from` clause — silently
+    // dropping the edge. `[^'"]*?` already excludes quotes, so it can't run past
+    // the statement's own specifier; the `g` flag also catches >1 per line.
+    let m: RegExpExecArray | null;
+    const from = /(?:^|[^\w$.])(?:import|export)\b[^'"]*?\bfrom\s*['"]([^'"]+)['"]/g;
+    while ((m = from.exec(content))) specs.add(m[1]!);
+    const bare = /(?:^|[\n;])\s*import\s*['"]([^'"]+)['"]/g;
+    while ((m = bare.exec(content))) specs.add(m[1]!);
+    const req = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g;
+    while ((m = req.exec(content))) specs.add(m[1]!);
+    const dyn = /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
+    while ((m = dyn.exec(content))) specs.add(m[1]!);
   } else if (PY.has(ext)) {
     for (const line of lines) {
       const from = /^\s*from\s+(\.*[\w.]*)\s+import\b/.exec(line);

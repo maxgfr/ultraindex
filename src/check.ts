@@ -1,21 +1,27 @@
 import { join } from "node:path";
-import type { CheckResult } from "./types.js";
+import type { CheckResult, Manifest } from "./types.js";
 import { walk, readText } from "./walk.js";
 import { sha1 } from "./hash.js";
+import { compileGlobs } from "./glob.js";
 import { loadGraph, loadManifest, indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
 import { byStr } from "./sort.js";
 import { parseRegions } from "./merge.js";
 import { checkCitations, fileLineTable } from "./cite.js";
 
-// Hash every file in the repo the way the build did (same out-dir exclusion),
-// so staleness compares content, not git status. Lighter than a full scan — no
-// symbol/link extraction, just content hashes.
-function hashRepo(repo: string, outAbs: string): Record<string, string> {
+// Hash every file in the repo the way the build did — SAME out-dir exclusion and
+// SAME include/exclude/max-bytes filters (read back from the manifest) — so
+// staleness compares content, not git status, and a filtered build isn't reported
+// as perpetually stale. Lighter than a full scan: just content hashes.
+function hashRepo(repo: string, outAbs: string, filters: Manifest["scan"]): Record<string, string> {
   const outPrefix = outAbs.replace(/\/+$/, "") + "/";
+  const include = compileGlobs(filters?.include);
+  const exclude = compileGlobs(filters?.exclude);
   const out: Record<string, string> = {};
-  for (const f of walk(repo)) {
+  for (const f of walk(repo, { maxFileBytes: filters?.maxBytes })) {
     if (f.abs === outAbs || f.abs.startsWith(outPrefix)) continue;
+    if (include && !include(f.rel)) continue;
+    if (exclude && exclude(f.rel)) continue;
     out[f.rel] = sha1(readText(f.abs));
   }
   return out;
@@ -35,8 +41,9 @@ export function runCheck(outDir: string, repo: string): CheckResult {
     return { ok: false, stale: false, changed: [], added: [], removed: [], errors, warnings };
   }
 
-  // Staleness: compare current content hashes against the manifest.
-  const current = hashRepo(repo, outDir);
+  // Staleness: compare current content hashes against the manifest, hashing the
+  // same filtered file set the build used.
+  const current = hashRepo(repo, outDir, manifest.scan);
   const recorded = manifest.fileHashes;
   const changed: string[] = [];
   const added: string[] = [];

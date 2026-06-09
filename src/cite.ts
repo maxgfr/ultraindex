@@ -15,8 +15,11 @@ export interface Citation {
 }
 
 // Extension-anchored token: absorbs inner `[...]` (Next.js route params) by
-// matching up to the `]` that follows a `.ext` (+ optional line suffix).
-const EXT_TOKEN = /\[([^\n]*?\.[A-Za-z0-9]{1,8}(?::\d+(?:-\d+)?)?)\]/g;
+// consuming each inner segment as a unit — including one level of nesting, so an
+// optional catch-all `app/[[...slug]]/page.tsx:2` and a catch-all
+// `app/api/[...slug]/route.ts` both anchor on the path-FINAL `.ext` + closing `]`,
+// not on an inner `]` of the route segment (which truncated the path).
+const EXT_TOKEN = /\[((?:[^[\]\n]|\[(?:[^[\]\n]|\[[^\]\n]*\])*\])*?\.[A-Za-z0-9]{1,8}(?::\d+(?:-\d+)?)?)\]/g;
 // Plain token (no inner brackets) — for root files / extensionless paths.
 const SIMPLE_TOKEN = /\[([^[\]\n]+)\]/g;
 const LINE_SUFFIX = /:(\d+)(?:-(\d+))?$/;

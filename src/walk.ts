@@ -1,4 +1,4 @@
-import { readdirSync, statSync, readFileSync } from "node:fs";
+import { readdirSync, statSync, readFileSync, realpathSync } from "node:fs";
 import { join, relative, sep, extname } from "node:path";
 
 // Directories that never carry signal for a documentation/code question and
@@ -47,9 +47,21 @@ export function walk(root: string, opts: WalkOptions = {}): WalkedFile[] {
   const out: WalkedFile[] = [];
 
   const stack: string[] = [root];
+  const seenDirs = new Set<string>(); // resolved real dirs already walked
   while (stack.length) {
     if (out.length >= maxFiles) break;
     const dir = stack.pop()!;
+    // Cycle guard: a directory symlink pointing at an ancestor would otherwise
+    // make walk() loop, flooding the index with phantom duplicate files. Resolve
+    // the real path and skip any directory we've already descended into.
+    let real: string;
+    try {
+      real = realpathSync(dir);
+    } catch {
+      continue;
+    }
+    if (seenDirs.has(real)) continue;
+    seenDirs.add(real);
     let entries: string[];
     try {
       entries = readdirSync(dir);
@@ -85,21 +97,31 @@ export function walk(root: string, opts: WalkOptions = {}): WalkedFile[] {
 // a Unicode BOM before the binary sniff — a UTF-16 source file is full of NUL
 // bytes and would otherwise be misread as binary and dropped, and a UTF-8 BOM
 // would otherwise glue "﻿" onto the first token (breaking line-1 extraction
-// and a `[file:1]` citation). Falls back to UTF-8, skipping anything that still
-// looks binary (a NUL byte in the first 4 KiB).
+// and a `[file:1]` citation). Otherwise UTF-8, with a Latin-1 fallback and a
+// whole-buffer NUL sniff for genuinely-binary content.
 export function readText(abs: string): string {
   try {
     const buf = readFileSync(abs);
-    if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) return buf.subarray(2).toString("utf16le");
+    // UTF-16LE/BE BOM. Truncate to an even byte length first so an odd trailing
+    // byte can't make swap16() throw (toString already tolerates it; mirror that).
+    if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
+      return buf.subarray(2, 2 + ((buf.length - 2) & ~1)).toString("utf16le");
+    }
     if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
-      const swapped = Buffer.from(buf.subarray(2));
+      const swapped = Buffer.from(buf.subarray(2, 2 + ((buf.length - 2) & ~1)));
       swapped.swap16(); // UTF-16BE → LE so Node can decode it
       return swapped.toString("utf16le");
     }
     if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) return buf.subarray(3).toString("utf8");
-    const head = buf.subarray(0, 4096);
-    if (head.includes(0)) return "";
-    return buf.toString("utf8");
+    // Binary sniff over the WHOLE buffer, not just the first 4 KiB — a NUL after
+    // 4 KiB still means binary (else the symbol right after it is dropped and the
+    // content hash is poisoned).
+    if (buf.includes(0)) return "";
+    const text = buf.toString("utf8");
+    // Invalid UTF-8 surfaces as U+FFFD; a Latin-1/Windows-1252 source decodes
+    // cleanly there (every byte maps to a code point), so prefer that over baking
+    // mojibake into symbols, signatures, and the content hash.
+    return text.includes("�") ? buf.toString("latin1") : text;
   } catch {
     return "";
   }

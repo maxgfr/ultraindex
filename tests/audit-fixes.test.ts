@@ -1,16 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { classify } from "../src/classify.js";
 import { extractCode } from "../src/extract/code.js";
 import { extractMarkdown } from "../src/extract/markdown.js";
-import { tierForPath } from "../src/modules.js";
+import { tierForPath, buildModules } from "../src/modules.js";
 import { scanRepo } from "../src/scan.js";
 import { buildResolveContext, resolveImport } from "../src/resolve.js";
 import { runBuild } from "../src/build.js";
+import { runCheck } from "../src/check.js";
 import { readText } from "../src/walk.js";
+import { compileGlobs } from "../src/glob.js";
+import { parseCitations } from "../src/cite.js";
 import { findModules } from "../src/find.js";
 import { SCHEMA_VERSION, VERSION } from "../src/types.js";
 import type { Graph, FileNode, ModuleNode, Tier } from "../src/types.js";
@@ -235,6 +238,209 @@ describe("readText: Unicode BOM handling", () => {
     });
     try {
       expect(readText(join(root, "b.ts"))).toContain("export const y = 2;");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it("recovers a UTF-16BE file with an odd trailing byte instead of throwing/dropping it", () => {
+    // FE FF BOM + UTF-16BE "ab" (00 61 00 62) + one stray byte → odd post-BOM length.
+    const root = scratchRepo({ "c.ts": Buffer.from([0xfe, 0xff, 0x00, 0x61, 0x00, 0x62, 0x00]) });
+    try {
+      expect(readText(join(root, "c.ts"))).toContain("ab");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it("decodes a Latin-1 source instead of baking in U+FFFD mojibake", () => {
+    const root = scratchRepo({ "d.ts": Buffer.from([0x2f, 0x2f, 0x20, 0xe9, 0x0a]) }); // "// é\n" in Latin-1
+    try {
+      const txt = readText(join(root, "d.ts"));
+      expect(txt).toContain("é");
+      expect(txt).not.toContain("�");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it("treats a NUL byte AFTER the first 4 KiB as binary (whole-buffer sniff)", () => {
+    const root = scratchRepo({ "e.bin": Buffer.concat([Buffer.alloc(5000, 0x61), Buffer.from([0x00])]) });
+    try {
+      expect(readText(join(root, "e.bin"))).toBe("");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// tsconfig `extends` is the dominant monorepo layout (Nx/Turborepo/lerna): the
+// package config holds only `{ "extends": "../../tsconfig.base.json" }` and the
+// base declares baseUrl+paths. v1 read each config's own compilerOptions only.
+describe("resolveImport: tsconfig `extends` chain", () => {
+  it("resolves an alias declared in a shared base config", () => {
+    const root = scratchRepo({
+      "tsconfig.base.json": JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@app/*": ["./src/*"] } } }),
+      "tsconfig.json": JSON.stringify({ extends: "./tsconfig.base.json" }),
+      "src/utils/helper.ts": "export const helper = () => 42;\n",
+      "src/main.ts": 'import { helper } from "@app/utils/helper";\n',
+    });
+    try {
+      const ctx = buildResolveContext(scanRepo(root));
+      expect(ctx.warnings).toEqual([]);
+      expect(resolveImport("src/main.ts", ".ts", "@app/utils/helper", ctx)).toEqual({
+        kind: "resolved",
+        target: "src/utils/helper.ts",
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it("resolves a cross-package alias when the package config extends the root base", () => {
+    const root = scratchRepo({
+      "tsconfig.base.json": JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@shared/*": ["packages/shared/src/*"] } } }),
+      "packages/app/tsconfig.json": JSON.stringify({ extends: "../../tsconfig.base.json" }),
+      "packages/app/src/main.ts": 'import { x } from "@shared/index";\n',
+      "packages/shared/src/index.ts": "export const x = 1;\n",
+    });
+    try {
+      const ctx = buildResolveContext(scanRepo(root));
+      expect(resolveImport("packages/app/src/main.ts", ".ts", "@shared/index", ctx)).toEqual({
+        kind: "resolved",
+        target: "packages/shared/src/index.ts",
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it("warns (does not crash) when a relative extends base is missing", () => {
+    const root = scratchRepo({
+      "tsconfig.json": JSON.stringify({ extends: "./nope.base.json", compilerOptions: {} }),
+      "src/main.ts": "export const x = 1;\n",
+    });
+    try {
+      const ctx = buildResolveContext(scanRepo(root));
+      expect(ctx.warnings.some((w) => /extends .*nope\.base\.json.* missing/.test(w))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("extractCode: imports wrapped across lines (formatter output)", () => {
+  it("captures the `from` target of a multiline import, a multiline re-export, and two on one line", () => {
+    const src =
+      "import {\n  A,\n  B,\n} from './x';\n" +
+      "export {\n  C,\n} from './y';\n" +
+      "import a from './p'; import b from './q';\n" +
+      "const m = await import('./dyn');\n";
+    const specs = extractCode("f.ts", ".ts", src).refs.map((r) => r.spec);
+    for (const s of ["./x", "./y", "./p", "./q", "./dyn"]) expect(specs).toContain(s);
+  });
+});
+
+describe("compileGlobs: a trailing `**` matches files, not nothing", () => {
+  it("`src/**` matches everything beneath src/", () => {
+    const m = compileGlobs(["src/**"])!;
+    expect(m("src/a.ts")).toBe(true);
+    expect(m("src/a/b/c.ts")).toBe(true);
+    expect(m("other.ts")).toBe(false);
+  });
+  it("`packages/**/*.ts` still matches across and at zero depth", () => {
+    const m = compileGlobs(["packages/**/*.ts"])!;
+    expect(m("packages/x/src/a.ts")).toBe(true);
+    expect(m("packages/a.ts")).toBe(true);
+  });
+});
+
+describe("check: a filtered build is not reported as perpetually stale", () => {
+  it("re-applies the build's --exclude when hashing for staleness", () => {
+    const root = scratchRepo({ "src/keep.ts": "export const k = 1;\n", "vendor/big.ts": "export const b = 1;\n" });
+    try {
+      const out = join(root, ".ui");
+      runBuild({ repo: root, out, exclude: ["vendor/**"], mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
+      const res = runCheck(out, root);
+      expect(res.added).toEqual([]); // vendor/big.ts was excluded from the build AND the check
+      expect(res.stale).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("resolveImport: workspace robustness", () => {
+  it("parses a JSONC/trailing-comma package.json so its cross-package edges survive", () => {
+    const root = scratchRepo({
+      "packages/a/package.json": '{ "name": "@x/a", }', // trailing comma — bare JSON.parse would drop it
+      "packages/a/src/index.ts": "export const a = 1;\n",
+      "packages/b/src/consumer.ts": 'import "@x/a";\n',
+    });
+    try {
+      const ctx = buildResolveContext(scanRepo(root));
+      expect(resolveImport("packages/b/src/consumer.ts", ".ts", "@x/a", ctx)).toEqual({
+        kind: "resolved",
+        target: "packages/a/src/index.ts",
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it("falls through to a workspace package when an overlapping alias prefix resolves to nothing", () => {
+    const root = scratchRepo({
+      // alias "@lib/*" → a generated dir that isn't committed; ALSO a workspace pkg "@lib/core".
+      "packages/app/tsconfig.json": JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@lib/*": ["./generated/*"] } } }),
+      "packages/app/src/x.ts": 'import "@lib/core";\n',
+      "packages/core/package.json": JSON.stringify({ name: "@lib/core" }),
+      "packages/core/src/index.ts": "export const c = 1;\n",
+    });
+    try {
+      const ctx = buildResolveContext(scanRepo(root));
+      expect(resolveImport("packages/app/src/x.ts", ".ts", "@lib/core", ctx)).toEqual({
+        kind: "resolved",
+        target: "packages/core/src/index.ts",
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("parseCitations: Next.js catch-all routes are not truncated", () => {
+  it("keeps the full path of a `[...catch]` segment (grounding gate must accept it)", () => {
+    const cs = parseCitations("Auth is wired at [app/api/auth/[...nextauth]/route.ts:2].");
+    expect(cs.map((c) => c.path)).toContain("app/api/auth/[...nextauth]/route.ts");
+  });
+});
+
+describe("buildModules: slugs are injective and order-independent", () => {
+  it("gives colliding dir bases distinct, stable slugs (not positional)", () => {
+    const root = scratchRepo({ "a/b/f.ts": "export const x = 1;\n", "a-b/g.ts": "export const y = 1;\n" });
+    try {
+      const slugs1 = buildModules(scanRepo(root)).modules.map((m) => m.slug);
+      expect(new Set(slugs1).size).toBe(slugs1.length); // injective
+      const slugs2 = buildModules(scanRepo(root)).modules.map((m) => m.slug);
+      expect(slugs2).toEqual(slugs1); // deterministic across rebuilds
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it("gives an all-non-ASCII directory a stable content-derived slug (not 'module')", () => {
+    const root = scratchRepo({ "日本語/f.ts": "export const x = 1;\n" });
+    try {
+      const m = buildModules(scanRepo(root)).modules.find((x) => x.path === "日本語")!;
+      expect(m.slug).toMatch(/^module-[0-9a-f]{8}$/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("walk: a directory symlink cycle does not loop or duplicate", () => {
+  it("skips a symlinked dir that resolves to an already-walked directory", () => {
+    const root = scratchRepo({ "pkg/a.ts": "export const a = 1;\n" });
+    try {
+      symlinkSync(join(root, "pkg"), join(root, "pkg", "loop"), "dir"); // pkg/loop -> pkg (cycle)
+      const scan = scanRepo(root);
+      const rels = scan.files.map((f) => f.rel);
+      expect(new Set(rels).size).toBe(rels.length); // no phantom duplicates
+      expect(rels.some((r) => r.includes("loop"))).toBe(false); // the cycle was not descended
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -130,6 +130,9 @@ export interface Manifest {
   modules: Record<string, { members: string[]; humanKeys: string[] }>;
   orphaned: string[]; // module slugs whose prose was moved to _orphaned/
   notes: string[]; // merge conflicts and other build-time warnings
+  // The file-selection filters the build applied, when any — so `check` can hash
+  // the SAME file set and not report a filtered build as perpetually stale.
+  scan?: { include?: string[]; exclude?: string[]; maxBytes?: number };
 }
 
 // Resolved options for a `build`.

@@ -89,12 +89,106 @@ function tolerantJsonParse(text: string): unknown {
       stripped += c;
     }
   }
-  const noTrailingComma = stripped.replace(/,(\s*[}\]])/g, "$1");
+  // Drop trailing commas (a `,` right before a `}` or `]`) — also string-aware,
+  // so a path glob value that literally contains `,}` or `,]` is left intact.
+  let out = "";
+  inStr = false;
+  for (let i = 0; i < stripped.length; i++) {
+    const c = stripped[i]!;
+    if (inStr) {
+      out += c;
+      if (c === "\\") out += stripped[++i] ?? "";
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') {
+      inStr = true;
+      out += c;
+      continue;
+    }
+    if (c === ",") {
+      let j = i + 1;
+      while (j < stripped.length && (stripped[j] === " " || stripped[j] === "\t" || stripped[j] === "\n" || stripped[j] === "\r")) j++;
+      if (stripped[j] === "}" || stripped[j] === "]") continue; // trailing comma → drop
+    }
+    out += c;
+  }
   try {
-    return JSON.parse(noTrailingComma);
+    return JSON.parse(out);
   } catch {
     return undefined;
   }
+}
+
+// Resolve a tsconfig `extends` target to an in-repo config path, or undefined for
+// a bare package specifier (a node_modules base we don't index) or a missing file.
+function resolveExtends(fileSet: Set<string>, fromDir: string, ext: string): string | undefined {
+  if (!/^\.\.?\//.test(ext)) return undefined; // bare specifier → external tooling base
+  const base = norm(posix.join(fromDir, ext));
+  const cands = ext.endsWith(".json") ? [base] : [base + ".json", posix.join(base, "tsconfig.json")];
+  for (const c of cands) if (fileSet.has(c)) return c;
+  return undefined;
+}
+
+interface TsEffective {
+  baseUrl?: string; // as written, relative to baseUrlDir
+  baseUrlDir: string; // dir of the config that DECLARED baseUrl
+  paths?: Record<string, string[]>;
+  pathsDir: string; // dir of the config that DECLARED paths
+}
+
+// Read a tsconfig/jsconfig and fold in its `extends` chain (in-repo, relative
+// bases only), child overriding base — so a monorepo package whose baseUrl/paths
+// live in a shared base (the dominant Nx/Turborepo/lerna layout) still
+// contributes its aliases. baseUrl and paths are each tracked with the dir of the
+// config that DECLARED them (TS resolves them relative to that file). Cycles are
+// broken via `seen`; a missing relative base is surfaced as a warning.
+function readTsConfig(
+  root: string,
+  fileSet: Set<string>,
+  rel: string,
+  warnings: string[],
+  seen: Set<string>,
+): TsEffective | undefined {
+  if (seen.has(rel)) return undefined;
+  seen.add(rel);
+  const cfg = tolerantJsonParse(readText(join(root, rel))) as
+    | { compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> }; extends?: string | string[] }
+    | undefined;
+  if (cfg === undefined) {
+    warnings.push(`unparseable ${rel} — its path aliases were ignored`);
+    return undefined;
+  }
+  const dir = rel.includes("/") ? posix.dirname(rel) : "";
+  const eff: TsEffective = { baseUrlDir: "", pathsDir: "" };
+  const exts = cfg.extends === undefined ? [] : Array.isArray(cfg.extends) ? cfg.extends : [cfg.extends];
+  for (const ext of exts) {
+    if (typeof ext !== "string") continue;
+    const baseRel = resolveExtends(fileSet, dir, ext);
+    if (!baseRel) {
+      if (/^\.\.?\//.test(ext)) warnings.push(`${rel} extends "${ext}" which is missing — its path aliases were ignored`);
+      continue; // bare specifiers (node_modules tooling bases) carry no repo paths
+    }
+    const inherited = readTsConfig(root, fileSet, baseRel, warnings, seen);
+    if (inherited?.baseUrl !== undefined) {
+      eff.baseUrl = inherited.baseUrl;
+      eff.baseUrlDir = inherited.baseUrlDir;
+    }
+    if (inherited?.paths) {
+      eff.paths = inherited.paths;
+      eff.pathsDir = inherited.pathsDir;
+    }
+  }
+  const co = cfg.compilerOptions;
+  if (co?.baseUrl !== undefined) {
+    eff.baseUrl = co.baseUrl;
+    eff.baseUrlDir = dir;
+  }
+  if (co?.paths) {
+    eff.paths = co.paths;
+    eff.pathsDir = dir;
+  }
+  return eff;
 }
 
 // Build the repo-wide context resolution needs: the file set, a dir→files index,
@@ -118,33 +212,32 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
     }
   }
 
-  // tsconfig/jsconfig path aliases. Collect EVERY config, not just the root one:
-  // a monorepo package declares its own baseUrl/paths, and an import resolves
-  // against the nearest enclosing config. An unparseable config is surfaced as a
-  // build warning rather than silently dropping its aliases.
+  // tsconfig/jsconfig path aliases. Collect EVERY config, not just the root one
+  // (each monorepo package declares its own baseUrl/paths), and fold in each
+  // config's `extends` chain so aliases declared in a shared base config still
+  // resolve. An import resolves against the nearest enclosing config. Unparseable
+  // or missing configs surface as build warnings rather than vanishing silently.
   const warnings: string[] = [];
   const tsConfigs: TsConfigScope[] = [];
   for (const rel of fileSet) {
     const base = rel.slice(rel.lastIndexOf("/") + 1);
     if (base !== "tsconfig.json" && base !== "jsconfig.json") continue;
     const dir = rel.includes("/") ? posix.dirname(rel) : "";
-    const cfg = tolerantJsonParse(readText(join(scan.root, rel))) as
-      | { compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> } }
-      | undefined;
-    if (cfg === undefined) {
-      warnings.push(`unparseable ${rel} — its path aliases were ignored`);
-      continue;
-    }
-    const co = cfg.compilerOptions;
+    const eff = readTsConfig(scan.root, fileSet, rel, warnings, new Set<string>());
+    if (!eff?.paths) continue; // no aliases to contribute
     const tsPaths: TsPath[] = [];
-    for (const [alias, targets] of Object.entries(co?.paths ?? {})) {
+    for (const [alias, targets] of Object.entries(eff.paths)) {
       if (!Array.isArray(targets)) continue;
       const star = alias.endsWith("*");
       tsPaths.push({ prefix: star ? alias.slice(0, -1) : alias, star, targets });
     }
     if (!tsPaths.length) continue; // only path-alias configs affect resolution
-    // `paths` are relative to baseUrl; baseUrl is relative to the config's own dir.
-    const baseUrl = norm(posix.join(dir, co?.baseUrl ?? ".")).replace(/^\.$/, "");
+    // `paths` resolve against baseUrl when set (relative to the config that
+    // declared baseUrl), else relative to the config that declared `paths`.
+    const baseUrl =
+      eff.baseUrl !== undefined
+        ? norm(posix.join(eff.baseUrlDir, eff.baseUrl)).replace(/^\.$/, "")
+        : eff.pathsDir;
     tsConfigs.push({ dir, baseUrl, paths: tsPaths });
   }
   // Nearest-enclosing first: deepest dir wins; the root ("") is the fallback.
@@ -177,12 +270,15 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
   const workspacePackages: { name: string; dir: string }[] = [];
   for (const rel of fileSet) {
     if (rel !== "package.json" && !rel.endsWith("/package.json")) continue;
-    try {
-      const pkg = JSON.parse(readText(join(scan.root, rel))) as { name?: string };
-      if (pkg?.name) workspacePackages.push({ name: pkg.name, dir: rel.includes("/") ? posix.dirname(rel) : "" });
-    } catch {
-      /* unreadable/non-JSON package.json — skip */
+    // Parse with the same JSONC-tolerant path as tsconfig (some package.json carry
+    // comments/trailing commas); a truly unparseable one is surfaced, not silently
+    // dropped — losing it erases every cross-package edge for that workspace.
+    const pkg = tolerantJsonParse(readText(join(scan.root, rel))) as { name?: string } | undefined;
+    if (pkg === undefined) {
+      warnings.push(`unparseable ${rel} — skipped for workspace resolution`);
+      continue;
     }
+    if (typeof pkg.name === "string") workspacePackages.push({ name: pkg.name, dir: rel.includes("/") ? posix.dirname(rel) : "" });
   }
   workspacePackages.sort((a, b) => b.name.length - a.name.length);
 
@@ -239,10 +335,13 @@ function resolveJs(fromRel: string, spec: string, ctx: ResolveContext): Resoluti
   }
 
   // tsconfig path aliases (e.g. "@/x" -> "src/x"), nearest enclosing config first.
+  let aliasFallback: Resolution | undefined;
   for (const cfg of ctx.tsConfigs) {
     if (cfg.dir && fromRel !== cfg.dir && !fromRel.startsWith(cfg.dir + "/")) continue; // out of scope
+    let matched = false;
     for (const tp of cfg.paths) {
       if (!(tp.star ? spec.startsWith(tp.prefix) : spec === tp.prefix)) continue;
+      matched = true;
       const suffix = tp.star ? spec.slice(tp.prefix.length) : "";
       let targetTreeExists = false;
       for (const t of tp.targets) {
@@ -253,13 +352,15 @@ function resolveJs(fromRel: string, spec: string, ctx: ResolveContext): Resoluti
         const tdir = p.includes("/") ? posix.dirname(p) : "";
         if (ctx.dirSet.has(tdir) || ctx.fileSet.has(p)) targetTreeExists = true;
       }
-      // Prefix matched but nothing resolved. If the alias points into a real
-      // in-repo directory it's a genuine broken import (dangling); if the whole
-      // target tree is absent (e.g. a generated `styled-system/` codegen dir that
-      // isn't committed) treat it as external — no false dangling, mirroring the
-      // workspace-package rule below.
-      return targetTreeExists ? { kind: "dangling", reason: "alias-unresolved" } : { kind: "external" };
+      // Prefix matched but nothing resolved. Remember the verdict — a real broken
+      // import into an in-repo dir is dangling; an absent target tree (a generated
+      // `styled-system/` codegen dir, not committed) is external (no false
+      // dangling) — but DON'T return yet: a workspace package may still claim this
+      // specifier (an alias prefix like "@app/*" can overlap a workspace pkg name).
+      aliasFallback = targetTreeExists ? { kind: "dangling", reason: "alias-unresolved" } : { kind: "external" };
+      break;
     }
+    if (matched) break; // the nearest matching config wins; stop scanning broader ones
   }
 
   // Monorepo workspace package: resolve `@scope/pkg`(`/subpath`) to in-repo source.
@@ -276,7 +377,8 @@ function resolveJs(fromRel: string, spec: string, ctx: ResolveContext): Resoluti
     return { kind: "external" }; // workspace pkg, but compiled-only/unmapped — no false dangling
   }
 
-  return { kind: "external" }; // bare specifier — third-party / built-in
+  // An alias prefix matched but neither it nor a workspace package resolved.
+  return aliasFallback ?? { kind: "external" }; // else a bare third-party / built-in
 }
 
 function resolvePython(fromRel: string, spec: string, ctx: ResolveContext): Resolution {

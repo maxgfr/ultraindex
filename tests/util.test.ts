@@ -62,4 +62,15 @@ describe("misc helpers", () => {
   it("clipInline returns short strings untouched (sans ellipsis)", () => {
     expect(clipInline("a short summary", 80)).toBe("a short summary");
   });
+  it("clipInline never emits an empty inline-code span when a lone backtick is severed", () => {
+    // Cut lands right where a code span opens → must NOT become an adjacent ``.
+    const out = clipInline("the value is `reallyLongIdentifierThatGetsCut", 18);
+    expect(out).not.toContain("``");
+    expect((out.match(/`/g)?.length ?? 0) % 2).toBe(0);
+  });
+  it("clipInline drops a half-open markdown link instead of leaving a dangling '['", () => {
+    const out = clipInline("see the [Getting Started guide for more", 16);
+    expect(out.lastIndexOf("[")).toBeLessThanOrEqual(out.lastIndexOf("]"));
+    expect(out.endsWith("…")).toBe(true);
+  });
 });

@@ -11,11 +11,18 @@ function globToRegExp(glob: string): RegExp {
     const c = glob[i]!;
     if (c === "*") {
       if (glob[i + 1] === "*") {
-        // `**` — match across directory separators. Swallow an optional
-        // following `/` so `a/**/b` also matches `a/b`.
+        // `**` — match across directory separators.
         i++;
-        if (glob[i + 1] === "/") i++;
-        re += "(?:.*/)?";
+        if (glob[i + 1] === "/") {
+          // `a/**/b` should also match `a/b` → the segment is optional.
+          i++;
+          re += "(?:.*/)?";
+        } else {
+          // Trailing `**` (e.g. `src/**`) must match everything beneath, files
+          // included. `(?:.*/)?` only matches dir-like paths ending in `/`, so a
+          // bare trailing `**` would match ZERO files — use `.*` instead.
+          re += ".*";
+        }
       } else {
         re += "[^/]*";
       }

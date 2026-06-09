@@ -21,6 +21,7 @@ export function buildManifest(
   sync: SyncResult,
   builtAt: string,
   extraNotes: string[] = [],
+  filters: { include?: string[]; exclude?: string[]; maxBytes?: number } = {},
 ): Manifest {
   const fileHashes: Record<string, string> = {};
   for (const f of scan.files) fileHashes[f.rel] = f.hash;
@@ -29,6 +30,13 @@ export function buildManifest(
   for (const m of graph.modules) {
     modules[m.slug] = { members: m.members, humanKeys: (sync.humanKeys[m.slug] ?? []).slice().sort(byStr) };
   }
+
+  // Only record the filters when the build actually applied some, so the common
+  // unfiltered manifest stays byte-stable.
+  const scanFilters: Manifest["scan"] = {};
+  if (filters.include?.length) scanFilters!.include = filters.include;
+  if (filters.exclude?.length) scanFilters!.exclude = filters.exclude;
+  if (filters.maxBytes !== undefined) scanFilters!.maxBytes = filters.maxBytes;
 
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -41,6 +49,7 @@ export function buildManifest(
     modules: sortedRecord(modules),
     orphaned: sync.orphaned.slice().sort(byStr),
     notes: [...extraNotes, ...sync.notes],
+    ...(Object.keys(scanFilters!).length ? { scan: scanFilters } : {}),
   };
 }
 

@@ -78,8 +78,12 @@ export function clipInline(s: string, max: number): string {
   if (flat.length <= max) return flat;
   let cut = flat.slice(0, max).replace(/\s+\S*$/, ""); // back off to a word boundary
   if (!cut) cut = flat.slice(0, max); // a single token longer than max — hard cut
-  if ((cut.match(/`/g)?.length ?? 0) % 2 === 1) cut += "`"; // re-balance a code span
-  return cut + "…";
+  // A half-open inline-code span: drop the severed backtick (and its partial
+  // contents) rather than appending one, which would emit an empty `` span.
+  if ((cut.match(/`/g)?.length ?? 0) % 2 === 1) cut = cut.replace(/`[^`]*$/, "");
+  // A half-open markdown link `[text…`: drop from the unmatched `[`.
+  if (cut.lastIndexOf("[") > cut.lastIndexOf("]")) cut = cut.slice(0, cut.lastIndexOf("["));
+  return cut.replace(/\s+$/, "") + "…";
 }
 
 // Escape a string for safe inclusion as a literal inside a RegExp.

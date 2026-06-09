@@ -59,7 +59,11 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
   const outRel = !isAbsolute(relative(opts.repo, opts.out)) && !relative(opts.repo, opts.out).startsWith("..")
     ? relative(opts.repo, opts.out)
     : opts.out;
-  const manifest = buildManifest(scan, graph, outRel, sync, builtAt, extraNotes);
+  const manifest = buildManifest(scan, graph, outRel, sync, builtAt, extraNotes, {
+    include: opts.include,
+    exclude: opts.exclude,
+    maxBytes: opts.maxBytes,
+  });
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
 
   return { outDir: opts.out, graph, manifest };

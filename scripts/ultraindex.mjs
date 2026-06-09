@@ -4,7 +4,7 @@
 import { resolve, join as join10 } from "path";
 import { existsSync as existsSync2 } from "fs";
 import { pathToFileURL, fileURLToPath } from "url";
-import { realpathSync } from "fs";
+import { realpathSync as realpathSync2 } from "fs";
 
 // src/types.ts
 var VERSION = "1.1.0";
@@ -17,7 +17,7 @@ import { basename as basename2, relative as relative2, isAbsolute } from "path";
 import { basename } from "path";
 
 // src/walk.ts
-import { readdirSync, statSync, readFileSync } from "fs";
+import { readdirSync, statSync, readFileSync, realpathSync } from "fs";
 import { join, relative, sep, extname } from "path";
 var IGNORE_DIRS = /* @__PURE__ */ new Set([
   ".git",
@@ -121,9 +121,18 @@ function walk(root, opts = {}) {
   const maxFiles = opts.maxFiles ?? 2e4;
   const out = [];
   const stack = [root];
+  const seenDirs = /* @__PURE__ */ new Set();
   while (stack.length) {
     if (out.length >= maxFiles) break;
     const dir = stack.pop();
+    let real;
+    try {
+      real = realpathSync(dir);
+    } catch {
+      continue;
+    }
+    if (seenDirs.has(real)) continue;
+    seenDirs.add(real);
     let entries;
     try {
       entries = readdirSync(dir);
@@ -157,16 +166,18 @@ function walk(root, opts = {}) {
 function readText(abs) {
   try {
     const buf = readFileSync(abs);
-    if (buf.length >= 2 && buf[0] === 255 && buf[1] === 254) return buf.subarray(2).toString("utf16le");
+    if (buf.length >= 2 && buf[0] === 255 && buf[1] === 254) {
+      return buf.subarray(2, 2 + (buf.length - 2 & ~1)).toString("utf16le");
+    }
     if (buf.length >= 2 && buf[0] === 254 && buf[1] === 255) {
-      const swapped = Buffer.from(buf.subarray(2));
+      const swapped = Buffer.from(buf.subarray(2, 2 + (buf.length - 2 & ~1)));
       swapped.swap16();
       return swapped.toString("utf16le");
     }
     if (buf.length >= 3 && buf[0] === 239 && buf[1] === 187 && buf[2] === 191) return buf.subarray(3).toString("utf8");
-    const head = buf.subarray(0, 4096);
-    if (head.includes(0)) return "";
-    return buf.toString("utf8");
+    if (buf.includes(0)) return "";
+    const text = buf.toString("utf8");
+    return text.includes("\uFFFD") ? buf.toString("latin1") : text;
   } catch {
     return "";
   }
@@ -205,8 +216,9 @@ function clipInline(s, max) {
   if (flat.length <= max) return flat;
   let cut = flat.slice(0, max).replace(/\s+\S*$/, "");
   if (!cut) cut = flat.slice(0, max);
-  if ((cut.match(/`/g)?.length ?? 0) % 2 === 1) cut += "`";
-  return cut + "\u2026";
+  if ((cut.match(/`/g)?.length ?? 0) % 2 === 1) cut = cut.replace(/`[^`]*$/, "");
+  if (cut.lastIndexOf("[") > cut.lastIndexOf("]")) cut = cut.slice(0, cut.lastIndexOf("["));
+  return cut.replace(/\s+$/, "") + "\u2026";
 }
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -795,8 +807,12 @@ function globToRegExp(glob) {
     if (c2 === "*") {
       if (glob[i + 1] === "*") {
         i++;
-        if (glob[i + 1] === "/") i++;
-        re += "(?:.*/)?";
+        if (glob[i + 1] === "/") {
+          i++;
+          re += "(?:.*/)?";
+        } else {
+          re += ".*";
+        }
       } else {
         re += "[^/]*";
       }
@@ -972,17 +988,15 @@ function extractImports(ext, content) {
   const specs = /* @__PURE__ */ new Set();
   const lines = content.split(/\r?\n/);
   if (JS_TS.has(ext)) {
-    for (const line of lines) {
-      let m;
-      const from = /(?:^|\s)(?:import|export)\b[^'"]*?\bfrom\s*['"]([^'"]+)['"]/.exec(line);
-      if (from) specs.add(from[1]);
-      const bare = /^\s*import\s*['"]([^'"]+)['"]/.exec(line);
-      if (bare) specs.add(bare[1]);
-      const req = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g;
-      while (m = req.exec(line)) specs.add(m[1]);
-      const dyn = /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
-      while (m = dyn.exec(line)) specs.add(m[1]);
-    }
+    let m;
+    const from = /(?:^|[^\w$.])(?:import|export)\b[^'"]*?\bfrom\s*['"]([^'"]+)['"]/g;
+    while (m = from.exec(content)) specs.add(m[1]);
+    const bare = /(?:^|[\n;])\s*import\s*['"]([^'"]+)['"]/g;
+    while (m = bare.exec(content)) specs.add(m[1]);
+    const req = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g;
+    while (m = req.exec(content)) specs.add(m[1]);
+    const dyn = /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
+    while (m = dyn.exec(content)) specs.add(m[1]);
   } else if (PY.has(ext)) {
     for (const line of lines) {
       const from = /^\s*from\s+(\.*[\w.]*)\s+import\b/.exec(line);
@@ -1200,12 +1214,79 @@ function tolerantJsonParse(text) {
       stripped += c2;
     }
   }
-  const noTrailingComma = stripped.replace(/,(\s*[}\]])/g, "$1");
+  let out = "";
+  inStr = false;
+  for (let i = 0; i < stripped.length; i++) {
+    const c2 = stripped[i];
+    if (inStr) {
+      out += c2;
+      if (c2 === "\\") out += stripped[++i] ?? "";
+      else if (c2 === '"') inStr = false;
+      continue;
+    }
+    if (c2 === '"') {
+      inStr = true;
+      out += c2;
+      continue;
+    }
+    if (c2 === ",") {
+      let j = i + 1;
+      while (j < stripped.length && (stripped[j] === " " || stripped[j] === "	" || stripped[j] === "\n" || stripped[j] === "\r")) j++;
+      if (stripped[j] === "}" || stripped[j] === "]") continue;
+    }
+    out += c2;
+  }
   try {
-    return JSON.parse(noTrailingComma);
+    return JSON.parse(out);
   } catch {
     return void 0;
   }
+}
+function resolveExtends(fileSet, fromDir, ext) {
+  if (!/^\.\.?\//.test(ext)) return void 0;
+  const base = norm(posix.join(fromDir, ext));
+  const cands = ext.endsWith(".json") ? [base] : [base + ".json", posix.join(base, "tsconfig.json")];
+  for (const c2 of cands) if (fileSet.has(c2)) return c2;
+  return void 0;
+}
+function readTsConfig(root, fileSet, rel, warnings, seen) {
+  if (seen.has(rel)) return void 0;
+  seen.add(rel);
+  const cfg = tolerantJsonParse(readText(join2(root, rel)));
+  if (cfg === void 0) {
+    warnings.push(`unparseable ${rel} \u2014 its path aliases were ignored`);
+    return void 0;
+  }
+  const dir = rel.includes("/") ? posix.dirname(rel) : "";
+  const eff = { baseUrlDir: "", pathsDir: "" };
+  const exts = cfg.extends === void 0 ? [] : Array.isArray(cfg.extends) ? cfg.extends : [cfg.extends];
+  for (const ext of exts) {
+    if (typeof ext !== "string") continue;
+    const baseRel = resolveExtends(fileSet, dir, ext);
+    if (!baseRel) {
+      if (/^\.\.?\//.test(ext)) warnings.push(`${rel} extends "${ext}" which is missing \u2014 its path aliases were ignored`);
+      continue;
+    }
+    const inherited = readTsConfig(root, fileSet, baseRel, warnings, seen);
+    if (inherited?.baseUrl !== void 0) {
+      eff.baseUrl = inherited.baseUrl;
+      eff.baseUrlDir = inherited.baseUrlDir;
+    }
+    if (inherited?.paths) {
+      eff.paths = inherited.paths;
+      eff.pathsDir = inherited.pathsDir;
+    }
+  }
+  const co = cfg.compilerOptions;
+  if (co?.baseUrl !== void 0) {
+    eff.baseUrl = co.baseUrl;
+    eff.baseUrlDir = dir;
+  }
+  if (co?.paths) {
+    eff.paths = co.paths;
+    eff.pathsDir = dir;
+  }
+  return eff;
 }
 function buildResolveContext(scan2) {
   const fileSet = new Set(scan2.files.map((f) => f.rel));
@@ -1229,20 +1310,16 @@ function buildResolveContext(scan2) {
     const base = rel.slice(rel.lastIndexOf("/") + 1);
     if (base !== "tsconfig.json" && base !== "jsconfig.json") continue;
     const dir = rel.includes("/") ? posix.dirname(rel) : "";
-    const cfg = tolerantJsonParse(readText(join2(scan2.root, rel)));
-    if (cfg === void 0) {
-      warnings.push(`unparseable ${rel} \u2014 its path aliases were ignored`);
-      continue;
-    }
-    const co = cfg.compilerOptions;
+    const eff = readTsConfig(scan2.root, fileSet, rel, warnings, /* @__PURE__ */ new Set());
+    if (!eff?.paths) continue;
     const tsPaths = [];
-    for (const [alias, targets] of Object.entries(co?.paths ?? {})) {
+    for (const [alias, targets] of Object.entries(eff.paths)) {
       if (!Array.isArray(targets)) continue;
       const star = alias.endsWith("*");
       tsPaths.push({ prefix: star ? alias.slice(0, -1) : alias, star, targets });
     }
     if (!tsPaths.length) continue;
-    const baseUrl = norm(posix.join(dir, co?.baseUrl ?? ".")).replace(/^\.$/, "");
+    const baseUrl = eff.baseUrl !== void 0 ? norm(posix.join(eff.baseUrlDir, eff.baseUrl)).replace(/^\.$/, "") : eff.pathsDir;
     tsConfigs.push({ dir, baseUrl, paths: tsPaths });
   }
   tsConfigs.sort((a, b) => b.dir.length - a.dir.length);
@@ -1266,11 +1343,12 @@ function buildResolveContext(scan2) {
   const workspacePackages = [];
   for (const rel of fileSet) {
     if (rel !== "package.json" && !rel.endsWith("/package.json")) continue;
-    try {
-      const pkg = JSON.parse(readText(join2(scan2.root, rel)));
-      if (pkg?.name) workspacePackages.push({ name: pkg.name, dir: rel.includes("/") ? posix.dirname(rel) : "" });
-    } catch {
+    const pkg = tolerantJsonParse(readText(join2(scan2.root, rel)));
+    if (pkg === void 0) {
+      warnings.push(`unparseable ${rel} \u2014 skipped for workspace resolution`);
+      continue;
     }
+    if (typeof pkg.name === "string") workspacePackages.push({ name: pkg.name, dir: rel.includes("/") ? posix.dirname(rel) : "" });
   }
   workspacePackages.sort((a, b) => b.name.length - a.name.length);
   return { fileSet, dirSet, filesByDir, tsConfigs, goModule, goModuleDir, pyRoots: [...pyRoots], workspacePackages, warnings };
@@ -1317,10 +1395,13 @@ function resolveJs(fromRel, spec, ctx) {
     const hit = tryResolve(p);
     return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
   }
+  let aliasFallback;
   for (const cfg of ctx.tsConfigs) {
     if (cfg.dir && fromRel !== cfg.dir && !fromRel.startsWith(cfg.dir + "/")) continue;
+    let matched = false;
     for (const tp of cfg.paths) {
       if (!(tp.star ? spec.startsWith(tp.prefix) : spec === tp.prefix)) continue;
+      matched = true;
       const suffix = tp.star ? spec.slice(tp.prefix.length) : "";
       let targetTreeExists = false;
       for (const t of tp.targets) {
@@ -1331,8 +1412,10 @@ function resolveJs(fromRel, spec, ctx) {
         const tdir = p.includes("/") ? posix.dirname(p) : "";
         if (ctx.dirSet.has(tdir) || ctx.fileSet.has(p)) targetTreeExists = true;
       }
-      return targetTreeExists ? { kind: "dangling", reason: "alias-unresolved" } : { kind: "external" };
+      aliasFallback = targetTreeExists ? { kind: "dangling", reason: "alias-unresolved" } : { kind: "external" };
+      break;
     }
+    if (matched) break;
   }
   for (const pkg of ctx.workspacePackages) {
     if (spec !== pkg.name && !spec.startsWith(pkg.name + "/")) continue;
@@ -1344,7 +1427,7 @@ function resolveJs(fromRel, spec, ctx) {
     }
     return { kind: "external" };
   }
-  return { kind: "external" };
+  return aliasFallback ?? { kind: "external" };
 }
 function resolvePython(fromRel, spec, ctx) {
   const probeModule = (dir, dotted) => {
@@ -1429,20 +1512,23 @@ function buildModules(scan2) {
     if (!list) byDir.set(dir, list = []);
     list.push(f);
   }
-  const usedSlugs = /* @__PURE__ */ new Set();
-  const uniqueSlug = (base) => {
-    let slug = base || "module";
-    let n = 2;
-    while (usedSlugs.has(slug)) slug = `${base}-${n++}`;
-    usedSlugs.add(slug);
-    return slug;
+  const dirs = [...byDir.keys()].sort(byStr);
+  const baseOf = /* @__PURE__ */ new Map();
+  const baseCount = /* @__PURE__ */ new Map();
+  for (const dir of dirs) {
+    const b = dir === ROOT_PATH ? "root" : slugify(dir);
+    baseOf.set(dir, b);
+    baseCount.set(b, (baseCount.get(b) ?? 0) + 1);
+  }
+  const slugForDir = (dir) => {
+    const b = baseOf.get(dir);
+    return b && baseCount.get(b) === 1 ? b : `${b || "module"}-${sha1(dir).slice(0, 8)}`;
   };
   const modules = [];
   const moduleOf = /* @__PURE__ */ new Map();
-  const dirs = [...byDir.keys()].sort(byStr);
   for (const dir of dirs) {
     const members = byDir.get(dir).slice().sort((a, b) => byStr(a.rel, b.rel));
-    const slug = uniqueSlug(dir === ROOT_PATH ? "root" : slugify(dir));
+    const slug = slugForDir(dir);
     const info = {
       slug,
       path: dir,
@@ -1850,13 +1936,17 @@ function sortedRecord(obj) {
   for (const k of Object.keys(obj).sort(byStr)) out[k] = obj[k];
   return out;
 }
-function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = []) {
+function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = [], filters = {}) {
   const fileHashes = {};
   for (const f of scan2.files) fileHashes[f.rel] = f.hash;
   const modules = {};
   for (const m of graph.modules) {
     modules[m.slug] = { members: m.members, humanKeys: (sync.humanKeys[m.slug] ?? []).slice().sort(byStr) };
   }
+  const scanFilters = {};
+  if (filters.include?.length) scanFilters.include = filters.include;
+  if (filters.exclude?.length) scanFilters.exclude = filters.exclude;
+  if (filters.maxBytes !== void 0) scanFilters.maxBytes = filters.maxBytes;
   return {
     schemaVersion: SCHEMA_VERSION,
     version: VERSION,
@@ -1867,7 +1957,8 @@ function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = []) {
     fileHashes: sortedRecord(fileHashes),
     modules: sortedRecord(modules),
     orphaned: sync.orphaned.slice().sort(byStr),
-    notes: [...extraNotes, ...sync.notes]
+    notes: [...extraNotes, ...sync.notes],
+    ...Object.keys(scanFilters).length ? { scan: scanFilters } : {}
   };
 }
 function renderManifestJson(manifest) {
@@ -2163,7 +2254,11 @@ function runBuild(opts, builtAt) {
     ...opts.mermaid ? [] : ["mermaid diagram disabled (--no-mermaid)"]
   ];
   const outRel = !isAbsolute(relative2(opts.repo, opts.out)) && !relative2(opts.repo, opts.out).startsWith("..") ? relative2(opts.repo, opts.out) : opts.out;
-  const manifest = buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes);
+  const manifest = buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes, {
+    include: opts.include,
+    exclude: opts.exclude,
+    maxBytes: opts.maxBytes
+  });
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
   return { outDir: opts.out, graph, manifest };
 }
@@ -2316,7 +2411,7 @@ function runMap(outDir, moduleSlug) {
 import { join as join8 } from "path";
 
 // src/cite.ts
-var EXT_TOKEN = /\[([^\n]*?\.[A-Za-z0-9]{1,8}(?::\d+(?:-\d+)?)?)\]/g;
+var EXT_TOKEN = /\[((?:[^[\]\n]|\[(?:[^[\]\n]|\[[^\]\n]*\])*\])*?\.[A-Za-z0-9]{1,8}(?::\d+(?:-\d+)?)?)\]/g;
 var SIMPLE_TOKEN = /\[([^[\]\n]+)\]/g;
 var LINE_SUFFIX = /:(\d+)(?:-(\d+))?$/;
 function looksLikePath(s) {
@@ -2377,11 +2472,15 @@ function fileLineTable(graph) {
 }
 
 // src/check.ts
-function hashRepo(repo, outAbs) {
+function hashRepo(repo, outAbs, filters) {
   const outPrefix = outAbs.replace(/\/+$/, "") + "/";
+  const include = compileGlobs(filters?.include);
+  const exclude = compileGlobs(filters?.exclude);
   const out = {};
-  for (const f of walk(repo)) {
+  for (const f of walk(repo, { maxFileBytes: filters?.maxBytes })) {
     if (f.abs === outAbs || f.abs.startsWith(outPrefix)) continue;
+    if (include && !include(f.rel)) continue;
+    if (exclude && exclude(f.rel)) continue;
     out[f.rel] = sha1(readText(f.abs));
   }
   return out;
@@ -2396,7 +2495,7 @@ function runCheck(outDir, repo) {
   if (!graph || !manifest) {
     return { ok: false, stale: false, changed: [], added: [], removed: [], errors, warnings };
   }
-  const current = hashRepo(repo, outDir);
+  const current = hashRepo(repo, outDir, manifest.scan);
   const recorded = manifest.fileHashes;
   const changed = [];
   const added = [];
@@ -2907,7 +3006,7 @@ function isInvokedDirectly() {
   if (argv1 === void 0) return false;
   const modulePath = fileURLToPath(import.meta.url);
   try {
-    if (realpathSync(argv1) === realpathSync(modulePath)) return true;
+    if (realpathSync2(argv1) === realpathSync2(modulePath)) return true;
   } catch {
   }
   return import.meta.url === pathToFileURL(argv1).href;
