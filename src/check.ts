@@ -5,6 +5,8 @@ import { sha1 } from "./hash.js";
 import { loadGraph, loadManifest, indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
 import { byStr } from "./sort.js";
+import { parseRegions } from "./merge.js";
+import { checkCitations, parseCitations, fileLineTable } from "./cite.js";
 
 // Hash every file in the repo the way the build did (same out-dir exclusion),
 // so staleness compares content, not git status. Lighter than a full scan — no
@@ -60,6 +62,23 @@ export function runCheck(outDir: string, repo: string): CheckResult {
     if (!e.dangling && !nodes.has(e.to)) errors.push(`edge ${e.from} → ${e.to} (${e.kind}) points at a non-existent node`);
   }
 
+  // Grounding: every citation an agent wrote in a `ui:human` region must resolve
+  // to a real file/line in the index. This is the blocking anti-hallucination
+  // guard — bad citation ⇒ broken index ⇒ non-zero exit.
+  const fileLines = fileLineTable(graph);
+  for (const m of graph.modules) {
+    const text = readIfExists(join(enc, `${m.slug}.md`));
+    if (!text) continue;
+    const parsed = parseRegions(text);
+    if (!parsed.ok) continue;
+    for (const r of parsed.regions) {
+      if (r.type !== "human") continue;
+      for (const u of checkCitations(r.body, fileLines).unresolved) {
+        errors.push(`encyclopedia/${m.slug}.md [${r.key}]: citation [${u.citation.raw}] — ${u.reason}`);
+      }
+    }
+  }
+
   // Preserved-prose situations are warnings, not failures.
   for (const slug of manifest.orphaned) {
     warnings.push(`orphaned prose kept at encyclopedia/_orphaned/${slug}.md (module removed)`);
@@ -70,4 +89,27 @@ export function runCheck(outDir: string, repo: string): CheckResult {
 
   const stale = changed.length + added.length + removed.length > 0;
   return { ok: errors.length === 0 && !stale, stale, changed, added, removed, errors, warnings };
+}
+
+export interface AnswerCheck {
+  ok: boolean;
+  citations: number;
+  resolved: number;
+  errors: string[];
+}
+
+// Validate an answer file's citations against the index — the Q&A grounding
+// gate. Requires at least one citation and that all of them resolve.
+export function checkAnswer(outDir: string, answerPath: string): AnswerCheck {
+  const errors: string[] = [];
+  const graph = loadGraph(outDir);
+  if (!graph) return { ok: false, citations: 0, resolved: 0, errors: ["no index — run `ultraindex build` first"] };
+  const text = readIfExists(answerPath);
+  if (text === undefined) return { ok: false, citations: 0, resolved: 0, errors: [`answer file not found: ${answerPath}`] };
+
+  const all = parseCitations(text);
+  if (all.length === 0) errors.push("answer has no citations — cite every claim with [file:line]");
+  const cc = checkCitations(text, fileLineTable(graph));
+  for (const u of cc.unresolved) errors.push(`citation [${u.citation.raw}] — ${u.reason}`);
+  return { ok: errors.length === 0, citations: all.length, resolved: cc.resolved.length, errors };
 }

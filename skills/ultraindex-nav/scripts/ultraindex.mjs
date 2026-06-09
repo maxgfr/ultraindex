@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve, join as join9 } from "path";
+import { resolve, join as join10 } from "path";
 import { existsSync as existsSync2 } from "fs";
 import { pathToFileURL, fileURLToPath } from "url";
 import { realpathSync } from "fs";
@@ -811,16 +811,16 @@ function byKey(keyOf2) {
 function stripFences(content) {
   const lines = content.split(/\r?\n/);
   const out = [];
-  let fence = null;
+  let fence2 = null;
   for (const line of lines) {
     const m = /^\s*(```+|~~~+)/.exec(line);
-    if (fence) {
-      if (m && line.trim().startsWith(fence[0][0].repeat(3).slice(0, 3))) fence = null;
+    if (fence2) {
+      if (m && line.trim().startsWith(fence2[0][0].repeat(3).slice(0, 3))) fence2 = null;
       out.push("");
       continue;
     }
     if (m) {
-      fence = m[1];
+      fence2 = m[1];
       out.push("");
       continue;
     }
@@ -2256,6 +2256,61 @@ function runMap(outDir, moduleSlug) {
 
 // src/check.ts
 import { join as join8 } from "path";
+
+// src/cite.ts
+var TOKEN_RE = /\[([^\]\n]+)\](?!\()/g;
+var LINE_SUFFIX = /:(\d+)(?:-(\d+))?$/;
+function looksLikePath(s) {
+  return /\//.test(s) || /\.[A-Za-z0-9]{1,8}(:\d|$)/.test(s);
+}
+function parseCitations(text) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  let m;
+  TOKEN_RE.lastIndex = 0;
+  while (m = TOKEN_RE.exec(text)) {
+    const raw = m[1].trim();
+    if (!looksLikePath(raw) || seen.has(raw)) continue;
+    seen.add(raw);
+    let path = raw;
+    let start;
+    let end;
+    const ls = LINE_SUFFIX.exec(raw);
+    if (ls) {
+      path = raw.slice(0, ls.index);
+      start = Number(ls[1]);
+      end = ls[2] ? Number(ls[2]) : void 0;
+    }
+    if (path) out.push({ raw, path, start, end });
+  }
+  return out;
+}
+function checkCitations(text, fileLines) {
+  const resolved = [];
+  const unresolved = [];
+  for (const c2 of parseCitations(text)) {
+    const lines = fileLines.get(c2.path);
+    if (lines === void 0) {
+      unresolved.push({ citation: c2, reason: "no such file in the index" });
+      continue;
+    }
+    if (c2.start !== void 0 && (c2.start < 1 || c2.start > lines)) {
+      unresolved.push({ citation: c2, reason: `line ${c2.start} out of range (1-${lines})` });
+      continue;
+    }
+    if (c2.end !== void 0 && (c2.end < (c2.start ?? 1) || c2.end > lines)) {
+      unresolved.push({ citation: c2, reason: `line range ${c2.start}-${c2.end} out of range (1-${lines})` });
+      continue;
+    }
+    resolved.push(c2);
+  }
+  return { ok: unresolved.length === 0, resolved, unresolved };
+}
+function fileLineTable(graph) {
+  return new Map(graph.files.map((f) => [f.rel, f.lines]));
+}
+
+// src/check.ts
 function hashRepo(repo, outAbs) {
   const outPrefix = outAbs.replace(/\/+$/, "") + "/";
   const out = {};
@@ -2298,6 +2353,19 @@ function runCheck(outDir, repo) {
   for (const e of graph.fileEdges) {
     if (!e.dangling && !nodes.has(e.to)) errors.push(`edge ${e.from} \u2192 ${e.to} (${e.kind}) points at a non-existent node`);
   }
+  const fileLines = fileLineTable(graph);
+  for (const m of graph.modules) {
+    const text = readIfExists(join8(enc, `${m.slug}.md`));
+    if (!text) continue;
+    const parsed = parseRegions(text);
+    if (!parsed.ok) continue;
+    for (const r of parsed.regions) {
+      if (r.type !== "human") continue;
+      for (const u of checkCitations(r.body, fileLines).unresolved) {
+        errors.push(`encyclopedia/${m.slug}.md [${r.key}]: citation [${u.citation.raw}] \u2014 ${u.reason}`);
+      }
+    }
+  }
   for (const slug of manifest.orphaned) {
     warnings.push(`orphaned prose kept at encyclopedia/_orphaned/${slug}.md (module removed)`);
   }
@@ -2307,6 +2375,138 @@ function runCheck(outDir, repo) {
   const stale = changed.length + added.length + removed.length > 0;
   return { ok: errors.length === 0 && !stale, stale, changed, added, removed, errors, warnings };
 }
+function checkAnswer(outDir, answerPath) {
+  const errors = [];
+  const graph = loadGraph(outDir);
+  if (!graph) return { ok: false, citations: 0, resolved: 0, errors: ["no index \u2014 run `ultraindex build` first"] };
+  const text = readIfExists(answerPath);
+  if (text === void 0) return { ok: false, citations: 0, resolved: 0, errors: [`answer file not found: ${answerPath}`] };
+  const all = parseCitations(text);
+  if (all.length === 0) errors.push("answer has no citations \u2014 cite every claim with [file:line]");
+  const cc = checkCitations(text, fileLineTable(graph));
+  for (const u of cc.unresolved) errors.push(`citation [${u.citation.raw}] \u2014 ${u.reason}`);
+  return { ok: errors.length === 0, citations: all.length, resolved: cc.resolved.length, errors };
+}
+
+// src/evidence.ts
+import { join as join9, extname as extname2 } from "path";
+var HEAD_LINES = 60;
+var MAX_SYMS = 25;
+function gatherEvidence(repo, rels, headLines = HEAD_LINES) {
+  const out = [];
+  for (const rel of rels) {
+    const content = readText(join9(repo, rel));
+    if (!content) continue;
+    const lines = content.split(/\r?\n/);
+    const code = extractCode(rel, extname2(rel).toLowerCase(), content);
+    const exported = code.symbols.filter((s) => s.exported).slice(0, MAX_SYMS).map((s) => ({ kind: s.kind, name: s.name, line: s.line, signature: s.signature }));
+    out.push({
+      rel,
+      lines: lines.length,
+      exported,
+      head: lines.slice(0, headLines).join("\n"),
+      headTo: Math.min(lines.length, headLines)
+    });
+  }
+  return out;
+}
+function fence(rel) {
+  const lang = extToLang(extname2(rel).toLowerCase());
+  const map = { typescript: "ts", javascript: "js", python: "py", markdown: "md" };
+  return map[lang] ?? (lang === "other" ? "" : lang);
+}
+function renderFile(e) {
+  const parts = [`### \`${e.rel}\` (${e.lines} lines)`];
+  if (e.exported.length) {
+    parts.push("", "Exported:");
+    for (const s of e.exported) {
+      const sig = s.signature ? ` \u2014 \`${clip(s.signature, 100).split("\n")[0]}\`` : "";
+      parts.push(`- \`${s.kind} ${s.name}\` @ line ${s.line}${sig}`);
+    }
+  }
+  parts.push("", `Source (lines 1-${e.headTo}${e.headTo < e.lines ? ", file continues\u2026" : ""}):`, "```" + fence(e.rel), e.head, "```");
+  return parts.join("\n");
+}
+function keyFiles(graph, module, cap) {
+  const nodes = new Map(graph.files.map((f) => [f.rel, f]));
+  return module.members.filter((rel) => nodes.get(rel)?.fileKind === "code").sort((a, b) => {
+    const fa = nodes.get(a);
+    const fb = nodes.get(b);
+    return fb.symbols - fa.symbols || fb.degIn + fb.degOut - (fa.degIn + fa.degOut) || byStr(a, b);
+  }).slice(0, cap);
+}
+var MAX_NEIGHBORS = 15;
+function neighborLines(graph, slug) {
+  const byId = new Map(graph.modules.map((m) => [m.slug, m]));
+  const line = (s, dir) => `- ${dir} \`${s}\` \u2014 ${clip(byId.get(s)?.summary ?? "", 80).split("\n")[0]}`;
+  const side = (ids, dir) => {
+    const uniq = [...new Set(ids)].sort(byStr);
+    const shown = uniq.slice(0, MAX_NEIGHBORS).map((s) => line(s, dir));
+    if (uniq.length > MAX_NEIGHBORS) shown.push(`- \u2026and ${uniq.length - MAX_NEIGHBORS} more ${dir.includes("depends") ? "dependencies" : "consumers"}`);
+    return shown;
+  };
+  return [
+    ...side(graph.moduleEdges.filter((e) => e.from === slug).map((e) => e.to), "\u2192 depends on"),
+    ...side(graph.moduleEdges.filter((e) => e.to === slug).map((e) => e.from), "\u2190 used by")
+  ];
+}
+var CITE_HELP = "Cite every factual claim with the file it rests on, in brackets: `[path]`, `[path:line]`, or `[path:start-end]` (e.g. `[src/api/client.ts:42-58]`). `ultraindex check` fails if a citation does not resolve to a real file/line.";
+function renderModuleDossier(repo, graph, module) {
+  const files = keyFiles(graph, module, 6);
+  const evidence = gatherEvidence(repo, files);
+  const neighbors = neighborLines(graph, module.slug);
+  const lines = [
+    `# Dossier \u2014 module \`${module.slug}\`  (\`${module.path}\`, tier ${module.tier})`,
+    "",
+    `${module.members.length} files \xB7 ${module.symbols} symbols \xB7 entry: encyclopedia/${module.slug}.md`,
+    "",
+    "## Task",
+    `Read the REAL code below and write a grounded business analysis into the \`ui:human\` regions of \`encyclopedia/${module.slug}.md\`: what this module does for the product, how it connects to the rest, and any gotchas. ${CITE_HELP}`
+  ];
+  if (neighbors.length) {
+    lines.push("", "## Graph neighbours", ...neighbors);
+  }
+  lines.push("", "## Key source");
+  if (evidence.length) for (const e of evidence) lines.push("", renderFile(e));
+  else lines.push("", "_(no code files in this module \u2014 likely docs/config)_");
+  return lines.join("\n") + "\n";
+}
+function renderAskDossier(repo, graph, question, modules) {
+  const byId = new Map(graph.modules.map((m) => [m.slug, m]));
+  const lines = [
+    `# Evidence dossier for: "${question}"`,
+    "",
+    "## Task",
+    `Answer the question USING ONLY the source below (and files you open from it) \u2014 not your own memory of the codebase. Write your answer to \`ANSWER.md\`, then run \`ultraindex check --answer ANSWER.md\`. ${CITE_HELP} An answer must carry at least one citation.`,
+    "",
+    `## Relevant modules`,
+    ...modules.map((m) => `- \`${m.slug}\` (\`${byId.get(m.slug)?.path ?? m.slug}\`) \u2014 open: ${m.files.join(", ") || "(none)"}`),
+    "",
+    "## Source"
+  ];
+  const seen = /* @__PURE__ */ new Set();
+  const rels = modules.flatMap((m) => m.files).filter((r) => seen.has(r) ? false : (seen.add(r), true)).slice(0, 12);
+  const evidence = gatherEvidence(repo, rels);
+  if (evidence.length) for (const e of evidence) lines.push("", renderFile(e));
+  else lines.push("", "_(no readable source for the matched files)_");
+  return lines.join("\n") + "\n";
+}
+
+// src/explain.ts
+function runDossier(outDir, repo, slug) {
+  const graph = loadGraph(outDir);
+  if (!graph) return void 0;
+  const module = graph.modules.find((m) => m.slug === slug);
+  if (!module) return void 0;
+  return renderModuleDossier(repo, graph, module);
+}
+function runAsk(outDir, repo, question, k = 5) {
+  const graph = loadGraph(outDir);
+  if (!graph) return void 0;
+  const results = findModules(graph, question, k);
+  const modules = results.map((r) => ({ slug: r.slug, files: r.files }));
+  return { content: renderAskDossier(repo, graph, question, modules), modules: results.map((r) => r.slug) };
+}
 
 // src/cli.ts
 var HELP = `ultraindex v${VERSION}
@@ -2315,11 +2515,13 @@ Deterministically index a whole repo (code + docs) into a navigable encyclopedia
 huge codebases without filling its context window. Zero deps, no keys.
 
 Usage:
-  ultraindex build  --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--no-mermaid]
-  ultraindex find   "<query>" [--out <dir>] [--k <n>]
+  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--no-mermaid]
+  ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
-  ultraindex map    [--out <dir>] [--module <slug>]
-  ultraindex check  [--out <dir>] [--repo <dir>]
+  ultraindex map     [--out <dir>] [--module <slug>]
+  ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
+  ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
+  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>]
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -2328,25 +2530,36 @@ Commands:
   find       Rank modules for a task and print the exact files to open.
   neighbors  Show graph neighbours of a file or module (what links to/from it).
   map        Print INDEX.md (the map) or one module's entry.
-  check      Report staleness (files changed since build) + integrity problems.
+  dossier    Print a grounding packet for a module (its real key source + graph
+             neighbours) so you can write a cited business analysis into its entry.
+  ask        Assemble grounded evidence for a question (real source of the
+             relevant modules) so you can answer it with citations.
+  check      Report staleness + integrity + grounding (cited prose must resolve).
+             With --answer <file>, validate that answer's citations instead.
 
 Options:
-  --repo <dir>      Repo to index / check                    (default: .)
+  --repo <dir>      Repo to index / check / read source from  (default: .)
   --out <dir>       Index output dir   (default: <repo>/.ultraindex, else docs/ultraindex if present)
   --include <glob>  Only index paths matching (comma-separated globs)
   --exclude <glob>  Skip paths matching (comma-separated globs)
   --max-bytes <n>   Skip files larger than n bytes
   --no-mermaid      Do not write graph.mmd
-  --k <n>           find: number of modules to return         (default: 8)
-  --depth <n>       neighbors: hops to traverse               (default: 1)
+  --k <n>           find/ask: number of modules to return      (default: 8 / 5)
+  --depth <n>       neighbors: hops to traverse                (default: 1)
   --module <slug>   map: print this module's entry instead of INDEX.md
+  --answer <file>   check: validate this answer file's citations against the index
   --json            Machine-readable output
   --quiet           check: print nothing, use the exit code only
   -h, --help        Show this help
   -v, --version     Show version
+
+Grounding:
+  Analysis is verified, not trusted. Cite claims with [path], [path:line] or
+  [path:start-end]. \`check\` (encyclopedia prose) and \`check --answer\` fail if a
+  citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "neighbors", "map", "check"]);
-var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module"]);
+var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "neighbors", "map", "dossier", "ask", "check"]);
+var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module", "answer", "q", "question"]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "quiet"]);
 function fail(message) {
   process.stderr.write(`ultraindex: ${message}
@@ -2413,16 +2626,16 @@ function splitList(s) {
 }
 function resolveOut(p, base) {
   if (p.values.out) return resolve(p.values.out);
-  const dotted = join9(base, ".ultraindex");
+  const dotted = join10(base, ".ultraindex");
   if (existsSync2(dotted)) return dotted;
-  const docs = join9(base, "docs", "ultraindex");
+  const docs = join10(base, "docs", "ultraindex");
   if (existsSync2(docs)) return docs;
   return dotted;
 }
 function cmdBuild(p) {
   const repo = resolve(p.values.repo ?? ".");
   if (!existsSync2(repo)) fail(`repo not found: ${repo}`);
-  const out = p.values.out ? resolve(p.values.out) : join9(repo, ".ultraindex");
+  const out = p.values.out ? resolve(p.values.out) : join10(repo, ".ultraindex");
   const maxBytes = p.values["max-bytes"] ? Number(p.values["max-bytes"]) : void 0;
   if (maxBytes !== void 0 && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
   const { graph, manifest } = runBuild(
@@ -2519,9 +2732,47 @@ function cmdMap(p) {
   }
   process.stdout.write(content.endsWith("\n") ? content : content + "\n");
 }
+function cmdDossier(p) {
+  const repo = resolve(p.values.repo ?? ".");
+  const out = resolveOut(p, repo);
+  const slug = p.positional[0];
+  if (!slug) fail("missing module slug \u2014 usage: ultraindex dossier <module-slug>");
+  const content = runDossier(out, repo, slug);
+  if (content === void 0) {
+    fail(indexExists(out) ? `no module "${slug}" in the index (try \`ultraindex map\`)` : `no index at ${out} \u2014 run \`ultraindex build\` first`);
+  }
+  process.stdout.write(content);
+}
+function cmdAsk(p) {
+  const repo = resolve(p.values.repo ?? ".");
+  const out = resolveOut(p, repo);
+  const question = (p.positional.join(" ") || p.values.q || p.values.question || "").trim();
+  if (!question) fail('missing question \u2014 usage: ultraindex ask "<question>"');
+  const k = p.values.k ? Number(p.values.k) : 5;
+  if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
+  const res = runAsk(out, repo, question, k);
+  if (res === void 0) fail(`no index at ${out} \u2014 run \`ultraindex build\` first`);
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    return;
+  }
+  process.stdout.write(res.content);
+}
 function cmdCheck(p) {
   const repo = resolve(p.values.repo ?? ".");
   const out = resolveOut(p, repo);
+  if (p.values.answer) {
+    const res2 = checkAnswer(out, resolve(p.values.answer));
+    if (p.bools.has("json")) {
+      process.stdout.write(JSON.stringify(res2, null, 2) + "\n");
+    } else if (!p.bools.has("quiet")) {
+      const lines = [`ultraindex: answer is ${res2.ok ? "GROUNDED" : "NOT GROUNDED"} (${res2.resolved}/${res2.citations} citations resolve)`];
+      for (const e of res2.errors) lines.push(`  error:    ${e}`);
+      process.stdout.write(lines.join("\n") + "\n");
+    }
+    if (!res2.ok) process.exit(1);
+    return;
+  }
   const res = runCheck(out, repo);
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
@@ -2553,6 +2804,10 @@ function main() {
       return cmdNeighbors(p);
     case "map":
       return cmdMap(p);
+    case "dossier":
+      return cmdDossier(p);
+    case "ask":
+      return cmdAsk(p);
     case "check":
       return cmdCheck(p);
   }

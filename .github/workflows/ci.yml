@@ -64,5 +64,17 @@ jobs:
           test -f "$RUNNER_TEMP/u18/graph.json"
           node scripts/ultraindex.mjs check --repo tests/fixtures/mini-repo --out "$RUNNER_TEMP/u18"
 
-      - name: Find runs on Node 18
-        run: node scripts/ultraindex.mjs find "retry backoff" --out "$RUNNER_TEMP/u18"
+      - name: Find / dossier / ask run on Node 18
+        run: |
+          node scripts/ultraindex.mjs find "retry backoff" --out "$RUNNER_TEMP/u18"
+          node scripts/ultraindex.mjs dossier src --repo tests/fixtures/mini-repo --out "$RUNNER_TEMP/u18" | grep -q "export class HttpClient"
+          node scripts/ultraindex.mjs ask "how does backoff work" --repo tests/fixtures/mini-repo --out "$RUNNER_TEMP/u18" | grep -q "export function backoff"
+
+      - name: Grounding gate blocks an uncited answer (exit 1)
+        run: |
+          echo "no citations here" > "$RUNNER_TEMP/u18/ANSWER.md"
+          if node scripts/ultraindex.mjs check --answer "$RUNNER_TEMP/u18/ANSWER.md" --out "$RUNNER_TEMP/u18"; then
+            echo "expected non-zero exit for an ungrounded answer"; exit 1
+          fi
+          printf 'backoff is exponential [src/util.ts:2]\n' > "$RUNNER_TEMP/u18/ANSWER.md"
+          node scripts/ultraindex.mjs check --answer "$RUNNER_TEMP/u18/ANSWER.md" --out "$RUNNER_TEMP/u18"

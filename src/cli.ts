@@ -7,7 +7,8 @@ import { runBuild } from "./build.js";
 import { runFind } from "./find.js";
 import { runNeighbors } from "./neighbors.js";
 import { runMap } from "./mapcmd.js";
-import { runCheck } from "./check.js";
+import { runCheck, checkAnswer } from "./check.js";
+import { runDossier, runAsk } from "./explain.js";
 import { indexExists } from "./store.js";
 
 const HELP = `ultraindex v${VERSION}
@@ -16,11 +17,13 @@ Deterministically index a whole repo (code + docs) into a navigable encyclopedia
 huge codebases without filling its context window. Zero deps, no keys.
 
 Usage:
-  ultraindex build  --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--no-mermaid]
-  ultraindex find   "<query>" [--out <dir>] [--k <n>]
+  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--no-mermaid]
+  ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
-  ultraindex map    [--out <dir>] [--module <slug>]
-  ultraindex check  [--out <dir>] [--repo <dir>]
+  ultraindex map     [--out <dir>] [--module <slug>]
+  ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
+  ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
+  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>]
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -29,26 +32,37 @@ Commands:
   find       Rank modules for a task and print the exact files to open.
   neighbors  Show graph neighbours of a file or module (what links to/from it).
   map        Print INDEX.md (the map) or one module's entry.
-  check      Report staleness (files changed since build) + integrity problems.
+  dossier    Print a grounding packet for a module (its real key source + graph
+             neighbours) so you can write a cited business analysis into its entry.
+  ask        Assemble grounded evidence for a question (real source of the
+             relevant modules) so you can answer it with citations.
+  check      Report staleness + integrity + grounding (cited prose must resolve).
+             With --answer <file>, validate that answer's citations instead.
 
 Options:
-  --repo <dir>      Repo to index / check                    (default: .)
+  --repo <dir>      Repo to index / check / read source from  (default: .)
   --out <dir>       Index output dir   (default: <repo>/.ultraindex, else docs/ultraindex if present)
   --include <glob>  Only index paths matching (comma-separated globs)
   --exclude <glob>  Skip paths matching (comma-separated globs)
   --max-bytes <n>   Skip files larger than n bytes
   --no-mermaid      Do not write graph.mmd
-  --k <n>           find: number of modules to return         (default: 8)
-  --depth <n>       neighbors: hops to traverse               (default: 1)
+  --k <n>           find/ask: number of modules to return      (default: 8 / 5)
+  --depth <n>       neighbors: hops to traverse                (default: 1)
   --module <slug>   map: print this module's entry instead of INDEX.md
+  --answer <file>   check: validate this answer file's citations against the index
   --json            Machine-readable output
   --quiet           check: print nothing, use the exit code only
   -h, --help        Show this help
   -v, --version     Show version
+
+Grounding:
+  Analysis is verified, not trusted. Cite claims with [path], [path:line] or
+  [path:start-end]. \`check\` (encyclopedia prose) and \`check --answer\` fail if a
+  citation does not resolve to a real file/line — the anti-hallucination guard.
 `;
 
-const COMMANDS = new Set(["build", "find", "neighbors", "map", "check"]);
-const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module"]);
+const COMMANDS = new Set(["build", "find", "neighbors", "map", "dossier", "ask", "check"]);
+const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module", "answer", "q", "question"]);
 const BOOL_FLAGS = new Set(["json", "no-mermaid", "quiet"]);
 
 function fail(message: string): never {
@@ -244,9 +258,51 @@ function cmdMap(p: Parsed): void {
   process.stdout.write(content.endsWith("\n") ? content : content + "\n");
 }
 
+function cmdDossier(p: Parsed): void {
+  const repo = resolve(p.values.repo ?? ".");
+  const out = resolveOut(p, repo);
+  const slug = p.positional[0];
+  if (!slug) fail("missing module slug — usage: ultraindex dossier <module-slug>");
+  const content = runDossier(out, repo, slug);
+  if (content === undefined) {
+    fail(indexExists(out) ? `no module "${slug}" in the index (try \`ultraindex map\`)` : `no index at ${out} — run \`ultraindex build\` first`);
+  }
+  process.stdout.write(content);
+}
+
+function cmdAsk(p: Parsed): void {
+  const repo = resolve(p.values.repo ?? ".");
+  const out = resolveOut(p, repo);
+  const question = (p.positional.join(" ") || p.values.q || p.values.question || "").trim();
+  if (!question) fail('missing question — usage: ultraindex ask "<question>"');
+  const k = p.values.k ? Number(p.values.k) : 5;
+  if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
+  const res = runAsk(out, repo, question, k);
+  if (res === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    return;
+  }
+  process.stdout.write(res.content);
+}
+
 function cmdCheck(p: Parsed): void {
   const repo = resolve(p.values.repo ?? ".");
   const out = resolveOut(p, repo);
+
+  if (p.values.answer) {
+    const res = checkAnswer(out, resolve(p.values.answer));
+    if (p.bools.has("json")) {
+      process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    } else if (!p.bools.has("quiet")) {
+      const lines = [`ultraindex: answer is ${res.ok ? "GROUNDED" : "NOT GROUNDED"} (${res.resolved}/${res.citations} citations resolve)`];
+      for (const e of res.errors) lines.push(`  error:    ${e}`);
+      process.stdout.write(lines.join("\n") + "\n");
+    }
+    if (!res.ok) process.exit(1);
+    return;
+  }
+
   const res = runCheck(out, repo);
 
   if (p.bools.has("json")) {
@@ -280,6 +336,10 @@ function main(): void {
       return cmdNeighbors(p);
     case "map":
       return cmdMap(p);
+    case "dossier":
+      return cmdDossier(p);
+    case "ask":
+      return cmdAsk(p);
     case "check":
       return cmdCheck(p);
   }

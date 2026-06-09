@@ -1,26 +1,30 @@
 ---
 name: ultraindex
-description: "Use when a repo is too large for the model to hold in context and you need a compact, navigable map of it before working — or when the user asks to 'index this repo', 'build a codebase map/encyclopedia', 'generate a knowledge graph of the code and docs', or 'make this huge project AI-navigable'. Deterministically scans the WHOLE repo (code + markdown) with zero-dependency Node — no API keys, no LLM read of the repo — and emits a layered artifact: a small always-loadable INDEX.md (the map), per-module encyclopedia entries (business 'why/links' + code 'what/where'), a typed link-graph (graph.json + a Mermaid diagram) of imports, doc-links and mentions, and a manifest for staleness. You then do a light, module-by-module enrichment pass to fill the business prose. Pairs with the ultraindex-nav skill, which consumes the index so you only load the files a task needs. Triggers: 'index/map this codebase', 'build the encyclopedia', 'graph the links between files', 'this repo is too big for context'."
+description: "Use when a repo is too large for the model to hold in context and you need a compact, navigable, AI-analyzed map of it — or when the user asks to 'index this repo', 'build a codebase map/encyclopedia', 'generate a knowledge graph of the code and docs', or 'make this huge project AI-navigable'. A deterministic zero-dependency engine scans the WHOLE repo (code + markdown) — no API keys, no LLM read of the repo — and emits a layered artifact: a small always-loadable INDEX.md (the map), per-module encyclopedia entries (business 'why/links' + code 'what/where'), a typed link-graph (graph.json + a Mermaid diagram) of imports, doc-links and mentions, and a manifest for staleness. You THEN write a grounded, citation-checked business analysis for each module: `ultraindex dossier <module>` hands you its real source, you explain what it does and how it connects, citing [file:line], and `ultraindex check` REJECTS any citation that doesn't resolve (anti-hallucination). Pairs with the ultraindex-nav skill, which navigates + answers questions over the index. Triggers: 'index/map/analyze this codebase', 'build the encyclopedia', 'graph the links between files', 'this repo is too big for context'."
 license: MIT
 metadata:
   version: 1.0.0
 ---
 
-# ultraindex — a navigable encyclopedia of a whole repo
+# ultraindex — an AI-analyzed, navigable encyclopedia of a whole repo
 
 On a huge repo the context window fills before you can find what matters.
-`ultraindex` fixes that by scanning the **entire** project **with code** (the
-zero-dependency bundle `scripts/ultraindex.mjs`) and emitting a *layered* index:
-a small map you can always load, per-module entries you load on demand, and a
-typed link-graph between files. The deterministic engine does the scanning — it
-never needs to read the repo into the model — so it stays cheap even at scale.
-Your only model-side job is a **light** business-prose enrichment pass.
+`ultraindex` fixes that with a **division of labour**: the deterministic,
+zero-dependency engine (`scripts/ultraindex.mjs`) does the *mechanical* work —
+scanning the entire project, building the link-graph, and laying out the
+encyclopedia skeleton — **with code, never loading the repo into the model**; and
+**you** do the *understanding* — a grounded, cited business analysis of each
+module, written from its real source. The result is an index that is both
+deterministically accurate (code view + graph) and genuinely explained.
 
-> **The core rule:** the engine owns the *code view* and the *graph* — they are
-> regenerated every build and you must not hand-edit them. You own the *business
-> view* (the `ui:human` regions). Re-running `build` refreshes the generated
-> sections and **preserves** your prose; never paste analysis into a `ui:gen`
-> region, it will be overwritten.
+> **The core rules:**
+> 1. The engine owns the *code view* and the *graph* (`ui:gen` regions) — they
+>    are regenerated every build; never hand-edit them, your edits are overwritten.
+> 2. You own the *business view* (`ui:human` regions). `build` preserves your
+>    prose across rebuilds and renames.
+> 3. **Analyze from evidence, not memory.** Write a module's analysis only from
+>    the real source `ultraindex dossier` shows you, and **cite** it `[file:line]`.
+>    `ultraindex check` fails on any citation that doesn't resolve — so don't guess.
 
 ## The script
 
@@ -32,54 +36,61 @@ No `npm install`, no API keys. Run `--help` for the full surface. Commands:
   gitignored). Produces `INDEX.md`, `encyclopedia/<module>.md`, `graph.json`,
   `graph.mmd`, `manifest.json`. Idempotent: refreshes generated sections, keeps
   your enriched prose. Use `--out docs/ultraindex` for a committed, PR-reviewable index.
+- `dossier <module-slug> [--out <dir>] [--repo <dir>]` — print a **grounding packet**
+  for a module: its real key source (with line numbers), exported surface, and
+  graph neighbours. Read this, then write the analysis. This is how you analyze
+  from evidence instead of memory.
 - `map [--out <dir>] [--module <slug>]` — print `INDEX.md` (or one module's entry)
   to stdout cheaply, without reading the whole tree.
-- `find <query…> [--out <dir>] [--k <n>]` — rank modules for a task and print the
-  **exact files to open**. (This is mainly what the navigator skill uses.)
-- `neighbors <file|module> [--out <dir>] [--depth <n>]` — show graph neighbours of
-  a file/module (what links to / from it).
-- `check [--out <dir>] [--repo <dir>]` — report staleness (files changed since the
-  build) and integrity problems. Exit non-zero ⇒ stale or broken.
+- `find <query…> [--out <dir>] [--k <n>]` — rank modules for a task, print the **exact files to open**.
+- `neighbors <file|module> [--out <dir>] [--depth <n>]` — graph neighbours (what links to / from it).
+- `check [--out <dir>] [--repo <dir>]` — report staleness, integrity, AND **grounding**:
+  every `[file:line]` citation in your analysis must resolve. Exit non-zero ⇒
+  stale, broken, or ungrounded.
 
 ## Workflow
 
-You are invoked to **produce (or refresh) the index** for a repo. Do it in code,
-then lightly enrich the prose.
+You are invoked to **build the index and analyze the repo into it**. The engine
+does the scan; you do the grounded analysis.
 
 1. **Build the index.**
    ```
    node scripts/ultraindex.mjs build --repo <path-to-repo>
    ```
    Add `--out docs/ultraindex` if the team wants it committed and reviewed in PRs.
-   On a first run for a very large repo this is still fast — it is pure file I/O,
-   no model involvement. The command prints where it wrote the artifact and a
-   summary (file/module/edge counts, any dangling links).
+   Fast even on huge repos — pure file I/O, no model involvement. It prints where
+   it wrote the artifact and a summary (file/module/edge counts, dangling links).
 
-2. **Skim the map.** `node scripts/ultraindex.mjs map` prints `INDEX.md`: the
-   project summary, the **hub** modules (highest-connected), and the module table.
-   This is the document the navigator and future sessions load first.
+2. **Skim the map.** `node scripts/ultraindex.mjs map` prints `INDEX.md`: project
+   summary, the **hub** modules (highest-connected), and the module table. Decide
+   which modules matter — start with the hubs.
 
-3. **Light enrichment pass (module by module).** Each `encyclopedia/<module>.md`
-   has empty `ui:human` regions (`business` — what it does and how it connects;
-   `gotchas` — caveats) marked with `<!-- ui:enrich -->`. For each module that
-   matters — start with the hubs —
-   open **only that module's few key files** (the entry lists them under *Source
-   pointers*), then write 2–4 sentences of business context into its `ui:human`
-   regions and save. Do **not** load the whole repo; the point is to stay bounded.
-   Leave low-value modules' stubs empty — partial enrichment is fine.
+3. **Analyze each important module — grounded.** For a module `<slug>`:
+   ```
+   node scripts/ultraindex.mjs dossier <slug>
+   ```
+   This prints its **real source** + neighbours. Read it, then edit
+   `encyclopedia/<slug>.md`: fill the `ui:human` regions (`business` — what it does
+   for the product and how it connects; `gotchas` — caveats) with 2–5 sentences of
+   genuine analysis, **citing the evidence** as `[file]`, `[file:line]`, or
+   `[file:start-end]` (e.g. `Resolves IDCC redirects [packages/utils/src/idcc.ts:30-44]`).
+   Write only what the source supports — no guessing. Leave the `ui:gen` regions alone.
+   Scale effort to the repo: hubs and core modules deserve real analysis; trivial
+   leaves can stay as stubs (partial enrichment is fine).
 
-4. **Re-run `build` any time.** It refreshes the code view, graph and manifest
-   from the current code and **keeps** every `ui:human` region you wrote, matching
-   them by key even if a module was renamed (renames migrate; truly-removed
-   modules' prose is preserved under `encyclopedia/_orphaned/`).
+4. **Verify grounding.** `node scripts/ultraindex.mjs check`. It fails if any
+   citation you wrote doesn't resolve to a real file/line (or the index is stale /
+   broken). Fix and re-run until it passes — this is the guard against analyzing
+   from memory.
 
-5. **Verify.** `node scripts/ultraindex.mjs check` — confirm the index is fresh
-   and has no integrity problems (dangling entries, orphaned prose, merge
-   conflicts) before you consider it done.
+5. **Re-run `build` any time.** It refreshes the code view, graph and manifest from
+   the current code and **keeps** every `ui:human` analysis you wrote, matching by
+   key even across module renames (renames migrate; truly-removed modules' prose is
+   preserved under `encyclopedia/_orphaned/`).
 
 6. **Hand off.** Tell the user where the index lives and that the **ultraindex-nav**
-   skill (or any agent) can now navigate the repo through it — loading
-   `INDEX.md` + the handful of entries/files a task needs instead of the whole repo.
+   skill (or any agent) can now navigate AND answer grounded questions over it —
+   loading `INDEX.md` + the handful of entries/files a task needs, not the whole repo.
 
 ## Notes
 

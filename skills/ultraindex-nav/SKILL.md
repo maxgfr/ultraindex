@@ -1,6 +1,6 @@
 ---
 name: ultraindex-nav
-description: "Use when working in a large repo that has an ultraindex index (a `.ultraindex/` or `docs/ultraindex/` folder with INDEX.md + graph.json) and you need to find the right files for a task WITHOUT reading the whole codebase into context. The light companion to the ultraindex generator skill: it consults the prebuilt map and link-graph, then opens only the handful of entries and source files the task actually needs. Triggers: 'where is X handled', 'what touches Y', 'navigate/work in this huge repo', 'which files do I change for Z', any task in a repo where loading everything would blow the context window. If no index exists yet, it tells you to run the ultraindex generator first."
+description: "Use when working in a large repo that has an ultraindex index (a `.ultraindex/` or `docs/ultraindex/` folder with INDEX.md + graph.json) and you need to find the right files for a task — OR answer a question about the codebase — WITHOUT reading the whole thing into context. The light companion to the ultraindex generator skill: it consults the prebuilt map and link-graph to open only the handful of entries and source files that matter, and can answer questions grounded in real code with citations that `ultraindex check --answer` verifies. Triggers: 'where is X handled', 'what touches Y', 'how does Z work in this repo', 'navigate/work in this huge repo', 'which files do I change for Z', any task or question in a repo where loading everything would blow the context window. If no index exists yet, it tells you to run the ultraindex generator first."
 license: MIT
 metadata:
   version: 1.0.0
@@ -51,9 +51,33 @@ what the task needs. The same zero-dependency bundle ships here:
    wrong or stale enough to mislead, say so and recommend re-running the
    generator's `build`.
 
+## Answering a question (grounded mode)
+
+When the user asks a *question* about the codebase (not "do a task"), answer it
+from real code, not memory — and prove it:
+
+1. **Assemble evidence.**
+   ```
+   node scripts/ultraindex.mjs ask "<the question>" --out <index-dir>
+   ```
+   This finds the relevant modules and prints their **real source** (with line
+   numbers) plus which files to open. Read it; open more files from the listed
+   ones if a thread is thin.
+2. **Write the answer to `ANSWER.md`**, citing every claim with the evidence it
+   rests on: `[file]`, `[file:line]`, or `[file:start-end]` (e.g. `Retries use
+   exponential backoff [src/util.ts:2-4]`). Every answer needs at least one citation.
+3. **Verify grounding.**
+   ```
+   node scripts/ultraindex.mjs check --answer ANSWER.md --out <index-dir>
+   ```
+   It fails if the answer has no citations or any citation doesn't resolve to a
+   real file/line. Fix and re-run until it passes, then give the user the answer
+   with its citations. Never present an answer that hasn't passed this check.
+
 ## Notes
 
-- The index is read-only here — this skill never writes to it. Refreshing/enriching
-  is the **ultraindex** (generator) skill's job.
-- `find`/`neighbors`/`map` print only the slice you asked for, so each call is
-  cheap. Chaining a few of them is still far less context than reading the repo.
+- The index is read-only here — this skill never writes to it (apart from your
+  `ANSWER.md` scratch file). Refreshing/enriching the index is the **ultraindex**
+  (generator) skill's job.
+- `find`/`neighbors`/`map`/`ask` print only the slice you asked for, so each call
+  is cheap. Chaining a few is still far less context than reading the repo.
