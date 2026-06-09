@@ -13,18 +13,43 @@ const REPO = fileURLToPath(new URL("./fixtures/mini-repo", import.meta.url));
 describe("parseCitations", () => {
   it("captures path / path:line / path:a-b and ignores prose + markdown links", () => {
     const cs = parseCitations("See [src/a.ts], [src/a.ts:12] and [a.ts:3-9]. Not [TODO] nor [text](http://x).");
-    expect(cs.map((c) => c.raw)).toEqual(["src/a.ts", "src/a.ts:12", "a.ts:3-9"]);
-    expect(cs[1]).toMatchObject({ path: "src/a.ts", start: 12 });
-    expect(cs[2]).toMatchObject({ path: "a.ts", start: 3, end: 9 });
+    expect(cs.map((c) => c.raw)).toContain("src/a.ts");
+    expect(cs.map((c) => c.raw)).toContain("src/a.ts:12");
+    expect(cs.find((c) => c.raw === "src/a.ts:12")).toMatchObject({ path: "src/a.ts", start: 12 });
+    expect(cs.find((c) => c.raw === "a.ts:3-9")).toMatchObject({ path: "a.ts", start: 3, end: 9 });
+    expect(cs.map((c) => c.raw)).not.toContain("TODO");
+  });
+  it("absorbs inner [..] route segments (Next.js dynamic routes)", () => {
+    const cs = parseCitations("Handled in [app/actualite/[slug]/page.tsx:10] and [app/[[...not-found]]/page.tsx].");
+    expect(cs.map((c) => c.path)).toContain("app/actualite/[slug]/page.tsx");
+    expect(cs.map((c) => c.path)).toContain("app/[[...not-found]]/page.tsx");
+  });
+  it("does NOT count citations inside code fences, inline code, or HTML comments (bypass closed)", () => {
+    expect(parseCitations("```\n[src/a.ts:1]\n```")).toHaveLength(0);
+    expect(parseCitations("inline `[src/a.ts:1]` only")).toHaveLength(0);
+    expect(parseCitations("<!-- [src/a.ts:1] -->")).toHaveLength(0);
+  });
+  it("counts a bare bracket even when followed by '(' (not a markdown link)", () => {
+    expect(parseCitations("see [src/a.ts:1](note)").map((c) => c.raw)).toContain("src/a.ts:1");
   });
 });
 
 describe("checkCitations", () => {
-  const lines = new Map([["src/a.ts", 20]]);
+  const lines = new Map([["src/a.ts", 20], ["app/[slug]/page.tsx", 30]]);
   it("resolves in-range citations and rejects unknown files / out-of-range lines", () => {
     expect(checkCitations("[src/a.ts:5]", lines).ok).toBe(true);
-    expect(checkCitations("[missing.ts]", lines).unresolved[0]?.reason).toMatch(/no such file/);
     expect(checkCitations("[src/a.ts:99]", lines).unresolved[0]?.reason).toMatch(/out of range/);
+  });
+  it("rejects a slash-path that doesn't resolve, but ignores slash-less prose like [Node.js]", () => {
+    expect(checkCitations("[src/missing.ts]", lines).ok).toBe(false);
+    expect(checkCitations("built on [Node.js] and [Vue.js]", lines).ok).toBe(true); // prose, not citations
+    expect(checkCitations("built on [Node.js]", lines).resolved).toHaveLength(0);
+  });
+  it("resolves a bracketed route path", () => {
+    expect(checkCitations("[app/[slug]/page.tsx:5]", lines).ok).toBe(true);
+  });
+  it("trims trailing prose punctuation inside the bracket", () => {
+    expect(checkCitations("[src/a.ts:5.]", lines).ok).toBe(true);
   });
 });
 
@@ -84,5 +109,11 @@ describe("checkAnswer (Q&A grounding gate)", () => {
     const res = checkAnswer(out, answer);
     expect(res.ok).toBe(false);
     expect(res.errors.join(" ")).toMatch(/nope\.ts/);
+  });
+  it("does not let a decorative citation in a code fence satisfy the gate", () => {
+    writeFileSync(answer, "All made up, no real grounding.\n\n```\n[src/util.ts:2]\n```\n");
+    const res = checkAnswer(out, answer);
+    expect(res.ok).toBe(false);
+    expect(res.errors.join(" ")).toMatch(/no citations/);
   });
 });

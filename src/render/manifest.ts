@@ -35,6 +35,7 @@ export function buildManifest(
     version: VERSION,
     commit: scan.commit,
     builtAt,
+    repo: scan.root,
     out: outRel,
     fileHashes: sortedRecord(fileHashes),
     modules: sortedRecord(modules),

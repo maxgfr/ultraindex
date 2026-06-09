@@ -124,6 +124,7 @@ export interface Manifest {
   version: string;
   commit?: string;
   builtAt: string;
+  repo: string; // absolute repo root — lets dossier/ask/check default --repo correctly
   out: string; // out dir, relative to repo when possible
   fileHashes: Record<string, string>; // rel -> sha1 of content
   modules: Record<string, { members: string[]; humanKeys: string[] }>;

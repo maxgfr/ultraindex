@@ -64,8 +64,10 @@ from real code, not memory — and prove it:
    numbers) plus which files to open. Read it; open more files from the listed
    ones if a thread is thin.
 2. **Write the answer to `ANSWER.md`**, citing every claim with the evidence it
-   rests on: `[file]`, `[file:line]`, or `[file:start-end]` (e.g. `Retries use
-   exponential backoff [src/util.ts:2-4]`). Every answer needs at least one citation.
+   rests on, in **bare brackets**: `[file]`, `[file:line]`, or `[file:start-end]`
+   (e.g. `Retries use exponential backoff [src/util.ts:2-4]`). A markdown link
+   `[text](path)`, or a citation inside a code fence/inline-code, does **not**
+   count — write the citation in the prose. Every answer needs at least one citation.
 3. **Verify grounding.**
    ```
    node scripts/ultraindex.mjs check --answer ANSWER.md --out <index-dir>

@@ -6,8 +6,9 @@ import { extToLang } from "./lang/registry.js";
 import { clip } from "./util.js";
 import { byStr } from "./sort.js";
 
-const HEAD_LINES = 60;
+const HEAD_LINES = 120;
 const MAX_SYMS = 25;
+const ASK_FILE_CAP = 20;
 
 // Real source pulled from disk for grounding — the agent reads THIS, not its
 // memory, before writing analysis (the ultradoc "evidence, not training data"
@@ -117,6 +118,8 @@ export function renderModuleDossier(repo: string, graph: Graph, module: ModuleNo
   }
   lines.push("", "## Key source");
   if (evidence.length) for (const e of evidence) lines.push("", renderFile(e));
+  else if (files.length)
+    lines.push("", `⚠️ ${files.length} code file(s) in this module but none were readable under \`${repo}\` — pass \`--repo <repo-root>\` (the index records its root; this usually means a wrong working directory).`);
   else lines.push("", "_(no code files in this module — likely docs/config)_");
   return lines.join("\n") + "\n";
 }
@@ -142,9 +145,11 @@ export function renderAskDossier(
     "## Source",
   ];
   const seen = new Set<string>();
-  const rels = modules.flatMap((m) => m.files).filter((r) => (seen.has(r) ? false : (seen.add(r), true))).slice(0, 12);
+  const rels = modules.flatMap((m) => m.files).filter((r) => (seen.has(r) ? false : (seen.add(r), true))).slice(0, ASK_FILE_CAP);
   const evidence = gatherEvidence(repo, rels);
   if (evidence.length) for (const e of evidence) lines.push("", renderFile(e));
-  else lines.push("", "_(no readable source for the matched files)_");
+  else if (rels.length)
+    lines.push("", `⚠️ matched ${rels.length} file(s) but none were readable under \`${repo}\` — pass \`--repo <repo-root>\` (the index records its root).`);
+  else lines.push("", "_(no modules matched your question — try different keywords or \`ultraindex find\`)_");
   return lines.join("\n") + "\n";
 }

@@ -1808,6 +1808,7 @@ function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = []) {
     version: VERSION,
     commit: scan2.commit,
     builtAt,
+    repo: scan2.root,
     out: outRel,
     fileHashes: sortedRecord(fileHashes),
     modules: sortedRecord(modules),
@@ -2258,19 +2259,22 @@ function runMap(outDir, moduleSlug) {
 import { join as join8 } from "path";
 
 // src/cite.ts
-var TOKEN_RE = /\[([^\]\n]+)\](?!\()/g;
+var EXT_TOKEN = /\[([^\n]*?\.[A-Za-z0-9]{1,8}(?::\d+(?:-\d+)?)?)\]/g;
+var SIMPLE_TOKEN = /\[([^[\]\n]+)\]/g;
 var LINE_SUFFIX = /:(\d+)(?:-(\d+))?$/;
 function looksLikePath(s) {
   return /\//.test(s) || /\.[A-Za-z0-9]{1,8}(:\d|$)/.test(s);
 }
+function stripNonProse(text) {
+  return text.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, " ")).replace(/```[\s\S]*?```/g, (m) => m.replace(/[^\n]/g, " ")).replace(/~~~[\s\S]*?~~~/g, (m) => m.replace(/[^\n]/g, " ")).replace(/`[^`\n]*`/g, (m) => " ".repeat(m.length)).replace(/\[([^\]\n]*)\]\([^)\n]*\)/g, (m, t) => looksLikePath(t.trim()) ? m : " ".repeat(m.length));
+}
 function parseCitations(text) {
+  const prose = stripNonProse(text);
   const out = [];
   const seen = /* @__PURE__ */ new Set();
-  let m;
-  TOKEN_RE.lastIndex = 0;
-  while (m = TOKEN_RE.exec(text)) {
-    const raw = m[1].trim();
-    if (!looksLikePath(raw) || seen.has(raw)) continue;
+  const add = (rawIn) => {
+    const raw = rawIn.trim().replace(/[.,;]+$/, "");
+    if (!looksLikePath(raw) || seen.has(raw)) return;
     seen.add(raw);
     let path = raw;
     let start;
@@ -2282,7 +2286,12 @@ function parseCitations(text) {
       end = ls[2] ? Number(ls[2]) : void 0;
     }
     if (path) out.push({ raw, path, start, end });
-  }
+  };
+  let m;
+  EXT_TOKEN.lastIndex = 0;
+  while (m = EXT_TOKEN.exec(prose)) add(m[1]);
+  SIMPLE_TOKEN.lastIndex = 0;
+  while (m = SIMPLE_TOKEN.exec(prose)) add(m[1]);
   return out;
 }
 function checkCitations(text, fileLines) {
@@ -2291,7 +2300,7 @@ function checkCitations(text, fileLines) {
   for (const c2 of parseCitations(text)) {
     const lines = fileLines.get(c2.path);
     if (lines === void 0) {
-      unresolved.push({ citation: c2, reason: "no such file in the index" });
+      if (c2.path.includes("/")) unresolved.push({ citation: c2, reason: "no such file in the index" });
       continue;
     }
     if (c2.start !== void 0 && (c2.start < 1 || c2.start > lines)) {
@@ -2381,17 +2390,18 @@ function checkAnswer(outDir, answerPath) {
   if (!graph) return { ok: false, citations: 0, resolved: 0, errors: ["no index \u2014 run `ultraindex build` first"] };
   const text = readIfExists(answerPath);
   if (text === void 0) return { ok: false, citations: 0, resolved: 0, errors: [`answer file not found: ${answerPath}`] };
-  const all = parseCitations(text);
-  if (all.length === 0) errors.push("answer has no citations \u2014 cite every claim with [file:line]");
   const cc = checkCitations(text, fileLineTable(graph));
+  const attempts = cc.resolved.length + cc.unresolved.length;
+  if (attempts === 0) errors.push("answer has no citations \u2014 cite every claim with [file:line] (bare brackets, not a markdown link)");
   for (const u of cc.unresolved) errors.push(`citation [${u.citation.raw}] \u2014 ${u.reason}`);
-  return { ok: errors.length === 0, citations: all.length, resolved: cc.resolved.length, errors };
+  return { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
 }
 
 // src/evidence.ts
 import { join as join9, extname as extname2 } from "path";
-var HEAD_LINES = 60;
+var HEAD_LINES = 120;
 var MAX_SYMS = 25;
+var ASK_FILE_CAP = 20;
 function gatherEvidence(repo, rels, headLines = HEAD_LINES) {
   const out = [];
   for (const rel of rels) {
@@ -2468,6 +2478,8 @@ function renderModuleDossier(repo, graph, module) {
   }
   lines.push("", "## Key source");
   if (evidence.length) for (const e of evidence) lines.push("", renderFile(e));
+  else if (files.length)
+    lines.push("", `\u26A0\uFE0F ${files.length} code file(s) in this module but none were readable under \`${repo}\` \u2014 pass \`--repo <repo-root>\` (the index records its root; this usually means a wrong working directory).`);
   else lines.push("", "_(no code files in this module \u2014 likely docs/config)_");
   return lines.join("\n") + "\n";
 }
@@ -2485,10 +2497,12 @@ function renderAskDossier(repo, graph, question, modules) {
     "## Source"
   ];
   const seen = /* @__PURE__ */ new Set();
-  const rels = modules.flatMap((m) => m.files).filter((r) => seen.has(r) ? false : (seen.add(r), true)).slice(0, 12);
+  const rels = modules.flatMap((m) => m.files).filter((r) => seen.has(r) ? false : (seen.add(r), true)).slice(0, ASK_FILE_CAP);
   const evidence = gatherEvidence(repo, rels);
   if (evidence.length) for (const e of evidence) lines.push("", renderFile(e));
-  else lines.push("", "_(no readable source for the matched files)_");
+  else if (rels.length)
+    lines.push("", `\u26A0\uFE0F matched ${rels.length} file(s) but none were readable under \`${repo}\` \u2014 pass \`--repo <repo-root>\` (the index records its root).`);
+  else lines.push("", "_(no modules matched your question \u2014 try different keywords or `ultraindex find`)_");
   return lines.join("\n") + "\n";
 }
 
@@ -2632,6 +2646,10 @@ function resolveOut(p, base) {
   if (existsSync2(docs)) return docs;
   return dotted;
 }
+function resolveRepoRoot(p, out) {
+  if (p.values.repo) return resolve(p.values.repo);
+  return loadManifest(out)?.repo ?? resolve(".");
+}
 function cmdBuild(p) {
   const repo = resolve(p.values.repo ?? ".");
   if (!existsSync2(repo)) fail(`repo not found: ${repo}`);
@@ -2733,8 +2751,8 @@ function cmdMap(p) {
   process.stdout.write(content.endsWith("\n") ? content : content + "\n");
 }
 function cmdDossier(p) {
-  const repo = resolve(p.values.repo ?? ".");
-  const out = resolveOut(p, repo);
+  const out = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out);
   const slug = p.positional[0];
   if (!slug) fail("missing module slug \u2014 usage: ultraindex dossier <module-slug>");
   const content = runDossier(out, repo, slug);
@@ -2744,8 +2762,8 @@ function cmdDossier(p) {
   process.stdout.write(content);
 }
 function cmdAsk(p) {
-  const repo = resolve(p.values.repo ?? ".");
-  const out = resolveOut(p, repo);
+  const out = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out);
   const question = (p.positional.join(" ") || p.values.q || p.values.question || "").trim();
   if (!question) fail('missing question \u2014 usage: ultraindex ask "<question>"');
   const k = p.values.k ? Number(p.values.k) : 5;
@@ -2759,8 +2777,8 @@ function cmdAsk(p) {
   process.stdout.write(res.content);
 }
 function cmdCheck(p) {
-  const repo = resolve(p.values.repo ?? ".");
-  const out = resolveOut(p, repo);
+  const out = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out);
   if (p.values.answer) {
     const res2 = checkAnswer(out, resolve(p.values.answer));
     if (p.bools.has("json")) {

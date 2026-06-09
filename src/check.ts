@@ -6,7 +6,7 @@ import { loadGraph, loadManifest, indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
 import { byStr } from "./sort.js";
 import { parseRegions } from "./merge.js";
-import { checkCitations, parseCitations, fileLineTable } from "./cite.js";
+import { checkCitations, fileLineTable } from "./cite.js";
 
 // Hash every file in the repo the way the build did (same out-dir exclusion),
 // so staleness compares content, not git status. Lighter than a full scan — no
@@ -107,9 +107,9 @@ export function checkAnswer(outDir: string, answerPath: string): AnswerCheck {
   const text = readIfExists(answerPath);
   if (text === undefined) return { ok: false, citations: 0, resolved: 0, errors: [`answer file not found: ${answerPath}`] };
 
-  const all = parseCitations(text);
-  if (all.length === 0) errors.push("answer has no citations — cite every claim with [file:line]");
   const cc = checkCitations(text, fileLineTable(graph));
+  const attempts = cc.resolved.length + cc.unresolved.length;
+  if (attempts === 0) errors.push("answer has no citations — cite every claim with [file:line] (bare brackets, not a markdown link)");
   for (const u of cc.unresolved) errors.push(`citation [${u.citation.raw}] — ${u.reason}`);
-  return { ok: errors.length === 0, citations: all.length, resolved: cc.resolved.length, errors };
+  return { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
 }

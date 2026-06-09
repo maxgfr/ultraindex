@@ -9,7 +9,7 @@ import { runNeighbors } from "./neighbors.js";
 import { runMap } from "./mapcmd.js";
 import { runCheck, checkAnswer } from "./check.js";
 import { runDossier, runAsk } from "./explain.js";
-import { indexExists } from "./store.js";
+import { indexExists, loadManifest } from "./store.js";
 
 const HELP = `ultraindex v${VERSION}
 Deterministically index a whole repo (code + docs) into a navigable encyclopedia
@@ -151,6 +151,14 @@ function resolveOut(p: Parsed, base: string): string {
   return dotted;
 }
 
+// Repo root for read commands: explicit --repo wins; else the absolute root the
+// index recorded at build time (so an out-of-tree index still finds its source);
+// else cwd. Without this, dossier/ask/check silently read the wrong directory.
+function resolveRepoRoot(p: Parsed, out: string): string {
+  if (p.values.repo) return resolve(p.values.repo);
+  return loadManifest(out)?.repo ?? resolve(".");
+}
+
 function cmdBuild(p: Parsed): void {
   const repo = resolve(p.values.repo ?? ".");
   if (!existsSync(repo)) fail(`repo not found: ${repo}`);
@@ -259,8 +267,8 @@ function cmdMap(p: Parsed): void {
 }
 
 function cmdDossier(p: Parsed): void {
-  const repo = resolve(p.values.repo ?? ".");
-  const out = resolveOut(p, repo);
+  const out = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out);
   const slug = p.positional[0];
   if (!slug) fail("missing module slug — usage: ultraindex dossier <module-slug>");
   const content = runDossier(out, repo, slug);
@@ -271,8 +279,8 @@ function cmdDossier(p: Parsed): void {
 }
 
 function cmdAsk(p: Parsed): void {
-  const repo = resolve(p.values.repo ?? ".");
-  const out = resolveOut(p, repo);
+  const out = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out);
   const question = (p.positional.join(" ") || p.values.q || p.values.question || "").trim();
   if (!question) fail('missing question — usage: ultraindex ask "<question>"');
   const k = p.values.k ? Number(p.values.k) : 5;
@@ -287,8 +295,8 @@ function cmdAsk(p: Parsed): void {
 }
 
 function cmdCheck(p: Parsed): void {
-  const repo = resolve(p.values.repo ?? ".");
-  const out = resolveOut(p, repo);
+  const out = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out);
 
   if (p.values.answer) {
     const res = checkAnswer(out, resolve(p.values.answer));
