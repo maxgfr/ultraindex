@@ -81,11 +81,22 @@ export function walk(root: string, opts: WalkOptions = {}): WalkedFile[] {
   return out;
 }
 
-// Read a file as UTF-8, returning "" on any error (unreadable, vanished). Skips
-// content that looks binary (a NUL byte in the first 4 KiB).
+// Read a file as text, returning "" on any error (unreadable, vanished). Honours
+// a Unicode BOM before the binary sniff — a UTF-16 source file is full of NUL
+// bytes and would otherwise be misread as binary and dropped, and a UTF-8 BOM
+// would otherwise glue "﻿" onto the first token (breaking line-1 extraction
+// and a `[file:1]` citation). Falls back to UTF-8, skipping anything that still
+// looks binary (a NUL byte in the first 4 KiB).
 export function readText(abs: string): string {
   try {
     const buf = readFileSync(abs);
+    if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) return buf.subarray(2).toString("utf16le");
+    if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
+      const swapped = Buffer.from(buf.subarray(2));
+      swapped.swap16(); // UTF-16BE → LE so Node can decode it
+      return swapped.toString("utf16le");
+    }
+    if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) return buf.subarray(3).toString("utf8");
     const head = buf.subarray(0, 4096);
     if (head.includes(0)) return "";
     return buf.toString("utf8");

@@ -157,6 +157,13 @@ function walk(root, opts = {}) {
 function readText(abs) {
   try {
     const buf = readFileSync(abs);
+    if (buf.length >= 2 && buf[0] === 255 && buf[1] === 254) return buf.subarray(2).toString("utf16le");
+    if (buf.length >= 2 && buf[0] === 254 && buf[1] === 255) {
+      const swapped = Buffer.from(buf.subarray(2));
+      swapped.swap16();
+      return swapped.toString("utf16le");
+    }
+    if (buf.length >= 3 && buf[0] === 239 && buf[1] === 187 && buf[2] === 191) return buf.subarray(3).toString("utf8");
     const head = buf.subarray(0, 4096);
     if (head.includes(0)) return "";
     return buf.toString("utf8");
@@ -192,6 +199,14 @@ function clip(s, max) {
   if (s.length <= max) return s;
   return s.slice(0, max) + `
 \u2026 [truncated ${s.length - max} chars]`;
+}
+function clipInline(s, max) {
+  const flat = s.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  let cut = flat.slice(0, max).replace(/\s+\S*$/, "");
+  if (!cut) cut = flat.slice(0, max);
+  if ((cut.match(/`/g)?.length ?? 0) % 2 === 1) cut += "`";
+  return cut + "\u2026";
 }
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1161,9 +1176,31 @@ function norm(p) {
   return posix.normalize(p).replace(/\/$/, "");
 }
 function tolerantJsonParse(text) {
-  const noBlock = text.replace(/\/\*[\s\S]*?\*\//g, "");
-  const noLine = noBlock.replace(/(^|[^:])\/\/.*$/gm, "$1");
-  const noTrailingComma = noLine.replace(/,(\s*[}\]])/g, "$1");
+  let stripped = "";
+  let inStr = false;
+  for (let i = 0; i < text.length; i++) {
+    const c2 = text[i];
+    if (inStr) {
+      stripped += c2;
+      if (c2 === "\\") stripped += text[++i] ?? "";
+      else if (c2 === '"') inStr = false;
+      continue;
+    }
+    if (c2 === '"') {
+      inStr = true;
+      stripped += c2;
+    } else if (c2 === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      stripped += "\n";
+    } else if (c2 === "/" && text[i + 1] === "*") {
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
+      i++;
+    } else {
+      stripped += c2;
+    }
+  }
+  const noTrailingComma = stripped.replace(/,(\s*[}\]])/g, "$1");
   try {
     return JSON.parse(noTrailingComma);
   } catch {
@@ -1186,17 +1223,29 @@ function buildResolveContext(scan2) {
       d = d.includes("/") ? posix.dirname(d) : "";
     }
   }
-  let tsBaseUrl = "";
-  const tsPaths = [];
-  if (fileSet.has("tsconfig.json")) {
-    const cfg = tolerantJsonParse(readText(join2(scan2.root, "tsconfig.json")));
-    const co = cfg?.compilerOptions;
-    if (co?.baseUrl) tsBaseUrl = norm(co.baseUrl).replace(/^\.$/, "");
+  const warnings = [];
+  const tsConfigs = [];
+  for (const rel of fileSet) {
+    const base = rel.slice(rel.lastIndexOf("/") + 1);
+    if (base !== "tsconfig.json" && base !== "jsconfig.json") continue;
+    const dir = rel.includes("/") ? posix.dirname(rel) : "";
+    const cfg = tolerantJsonParse(readText(join2(scan2.root, rel)));
+    if (cfg === void 0) {
+      warnings.push(`unparseable ${rel} \u2014 its path aliases were ignored`);
+      continue;
+    }
+    const co = cfg.compilerOptions;
+    const tsPaths = [];
     for (const [alias, targets] of Object.entries(co?.paths ?? {})) {
+      if (!Array.isArray(targets)) continue;
       const star = alias.endsWith("*");
       tsPaths.push({ prefix: star ? alias.slice(0, -1) : alias, star, targets });
     }
+    if (!tsPaths.length) continue;
+    const baseUrl = norm(posix.join(dir, co?.baseUrl ?? ".")).replace(/^\.$/, "");
+    tsConfigs.push({ dir, baseUrl, paths: tsPaths });
   }
+  tsConfigs.sort((a, b) => b.dir.length - a.dir.length);
   let goModule;
   let goModuleDir = "";
   const goModRel = [...fileSet].filter((r) => r.endsWith("go.mod")).sort((a, b) => a.length - b.length)[0];
@@ -1224,7 +1273,7 @@ function buildResolveContext(scan2) {
     }
   }
   workspacePackages.sort((a, b) => b.name.length - a.name.length);
-  return { fileSet, dirSet, filesByDir, tsBaseUrl, tsPaths, goModule, goModuleDir, pyRoots: [...pyRoots], workspacePackages };
+  return { fileSet, dirSet, filesByDir, tsConfigs, goModule, goModuleDir, pyRoots: [...pyRoots], workspacePackages, warnings };
 }
 function firstExisting(ctx, candidates) {
   for (const c2 of candidates) {
@@ -1268,16 +1317,21 @@ function resolveJs(fromRel, spec, ctx) {
     const hit = tryResolve(p);
     return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
   }
-  for (const tp of ctx.tsPaths) {
-    if (tp.star ? spec.startsWith(tp.prefix) : spec === tp.prefix) {
+  for (const cfg of ctx.tsConfigs) {
+    if (cfg.dir && fromRel !== cfg.dir && !fromRel.startsWith(cfg.dir + "/")) continue;
+    for (const tp of cfg.paths) {
+      if (!(tp.star ? spec.startsWith(tp.prefix) : spec === tp.prefix)) continue;
       const suffix = tp.star ? spec.slice(tp.prefix.length) : "";
+      let targetTreeExists = false;
       for (const t of tp.targets) {
         const resolved = tp.star ? t.replace(/\*/, suffix) : t;
-        const p = norm(posix.join(ctx.tsBaseUrl, resolved));
+        const p = norm(posix.join(cfg.baseUrl, resolved));
         const hit = tryResolve(p);
         if (hit) return { kind: "resolved", target: hit };
+        const tdir = p.includes("/") ? posix.dirname(p) : "";
+        if (ctx.dirSet.has(tdir) || ctx.fileSet.has(p)) targetTreeExists = true;
       }
-      return { kind: "dangling", reason: "alias-unresolved" };
+      return targetTreeExists ? { kind: "dangling", reason: "alias-unresolved" } : { kind: "external" };
     }
   }
   for (const pkg of ctx.workspacePackages) {
@@ -1526,7 +1580,7 @@ function buildGraph(scan2, ctx, modules, moduleOf) {
   })).sort((a, b) => byStr(a.rel, b.rel));
   const symbolsByModule = /* @__PURE__ */ new Map();
   for (const f of scan2.files) {
-    const slug = moduleOf.get(f.rel);
+    const slug = moduleOf.get(f.rel) ?? "root";
     symbolsByModule.set(slug, (symbolsByModule.get(slug) ?? 0) + f.symbols.length);
   }
   const moduleNodes = modules.map((m) => ({
@@ -2104,7 +2158,10 @@ function runBuild(opts, builtAt) {
   if (mermaid) writeFileIfChanged(paths.mermaid, mermaid.content);
   else removeFile(paths.mermaid);
   writeFileIfChanged(paths.index, renderIndex(graph, { repoName: basename2(opts.repo) || "repo", mermaid }));
-  const extraNotes = opts.mermaid ? [] : ["mermaid diagram disabled (--no-mermaid)"];
+  const extraNotes = [
+    ...ctx.warnings,
+    ...opts.mermaid ? [] : ["mermaid diagram disabled (--no-mermaid)"]
+  ];
   const outRel = !isAbsolute(relative2(opts.repo, opts.out)) && !relative2(opts.repo, opts.out).startsWith("..") ? relative2(opts.repo, opts.out) : opts.out;
   const manifest = buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes);
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
@@ -2448,7 +2505,7 @@ function keyFiles(graph, module, cap) {
 var MAX_NEIGHBORS = 15;
 function neighborLines(graph, slug) {
   const byId = new Map(graph.modules.map((m) => [m.slug, m]));
-  const line = (s, dir) => `- ${dir} \`${s}\` \u2014 ${clip(byId.get(s)?.summary ?? "", 80).split("\n")[0]}`;
+  const line = (s, dir) => `- ${dir} \`${s}\` \u2014 ${clipInline(byId.get(s)?.summary ?? "", 80)}`;
   const side = (ids, dir) => {
     const uniq = [...new Set(ids)].sort(byStr);
     const shown = uniq.slice(0, MAX_NEIGHBORS).map((s) => line(s, dir));

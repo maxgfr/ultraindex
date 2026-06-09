@@ -3,7 +3,7 @@ import type { Graph, ModuleNode } from "./types.js";
 import { readText } from "./walk.js";
 import { extractCode } from "./extract/code.js";
 import { extToLang } from "./lang/registry.js";
-import { clip } from "./util.js";
+import { clip, clipInline } from "./util.js";
 import { byStr } from "./sort.js";
 
 const HEAD_LINES = 120;
@@ -82,7 +82,7 @@ const MAX_NEIGHBORS = 15; // keep the dossier bounded for hubs with many consume
 
 function neighborLines(graph: Graph, slug: string): string[] {
   const byId = new Map(graph.modules.map((m) => [m.slug, m]));
-  const line = (s: string, dir: string): string => `- ${dir} \`${s}\` — ${clip(byId.get(s)?.summary ?? "", 80).split("\n")[0]}`;
+  const line = (s: string, dir: string): string => `- ${dir} \`${s}\` — ${clipInline(byId.get(s)?.summary ?? "", 80)}`;
   const side = (ids: string[], dir: string): string[] => {
     const uniq = [...new Set(ids)].sort(byStr);
     const shown = uniq.slice(0, MAX_NEIGHBORS).map((s) => line(s, dir));

@@ -1,16 +1,32 @@
 import { describe, it, expect } from "vitest";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
 import { classify } from "../src/classify.js";
 import { extractCode } from "../src/extract/code.js";
 import { extractMarkdown } from "../src/extract/markdown.js";
 import { tierForPath } from "../src/modules.js";
 import { scanRepo } from "../src/scan.js";
 import { buildResolveContext, resolveImport } from "../src/resolve.js";
+import { runBuild } from "../src/build.js";
+import { readText } from "../src/walk.js";
 import { findModules } from "../src/find.js";
 import { SCHEMA_VERSION, VERSION } from "../src/types.js";
 import type { Graph, FileNode, ModuleNode, Tier } from "../src/types.js";
 
 // Regressions found by stress-testing on code-du-travail-numerique.
+
+// Build a throwaway repo on disk from a {relpath: contents} map; returns its root.
+function scratchRepo(files: Record<string, string | Buffer>): string {
+  const root = mkdtempSync(join(tmpdir(), "ui-audit-"));
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = join(root, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, body);
+  }
+  return root;
+}
 
 describe("classify: code extension always wins", () => {
   it("classifies a code file with a doc-like name as code (not doc)", () => {
@@ -115,5 +131,112 @@ describe("findModules: path penalties", () => {
     expect(results.findIndex((r) => r.slug === "sentry")).toBeLessThan(
       results.findIndex((r) => r.slug === "test-sentry-error"),
     );
+  });
+});
+
+// code-du-travail-numerique is a lerna/pnpm monorepo where each package keeps its
+// OWN tsconfig (the frontend aliases `@styled-system/*`). v1 read only the root
+// tsconfig, so those intra-repo aliases silently fell through to "external".
+describe("resolveImport: per-package tsconfig path aliases (monorepo)", () => {
+  it("resolves a package-local alias via that package's own tsconfig (globby JSONC and all)", () => {
+    const root = scratchRepo({
+      // The path target "./src/components/*" (a `/*`) plus the "**/*.ts" include
+      // (a `*/`) is exactly the combination that broke the naive comment stripper.
+      "packages/web/tsconfig.json": JSON.stringify({
+        compilerOptions: { baseUrl: ".", paths: { "@ui/*": ["./src/components/*"] } },
+        include: ["**/*.ts", "**/*.tsx"],
+      }),
+      "packages/web/src/components/Button.tsx": "export const Button = () => null;\n",
+      "packages/web/src/app.tsx": 'import { Button } from "@ui/Button";\n',
+    });
+    try {
+      const ctx = buildResolveContext(scanRepo(root));
+      expect(ctx.warnings).toEqual([]); // a valid globby tsconfig must NOT be flagged unparseable
+      expect(resolveImport("packages/web/src/app.tsx", ".tsx", "@ui/Button", ctx)).toEqual({
+        kind: "resolved",
+        target: "packages/web/src/components/Button.tsx",
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("treats an alias to an absent (generated) target tree as external, not a false dangling", () => {
+    const root = scratchRepo({
+      "packages/web/tsconfig.json": JSON.stringify({
+        compilerOptions: { baseUrl: ".", paths: { "@styled/*": ["./src/styled-system/*"] } },
+      }),
+      "packages/web/src/app.tsx": 'import { css } from "@styled/css";\n',
+    });
+    try {
+      const ctx = buildResolveContext(scanRepo(root));
+      // src/styled-system/ is codegen output, not committed → no edge, no false dangling.
+      expect(resolveImport("packages/web/src/app.tsx", ".tsx", "@styled/css", ctx).kind).toBe("external");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("flags an alias into a REAL in-repo dir but missing file as dangling", () => {
+    const root = scratchRepo({
+      "packages/web/tsconfig.json": JSON.stringify({
+        compilerOptions: { baseUrl: ".", paths: { "@ui/*": ["./src/components/*"] } },
+      }),
+      "packages/web/src/components/Button.tsx": "export const Button = () => null;\n",
+      "packages/web/src/app.tsx": 'import { Missing } from "@ui/Missing";\n',
+    });
+    try {
+      const ctx = buildResolveContext(scanRepo(root));
+      expect(resolveImport("packages/web/src/app.tsx", ".tsx", "@ui/Missing", ctx)).toEqual({
+        kind: "dangling",
+        reason: "alias-unresolved",
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("buildResolveContext: an unparseable tsconfig is surfaced, not silently dropped", () => {
+  it("records a warning that flows into the build manifest notes", () => {
+    const root = scratchRepo({
+      "tsconfig.json": '{ "compilerOptions": { "paths": { "@/*": ["src/*"] ', // truncated → unparseable
+      "src/x.ts": "export const x = 1;\n",
+    });
+    try {
+      const ctx = buildResolveContext(scanRepo(root));
+      expect(ctx.warnings.some((w) => /unparseable.*tsconfig\.json/.test(w))).toBe(true);
+      const { manifest } = runBuild({ repo: root, out: join(root, ".ui"), mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
+      expect(manifest.notes.some((n) => /unparseable.*tsconfig\.json/.test(n))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// A French repo has accented filenames AND can ship files with a Unicode BOM.
+describe("readText: Unicode BOM handling", () => {
+  it("strips a UTF-8 BOM so line-1 symbol extraction (and `[file:1]`) still works", () => {
+    const root = scratchRepo({
+      "a.ts": Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("export const x = 1;\n")]),
+    });
+    try {
+      const txt = readText(join(root, "a.ts"));
+      expect(txt.startsWith("export")).toBe(true); // no leading ﻿ glued to the token
+      const info = extractCode("a.ts", ".ts", txt);
+      expect(info.symbols.some((s) => s.name === "x" && s.line === 1)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it("decodes a UTF-16LE file instead of dropping it as binary", () => {
+    const root = scratchRepo({
+      "b.ts": Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("export const y = 2;\n", "utf16le")]),
+    });
+    try {
+      expect(readText(join(root, "b.ts"))).toContain("export const y = 2;");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

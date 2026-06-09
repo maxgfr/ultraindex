@@ -17,16 +17,25 @@ interface TsPath {
   targets: string[]; // path-relative-to-baseUrl, "*" preserved
 }
 
+// One tsconfig/jsconfig's alias scope. In a monorepo each package can declare its
+// own baseUrl/paths, so we keep them per-config and resolve an import against the
+// NEAREST enclosing config (deepest dir first) rather than a single root config.
+interface TsConfigScope {
+  dir: string; // the config's own directory (posix, "" = repo root) — scope test
+  baseUrl: string; // repo-relative posix dir the `targets` resolve against
+  paths: TsPath[];
+}
+
 export interface ResolveContext {
   fileSet: Set<string>;
   dirSet: Set<string>; // every directory that has any file beneath it
   filesByDir: Map<string, string[]>; // dir (posix, "" for root) -> rel files
-  tsBaseUrl: string; // posix dir, "" for repo root
-  tsPaths: TsPath[];
+  tsConfigs: TsConfigScope[]; // nearest-enclosing first (deepest dir wins)
   goModule?: string;
   goModuleDir: string; // posix dir of go.mod, "" for root
   pyRoots: string[]; // posix dirs that are python import roots ("" allowed)
   workspacePackages: { name: string; dir: string }[]; // monorepo pkg name -> its dir
+  warnings: string[]; // build-time config issues (e.g. an unparseable tsconfig)
 }
 
 // Extensions walk() skips (images, fonts, media, maps). An import of one of these
@@ -50,10 +59,37 @@ function norm(p: string): string {
 }
 
 function tolerantJsonParse(text: string): unknown {
-  // tsconfig.json is JSONC: strip // and /* */ comments and trailing commas.
-  const noBlock = text.replace(/\/\*[\s\S]*?\*\//g, "");
-  const noLine = noBlock.replace(/(^|[^:])\/\/.*$/gm, "$1");
-  const noTrailingComma = noLine.replace(/,(\s*[}\]])/g, "$1");
+  // tsconfig.json is JSONC: strip // and /* */ comments and trailing commas. This
+  // MUST be string-aware — tsconfig glob values like "**/*.ts" or
+  // "./src/styled-system/*" contain `/*`, `*/` and `//` that a naive regex
+  // stripper mistakes for comment delimiters and shreds the document (a real
+  // failure on Next.js tsconfigs that mix a `…/*` path alias with `**/*.ts`
+  // includes). So scan char-by-char and only strip comments OUTSIDE strings.
+  let stripped = "";
+  let inStr = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (inStr) {
+      stripped += c;
+      if (c === "\\") stripped += text[++i] ?? ""; // keep the escaped char verbatim
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') {
+      inStr = true;
+      stripped += c;
+    } else if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      stripped += "\n"; // preserve line structure
+    } else if (c === "/" && text[i + 1] === "*") {
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
+      i++; // skip the closing '/'
+    } else {
+      stripped += c;
+    }
+  }
+  const noTrailingComma = stripped.replace(/,(\s*[}\]])/g, "$1");
   try {
     return JSON.parse(noTrailingComma);
   } catch {
@@ -82,20 +118,37 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
     }
   }
 
-  // tsconfig.json at the repo root (nearest-to-root only, by design for v1).
-  let tsBaseUrl = "";
-  const tsPaths: TsPath[] = [];
-  if (fileSet.has("tsconfig.json")) {
-    const cfg = tolerantJsonParse(readText(join(scan.root, "tsconfig.json"))) as
+  // tsconfig/jsconfig path aliases. Collect EVERY config, not just the root one:
+  // a monorepo package declares its own baseUrl/paths, and an import resolves
+  // against the nearest enclosing config. An unparseable config is surfaced as a
+  // build warning rather than silently dropping its aliases.
+  const warnings: string[] = [];
+  const tsConfigs: TsConfigScope[] = [];
+  for (const rel of fileSet) {
+    const base = rel.slice(rel.lastIndexOf("/") + 1);
+    if (base !== "tsconfig.json" && base !== "jsconfig.json") continue;
+    const dir = rel.includes("/") ? posix.dirname(rel) : "";
+    const cfg = tolerantJsonParse(readText(join(scan.root, rel))) as
       | { compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> } }
       | undefined;
-    const co = cfg?.compilerOptions;
-    if (co?.baseUrl) tsBaseUrl = norm(co.baseUrl).replace(/^\.$/, "");
+    if (cfg === undefined) {
+      warnings.push(`unparseable ${rel} — its path aliases were ignored`);
+      continue;
+    }
+    const co = cfg.compilerOptions;
+    const tsPaths: TsPath[] = [];
     for (const [alias, targets] of Object.entries(co?.paths ?? {})) {
+      if (!Array.isArray(targets)) continue;
       const star = alias.endsWith("*");
       tsPaths.push({ prefix: star ? alias.slice(0, -1) : alias, star, targets });
     }
+    if (!tsPaths.length) continue; // only path-alias configs affect resolution
+    // `paths` are relative to baseUrl; baseUrl is relative to the config's own dir.
+    const baseUrl = norm(posix.join(dir, co?.baseUrl ?? ".")).replace(/^\.$/, "");
+    tsConfigs.push({ dir, baseUrl, paths: tsPaths });
   }
+  // Nearest-enclosing first: deepest dir wins; the root ("") is the fallback.
+  tsConfigs.sort((a, b) => b.dir.length - a.dir.length);
 
   // go.mod nearest the root.
   let goModule: string | undefined;
@@ -133,7 +186,7 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
   }
   workspacePackages.sort((a, b) => b.name.length - a.name.length);
 
-  return { fileSet, dirSet, filesByDir, tsBaseUrl, tsPaths, goModule, goModuleDir, pyRoots: [...pyRoots], workspacePackages };
+  return { fileSet, dirSet, filesByDir, tsConfigs, goModule, goModuleDir, pyRoots: [...pyRoots], workspacePackages, warnings };
 }
 
 function firstExisting(ctx: ResolveContext, candidates: string[]): string | undefined {
@@ -185,17 +238,27 @@ function resolveJs(fromRel: string, spec: string, ctx: ResolveContext): Resoluti
     return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
   }
 
-  // tsconfig path aliases (e.g. "@/x" -> "src/x"). Resolve relative to baseUrl.
-  for (const tp of ctx.tsPaths) {
-    if (tp.star ? spec.startsWith(tp.prefix) : spec === tp.prefix) {
+  // tsconfig path aliases (e.g. "@/x" -> "src/x"), nearest enclosing config first.
+  for (const cfg of ctx.tsConfigs) {
+    if (cfg.dir && fromRel !== cfg.dir && !fromRel.startsWith(cfg.dir + "/")) continue; // out of scope
+    for (const tp of cfg.paths) {
+      if (!(tp.star ? spec.startsWith(tp.prefix) : spec === tp.prefix)) continue;
       const suffix = tp.star ? spec.slice(tp.prefix.length) : "";
+      let targetTreeExists = false;
       for (const t of tp.targets) {
         const resolved = tp.star ? t.replace(/\*/, suffix) : t;
-        const p = norm(posix.join(ctx.tsBaseUrl, resolved));
+        const p = norm(posix.join(cfg.baseUrl, resolved));
         const hit = tryResolve(p);
         if (hit) return { kind: "resolved", target: hit };
+        const tdir = p.includes("/") ? posix.dirname(p) : "";
+        if (ctx.dirSet.has(tdir) || ctx.fileSet.has(p)) targetTreeExists = true;
       }
-      return { kind: "dangling", reason: "alias-unresolved" };
+      // Prefix matched but nothing resolved. If the alias points into a real
+      // in-repo directory it's a genuine broken import (dangling); if the whole
+      // target tree is absent (e.g. a generated `styled-system/` codegen dir that
+      // isn't committed) treat it as external — no false dangling, mirroring the
+      // workspace-package rule below.
+      return targetTreeExists ? { kind: "dangling", reason: "alias-unresolved" } : { kind: "external" };
     }
   }
 

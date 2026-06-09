@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { keywords, rankedKeywords, slugify, rrf, escapeRegExp, clip } from "../src/util.js";
+import { keywords, rankedKeywords, slugify, rrf, escapeRegExp, clip, clipInline } from "../src/util.js";
 
 describe("keywords", () => {
   it("drops stopwords and short noise, keeps identifiers", () => {
@@ -49,5 +49,17 @@ describe("misc helpers", () => {
   it("clip truncates with a marker", () => {
     expect(clip("abcdef", 3)).toContain("truncated");
     expect(clip("ab", 3)).toBe("ab");
+  });
+  it("clipInline never leaves a dangling inline-code backtick", () => {
+    // A long monorepo module summary clipped mid-codespan must stay valid markdown
+    // (a balanced backtick), not the broken "… (types" a raw slice would yield.
+    const summary = "5 file(s) in `packages/code-du-travail-modeles/src/modeles/common/types/` (typescript).";
+    const out = clipInline(summary, 80);
+    expect((out.match(/`/g)?.length ?? 0) % 2).toBe(0); // backticks balanced
+    expect(out.endsWith("…")).toBe(true);
+    expect(out).not.toContain("\n"); // single inline line
+  });
+  it("clipInline returns short strings untouched (sans ellipsis)", () => {
+    expect(clipInline("a short summary", 80)).toBe("a short summary");
   });
 });

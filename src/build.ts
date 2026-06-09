@@ -52,7 +52,10 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
   else removeFile(paths.mermaid); // keep the dir consistent with --no-mermaid
   writeFileIfChanged(paths.index, renderIndex(graph, { repoName: basename(opts.repo) || "repo", mermaid }));
 
-  const extraNotes = opts.mermaid ? [] : ["mermaid diagram disabled (--no-mermaid)"];
+  const extraNotes = [
+    ...ctx.warnings,
+    ...(opts.mermaid ? [] : ["mermaid diagram disabled (--no-mermaid)"]),
+  ];
   const outRel = !isAbsolute(relative(opts.repo, opts.out)) && !relative(opts.repo, opts.out).startsWith("..")
     ? relative(opts.repo, opts.out)
     : opts.out;

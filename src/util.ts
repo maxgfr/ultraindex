@@ -69,6 +69,19 @@ export function clip(s: string, max: number): string {
   return s.slice(0, max) + `\n… [truncated ${s.length - max} chars]`;
 }
 
+// Truncate a string for INLINE display (a single line): collapse whitespace, cut
+// at a word boundary, and never leave a dangling inline-code backtick — so a
+// clipped module summary like "… in `path/` (typescript)" stays valid markdown
+// instead of the broken "… in `path/` (types" a raw slice produces.
+export function clipInline(s: string, max: number): string {
+  const flat = s.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  let cut = flat.slice(0, max).replace(/\s+\S*$/, ""); // back off to a word boundary
+  if (!cut) cut = flat.slice(0, max); // a single token longer than max — hard cut
+  if ((cut.match(/`/g)?.length ?? 0) % 2 === 1) cut += "`"; // re-balance a code span
+  return cut + "…";
+}
+
 // Escape a string for safe inclusion as a literal inside a RegExp.
 export function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
