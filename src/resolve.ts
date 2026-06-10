@@ -26,15 +26,35 @@ interface TsConfigScope {
   paths: TsPath[];
 }
 
+// One subpath of a package.json `exports` map, conditions already flattened into
+// an ordered target list (source-ish conditions first, `types` last).
+interface ExportEntry {
+  key: string; // "." | "./utils" | "./features/*"
+  star: boolean;
+  targets: string[]; // pkg-dir-relative, "*" preserved in star entries
+}
+
+interface WorkspacePackage {
+  name: string;
+  dir: string; // posix dir of its package.json, "" for root
+  exportEntries: ExportEntry[]; // empty when the package declares no `exports`
+  mainCandidates: string[]; // source/main/module/types fields, priority order
+}
+
+interface GoModule {
+  module: string;
+  dir: string; // posix dir of go.mod, "" for root
+  replaces: { from: string; toDir: string }[]; // in-repo relative replaces only
+}
+
 export interface ResolveContext {
   fileSet: Set<string>;
   dirSet: Set<string>; // every directory that has any file beneath it
   filesByDir: Map<string, string[]>; // dir (posix, "" for root) -> rel files
   tsConfigs: TsConfigScope[]; // nearest-enclosing first (deepest dir wins)
-  goModule?: string;
-  goModuleDir: string; // posix dir of go.mod, "" for root
+  goModules: GoModule[]; // every in-repo go.mod, deepest dir first
   pyRoots: string[]; // posix dirs that are python import roots ("" allowed)
-  workspacePackages: { name: string; dir: string }[]; // monorepo pkg name -> its dir
+  workspacePackages: WorkspacePackage[]; // monorepo pkg name -> its dir + entry points
   warnings: string[]; // build-time config issues (e.g. an unparseable tsconfig)
 }
 
@@ -51,6 +71,25 @@ const JS_EXT_PROBES = ["", ".ts", ".tsx", ".d.ts", ".mts", ".cts", ".js", ".jsx"
 const JS_INDEX = ["index.ts", "index.tsx", "index.js", "index.jsx", "index.mjs", "index.cjs"];
 const JS_TS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 const PY = new Set([".py", ".pyi"]);
+
+// Directory names that hold build output. An exports-map target under one of
+// these usually has its source under `src/` (or at the package root) instead.
+const BUILD_DIRS = new Set(["dist", "build", "lib", "out", "output", "esm", "cjs", "umd"]);
+
+// "./dist/esm/index.js" → ["src/esm/index.js", "esm/index.js", "src/index.js",
+// "index.js"] — peel leading build dirs one at a time, trying both a `src/`
+// substitute and a plain drop at each step.
+function distToSrcCandidates(target: string): string[] {
+  const segs = norm(target).split("/").filter((s) => s !== ".");
+  const out: string[] = [];
+  let i = 0;
+  while (i < segs.length - 1 && BUILD_DIRS.has(segs[i]!)) {
+    i++;
+    const rest = segs.slice(i).join("/");
+    out.push("src/" + rest, rest);
+  }
+  return out;
+}
 
 function norm(p: string): string {
   // posix.normalize keeps ".." that escape the root as a leading "../"; callers
@@ -191,8 +230,82 @@ function readTsConfig(
   return eff;
 }
 
+// Conditions ordered by how likely they are to point at committed source rather
+// than build output. `types` goes dead last: a stray .d.ts is a worse node than
+// any runtime entry. Unknown conditions (browser, deno, …) sit in between.
+const CONDITION_PRIORITY = ["source", "ts", "import", "module", "require", "node", "default"];
+const MAX_EXPORT_TARGETS = 8; // cap leaves per subpath — exports maps can be deep
+
+function conditionRank(key: string): number {
+  const i = CONDITION_PRIORITY.indexOf(key);
+  if (i !== -1) return i;
+  return key === "types" ? CONDITION_PRIORITY.length + 1 : CONDITION_PRIORITY.length;
+}
+
+// Flatten one subpath's value (string | array | nested conditions object) into an
+// ordered candidate list. We collect EVERY string leaf rather than picking one
+// condition: an indexer wants "the first candidate that exists in the repo", not
+// Node's single runtime answer.
+function flattenExportTargets(value: unknown, out: string[]): void {
+  if (out.length >= MAX_EXPORT_TARGETS) return;
+  if (typeof value === "string") {
+    if (!out.includes(value)) out.push(value);
+  } else if (Array.isArray(value)) {
+    for (const v of value) flattenExportTargets(v, out);
+  } else if (value !== null && typeof value === "object") {
+    const keys = Object.keys(value).sort((a, b) => conditionRank(a) - conditionRank(b) || (a < b ? -1 : a > b ? 1 : 0));
+    for (const k of keys) flattenExportTargets((value as Record<string, unknown>)[k], out);
+  }
+}
+
+// Parse a package.json `exports` field into ordered entries: exact keys before
+// wildcard keys, longer keys first (Node's pattern precedence, simplified).
+function parseExportEntries(exportsField: unknown): ExportEntry[] {
+  if (exportsField === undefined || exportsField === null) return [];
+  const entries: ExportEntry[] = [];
+  const push = (key: string, value: unknown) => {
+    const targets: string[] = [];
+    flattenExportTargets(value, targets);
+    if (targets.length) entries.push({ key, star: key.includes("*"), targets });
+  };
+  if (typeof exportsField === "string" || Array.isArray(exportsField)) {
+    push(".", exportsField);
+  } else if (typeof exportsField === "object") {
+    const keys = Object.keys(exportsField);
+    if (keys.every((k) => k === "." || k.startsWith("./"))) {
+      for (const k of keys) push(k, (exportsField as Record<string, unknown>)[k]);
+    } else {
+      // A bare conditions object ({"import": …, "require": …}) describes ".".
+      push(".", exportsField);
+    }
+  }
+  entries.sort((a, b) => Number(a.star) - Number(b.star) || b.key.length - a.key.length || (a.key < b.key ? -1 : 1));
+  return entries;
+}
+
+// Parse a go.mod's `replace` directives (single-line and block form), keeping
+// only relative targets that stay inside the repo — those are the directives
+// that rewire one in-repo module onto another's source tree.
+function parseGoReplaces(text: string, modDir: string): { from: string; toDir: string }[] {
+  const out: { from: string; toDir: string }[] = [];
+  const addLine = (line: string) => {
+    const m = /^\s*([^\s=]+)(?:\s+v\S+)?\s*=>\s*(\S+)(?:\s+v\S+)?\s*$/.exec(line);
+    if (!m) return;
+    const target = m[2]!;
+    if (!/^\.\.?\//.test(target)) return; // a module-path replacement, not a local dir
+    const toDir = norm(posix.join(modDir, target));
+    if (toDir.startsWith("..")) return; // escapes the repo — nothing to link to
+    out.push({ from: m[1]!, toDir });
+  };
+  for (const m of text.matchAll(/^[ \t]*replace[ \t]+([^(\r\n][^\r\n]*)$/gm)) addLine(m[1]!);
+  for (const b of text.matchAll(/^[ \t]*replace[ \t]*\(([\s\S]*?)\)/gm)) {
+    for (const line of b[1]!.split(/\r?\n/)) addLine(line);
+  }
+  return out;
+}
+
 // Build the repo-wide context resolution needs: the file set, a dir→files index,
-// tsconfig path aliases, the go module path, and python roots. Read once.
+// tsconfig path aliases, the go module paths, and python roots. Read once.
 export function buildResolveContext(scan: RepoScan): ResolveContext {
   const fileSet = new Set(scan.files.map((f) => f.rel));
   const filesByDir = new Map<string, string[]>();
@@ -221,7 +334,12 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
   const tsConfigs: TsConfigScope[] = [];
   for (const rel of fileSet) {
     const base = rel.slice(rel.lastIndexOf("/") + 1);
-    if (base !== "tsconfig.json" && base !== "jsconfig.json") continue;
+    // Nx-style repos often have NO root tsconfig.json — only a tsconfig.base.json
+    // that per-project configs extend. Accept it as a root-scope config so its
+    // `@org/*` aliases resolve even for files outside any per-project config.
+    // Root only: a nested tsconfig.base.json is always reached via `extends`.
+    const isRootBase = rel === "tsconfig.base.json";
+    if (base !== "tsconfig.json" && base !== "jsconfig.json" && !isRootBase) continue;
     const dir = rel.includes("/") ? posix.dirname(rel) : "";
     const eff = readTsConfig(scan.root, fileSet, rel, warnings, new Set<string>());
     if (!eff?.paths) continue; // no aliases to contribute
@@ -243,17 +361,19 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
   // Nearest-enclosing first: deepest dir wins; the root ("") is the fallback.
   tsConfigs.sort((a, b) => b.dir.length - a.dir.length);
 
-  // go.mod nearest the root.
-  let goModule: string | undefined;
-  let goModuleDir = "";
-  const goModRel = [...fileSet].filter((r) => r.endsWith("go.mod")).sort((a, b) => a.length - b.length)[0];
-  if (goModRel) {
-    const m = /^\s*module\s+(\S+)/m.exec(readText(join(scan.root, goModRel)));
-    if (m) {
-      goModule = m[1]!;
-      goModuleDir = goModRel.includes("/") ? posix.dirname(goModRel) : "";
-    }
+  // Every go.mod, not just the one nearest the root — multi-module repos (a Go
+  // service beside a Go CLI) are normal. Deepest dir first so the module
+  // enclosing an importing file is found by a simple scan.
+  const goModules: GoModule[] = [];
+  for (const rel of fileSet) {
+    if (rel !== "go.mod" && !rel.endsWith("/go.mod")) continue;
+    const text = readText(join(scan.root, rel));
+    const m = /^\s*module\s+(\S+)/m.exec(text);
+    if (!m) continue;
+    const dir = rel.includes("/") ? posix.dirname(rel) : "";
+    goModules.push({ module: m[1]!, dir, replaces: parseGoReplaces(text, dir) });
   }
+  goModules.sort((a, b) => b.dir.length - a.dir.length || (a.dir < b.dir ? -1 : 1));
 
   // Python roots: dirs containing __init__.py / pyproject.toml / setup.py, plus root.
   const pyRoots = new Set<string>([""]);
@@ -266,23 +386,37 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
 
   // Workspace packages: map each in-repo package.json `name` to its directory so
   // bare cross-package imports (`@scope/pkg`) resolve to in-repo source, not
-  // "external". Longest name first so `@scope/a-b` wins over `@scope/a`.
-  const workspacePackages: { name: string; dir: string }[] = [];
+  // "external". Longest name first so `@scope/a-b` wins over `@scope/a`. Also
+  // keep its `exports` map and main-ish fields — modern monorepo packages route
+  // subpath imports (`@scope/pkg/utils`) through `exports`, and probing those
+  // declared entry points beats guessing `src/index`.
+  const workspacePackages: WorkspacePackage[] = [];
   for (const rel of fileSet) {
     if (rel !== "package.json" && !rel.endsWith("/package.json")) continue;
     // Parse with the same JSONC-tolerant path as tsconfig (some package.json carry
     // comments/trailing commas); a truly unparseable one is surfaced, not silently
     // dropped — losing it erases every cross-package edge for that workspace.
-    const pkg = tolerantJsonParse(readText(join(scan.root, rel))) as { name?: string } | undefined;
+    const pkg = tolerantJsonParse(readText(join(scan.root, rel))) as
+      | { name?: string; exports?: unknown; source?: unknown; main?: unknown; module?: unknown; types?: unknown }
+      | undefined;
     if (pkg === undefined) {
       warnings.push(`unparseable ${rel} — skipped for workspace resolution`);
       continue;
     }
-    if (typeof pkg.name === "string") workspacePackages.push({ name: pkg.name, dir: rel.includes("/") ? posix.dirname(rel) : "" });
+    if (typeof pkg.name !== "string") continue;
+    const mainCandidates = [pkg.source, pkg.main, pkg.module, pkg.types].filter(
+      (v): v is string => typeof v === "string",
+    );
+    workspacePackages.push({
+      name: pkg.name,
+      dir: rel.includes("/") ? posix.dirname(rel) : "",
+      exportEntries: parseExportEntries(pkg.exports),
+      mainCandidates,
+    });
   }
   workspacePackages.sort((a, b) => b.name.length - a.name.length);
 
-  return { fileSet, dirSet, filesByDir, tsConfigs, goModule, goModuleDir, pyRoots: [...pyRoots], workspacePackages, warnings };
+  return { fileSet, dirSet, filesByDir, tsConfigs, goModules, pyRoots: [...pyRoots], workspacePackages, warnings };
 }
 
 function firstExisting(ctx: ResolveContext, candidates: string[]): string | undefined {
@@ -367,6 +501,43 @@ function resolveJs(fromRel: string, spec: string, ctx: ResolveContext): Resoluti
   for (const pkg of ctx.workspacePackages) {
     if (spec !== pkg.name && !spec.startsWith(pkg.name + "/")) continue;
     const sub = spec.slice(pkg.name.length).replace(/^\//, "");
+    // Probe a pkg-relative entry-point path, then dist→src remaps of it: exports
+    // maps usually point at compiled output (`./dist/esm/index.js`) while only
+    // the source tree is committed — peel build dirs and retry under `src/`.
+    const probeEntry = (entry: string): string | undefined => {
+      for (const cand of [entry, ...distToSrcCandidates(entry)]) {
+        const hit = tryResolve(norm(posix.join(pkg.dir, cand)));
+        if (hit) return hit;
+      }
+      return undefined;
+    };
+    // 1) The declared `exports` map — first matching key wins (Node precedence:
+    //    exact before wildcard, longest first — already sorted at parse time).
+    const subKey = sub ? "./" + sub : ".";
+    for (const entry of pkg.exportEntries) {
+      let fill: string | undefined;
+      if (entry.star) {
+        const starAt = entry.key.indexOf("*");
+        const pre = entry.key.slice(0, starAt);
+        const post = entry.key.slice(starAt + 1);
+        if (!subKey.startsWith(pre) || !subKey.endsWith(post) || subKey.length < pre.length + post.length) continue;
+        fill = subKey.slice(pre.length, subKey.length - post.length);
+      } else if (entry.key !== subKey) continue;
+      for (const t of entry.targets) {
+        const hit = probeEntry(fill === undefined ? t : t.replace(/\*/g, fill));
+        if (hit) return { kind: "resolved", target: hit };
+      }
+      break; // the matching key resolved nowhere — fall through to the heuristics
+    }
+    // 2) Declared main-ish fields for the bare specifier.
+    if (!sub) {
+      for (const m of pkg.mainCandidates) {
+        const hit = probeEntry(m);
+        if (hit) return { kind: "resolved", target: hit };
+      }
+    }
+    // 3) Naive convention probing — bundler/tsconfig setups legitimately bypass
+    //    `exports`, so this stays as the final fallback (no false dangling).
     const bases = sub
       ? [posix.join(pkg.dir, "src", sub), posix.join(pkg.dir, sub)]
       : [posix.join(pkg.dir, "src", "index"), posix.join(pkg.dir, "index"), posix.join(pkg.dir, "src")];
@@ -410,17 +581,37 @@ function resolvePython(fromRel: string, spec: string, ctx: ResolveContext): Reso
   return { kind: "external" };
 }
 
-function resolveGo(spec: string, ctx: ResolveContext): Resolution {
-  if (!ctx.goModule) return { kind: "external" };
-  if (spec !== ctx.goModule && !spec.startsWith(ctx.goModule + "/")) return { kind: "external" };
-  const sub = spec.slice(ctx.goModule.length).replace(/^\//, "");
-  const dir = norm(posix.join(ctx.goModuleDir, sub)).replace(/^\.$/, "");
+function resolveGo(fromRel: string, spec: string, ctx: ResolveContext): Resolution {
+  if (!ctx.goModules.length) return { kind: "external" };
   // Go imports a package (directory); resolve to the lexicographically-first
   // .go file in that dir as the representative node.
-  const inDir = (ctx.filesByDir.get(dir) ?? []).filter((f) => f.endsWith(".go")).sort();
-  return inDir.length
-    ? { kind: "resolved", target: inDir[0]! }
-    : { kind: "dangling", reason: "missing-package" };
+  const probePkg = (dir: string): Resolution => {
+    const d = norm(dir).replace(/^\.$/, "");
+    const inDir = (ctx.filesByDir.get(d) ?? []).filter((f) => f.endsWith(".go")).sort();
+    return inDir.length
+      ? { kind: "resolved", target: inDir[0]! }
+      : { kind: "dangling", reason: "missing-package" };
+  };
+  // The importing file's own module (nearest enclosing; goModules is deepest-first).
+  const home = ctx.goModules.find((g) => !g.dir || fromRel === g.dir || fromRel.startsWith(g.dir + "/"));
+  // (i) The home module's `replace` directives rewrite the import path before
+  // normal lookup — exactly the go toolchain's order.
+  if (home) {
+    for (const r of home.replaces) {
+      if (spec !== r.from && !spec.startsWith(r.from + "/")) continue;
+      const sub = spec.slice(r.from.length).replace(/^\//, "");
+      return probePkg(posix.join(r.toDir, sub));
+    }
+  }
+  // (ii) The home module's own path, then (iii) every other in-repo module —
+  // cross-module imports are the point of a multi-module repo.
+  const ordered = home ? [home, ...ctx.goModules.filter((g) => g !== home)] : ctx.goModules;
+  for (const g of ordered) {
+    if (spec !== g.module && !spec.startsWith(g.module + "/")) continue;
+    const sub = spec.slice(g.module.length).replace(/^\//, "");
+    return probePkg(posix.join(g.dir, sub));
+  }
+  return { kind: "external" };
 }
 
 // Resolve an import specifier for a file of the given extension.
@@ -438,6 +629,6 @@ export function resolveImport(
   }
   if (JS_TS.has(ext)) return resolveJs(fromRel, spec, ctx);
   if (PY.has(ext)) return resolvePython(fromRel, spec, ctx);
-  if (ext === ".go") return resolveGo(spec, ctx);
+  if (ext === ".go") return resolveGo(fromRel, spec, ctx);
   return { kind: "external" };
 }

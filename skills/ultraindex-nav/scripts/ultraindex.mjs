@@ -1186,6 +1186,18 @@ var JS_EXT_PROBES = ["", ".ts", ".tsx", ".d.ts", ".mts", ".cts", ".js", ".jsx", 
 var JS_INDEX = ["index.ts", "index.tsx", "index.js", "index.jsx", "index.mjs", "index.cjs"];
 var JS_TS2 = /* @__PURE__ */ new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 var PY2 = /* @__PURE__ */ new Set([".py", ".pyi"]);
+var BUILD_DIRS = /* @__PURE__ */ new Set(["dist", "build", "lib", "out", "output", "esm", "cjs", "umd"]);
+function distToSrcCandidates(target) {
+  const segs = norm(target).split("/").filter((s) => s !== ".");
+  const out = [];
+  let i = 0;
+  while (i < segs.length - 1 && BUILD_DIRS.has(segs[i])) {
+    i++;
+    const rest = segs.slice(i).join("/");
+    out.push("src/" + rest, rest);
+  }
+  return out;
+}
 function norm(p) {
   return posix.normalize(p).replace(/\/$/, "");
 }
@@ -1288,6 +1300,62 @@ function readTsConfig(root, fileSet, rel, warnings, seen) {
   }
   return eff;
 }
+var CONDITION_PRIORITY = ["source", "ts", "import", "module", "require", "node", "default"];
+var MAX_EXPORT_TARGETS = 8;
+function conditionRank(key) {
+  const i = CONDITION_PRIORITY.indexOf(key);
+  if (i !== -1) return i;
+  return key === "types" ? CONDITION_PRIORITY.length + 1 : CONDITION_PRIORITY.length;
+}
+function flattenExportTargets(value, out) {
+  if (out.length >= MAX_EXPORT_TARGETS) return;
+  if (typeof value === "string") {
+    if (!out.includes(value)) out.push(value);
+  } else if (Array.isArray(value)) {
+    for (const v of value) flattenExportTargets(v, out);
+  } else if (value !== null && typeof value === "object") {
+    const keys = Object.keys(value).sort((a, b) => conditionRank(a) - conditionRank(b) || (a < b ? -1 : a > b ? 1 : 0));
+    for (const k of keys) flattenExportTargets(value[k], out);
+  }
+}
+function parseExportEntries(exportsField) {
+  if (exportsField === void 0 || exportsField === null) return [];
+  const entries = [];
+  const push = (key, value) => {
+    const targets = [];
+    flattenExportTargets(value, targets);
+    if (targets.length) entries.push({ key, star: key.includes("*"), targets });
+  };
+  if (typeof exportsField === "string" || Array.isArray(exportsField)) {
+    push(".", exportsField);
+  } else if (typeof exportsField === "object") {
+    const keys = Object.keys(exportsField);
+    if (keys.every((k) => k === "." || k.startsWith("./"))) {
+      for (const k of keys) push(k, exportsField[k]);
+    } else {
+      push(".", exportsField);
+    }
+  }
+  entries.sort((a, b) => Number(a.star) - Number(b.star) || b.key.length - a.key.length || (a.key < b.key ? -1 : 1));
+  return entries;
+}
+function parseGoReplaces(text, modDir) {
+  const out = [];
+  const addLine = (line) => {
+    const m = /^\s*([^\s=]+)(?:\s+v\S+)?\s*=>\s*(\S+)(?:\s+v\S+)?\s*$/.exec(line);
+    if (!m) return;
+    const target = m[2];
+    if (!/^\.\.?\//.test(target)) return;
+    const toDir = norm(posix.join(modDir, target));
+    if (toDir.startsWith("..")) return;
+    out.push({ from: m[1], toDir });
+  };
+  for (const m of text.matchAll(/^[ \t]*replace[ \t]+([^(\r\n][^\r\n]*)$/gm)) addLine(m[1]);
+  for (const b of text.matchAll(/^[ \t]*replace[ \t]*\(([\s\S]*?)\)/gm)) {
+    for (const line of b[1].split(/\r?\n/)) addLine(line);
+  }
+  return out;
+}
 function buildResolveContext(scan2) {
   const fileSet = new Set(scan2.files.map((f) => f.rel));
   const filesByDir = /* @__PURE__ */ new Map();
@@ -1308,7 +1376,8 @@ function buildResolveContext(scan2) {
   const tsConfigs = [];
   for (const rel of fileSet) {
     const base = rel.slice(rel.lastIndexOf("/") + 1);
-    if (base !== "tsconfig.json" && base !== "jsconfig.json") continue;
+    const isRootBase = rel === "tsconfig.base.json";
+    if (base !== "tsconfig.json" && base !== "jsconfig.json" && !isRootBase) continue;
     const dir = rel.includes("/") ? posix.dirname(rel) : "";
     const eff = readTsConfig(scan2.root, fileSet, rel, warnings, /* @__PURE__ */ new Set());
     if (!eff?.paths) continue;
@@ -1323,16 +1392,16 @@ function buildResolveContext(scan2) {
     tsConfigs.push({ dir, baseUrl, paths: tsPaths });
   }
   tsConfigs.sort((a, b) => b.dir.length - a.dir.length);
-  let goModule;
-  let goModuleDir = "";
-  const goModRel = [...fileSet].filter((r) => r.endsWith("go.mod")).sort((a, b) => a.length - b.length)[0];
-  if (goModRel) {
-    const m = /^\s*module\s+(\S+)/m.exec(readText(join2(scan2.root, goModRel)));
-    if (m) {
-      goModule = m[1];
-      goModuleDir = goModRel.includes("/") ? posix.dirname(goModRel) : "";
-    }
+  const goModules = [];
+  for (const rel of fileSet) {
+    if (rel !== "go.mod" && !rel.endsWith("/go.mod")) continue;
+    const text = readText(join2(scan2.root, rel));
+    const m = /^\s*module\s+(\S+)/m.exec(text);
+    if (!m) continue;
+    const dir = rel.includes("/") ? posix.dirname(rel) : "";
+    goModules.push({ module: m[1], dir, replaces: parseGoReplaces(text, dir) });
   }
+  goModules.sort((a, b) => b.dir.length - a.dir.length || (a.dir < b.dir ? -1 : 1));
   const pyRoots = /* @__PURE__ */ new Set([""]);
   for (const rel of fileSet) {
     const base = rel.split("/").pop();
@@ -1348,10 +1417,19 @@ function buildResolveContext(scan2) {
       warnings.push(`unparseable ${rel} \u2014 skipped for workspace resolution`);
       continue;
     }
-    if (typeof pkg.name === "string") workspacePackages.push({ name: pkg.name, dir: rel.includes("/") ? posix.dirname(rel) : "" });
+    if (typeof pkg.name !== "string") continue;
+    const mainCandidates = [pkg.source, pkg.main, pkg.module, pkg.types].filter(
+      (v) => typeof v === "string"
+    );
+    workspacePackages.push({
+      name: pkg.name,
+      dir: rel.includes("/") ? posix.dirname(rel) : "",
+      exportEntries: parseExportEntries(pkg.exports),
+      mainCandidates
+    });
   }
   workspacePackages.sort((a, b) => b.name.length - a.name.length);
-  return { fileSet, dirSet, filesByDir, tsConfigs, goModule, goModuleDir, pyRoots: [...pyRoots], workspacePackages, warnings };
+  return { fileSet, dirSet, filesByDir, tsConfigs, goModules, pyRoots: [...pyRoots], workspacePackages, warnings };
 }
 function firstExisting(ctx, candidates) {
   for (const c2 of candidates) {
@@ -1420,6 +1498,35 @@ function resolveJs(fromRel, spec, ctx) {
   for (const pkg of ctx.workspacePackages) {
     if (spec !== pkg.name && !spec.startsWith(pkg.name + "/")) continue;
     const sub = spec.slice(pkg.name.length).replace(/^\//, "");
+    const probeEntry = (entry) => {
+      for (const cand of [entry, ...distToSrcCandidates(entry)]) {
+        const hit = tryResolve(norm(posix.join(pkg.dir, cand)));
+        if (hit) return hit;
+      }
+      return void 0;
+    };
+    const subKey = sub ? "./" + sub : ".";
+    for (const entry of pkg.exportEntries) {
+      let fill;
+      if (entry.star) {
+        const starAt = entry.key.indexOf("*");
+        const pre = entry.key.slice(0, starAt);
+        const post = entry.key.slice(starAt + 1);
+        if (!subKey.startsWith(pre) || !subKey.endsWith(post) || subKey.length < pre.length + post.length) continue;
+        fill = subKey.slice(pre.length, subKey.length - post.length);
+      } else if (entry.key !== subKey) continue;
+      for (const t of entry.targets) {
+        const hit = probeEntry(fill === void 0 ? t : t.replace(/\*/g, fill));
+        if (hit) return { kind: "resolved", target: hit };
+      }
+      break;
+    }
+    if (!sub) {
+      for (const m of pkg.mainCandidates) {
+        const hit = probeEntry(m);
+        if (hit) return { kind: "resolved", target: hit };
+      }
+    }
     const bases = sub ? [posix.join(pkg.dir, "src", sub), posix.join(pkg.dir, sub)] : [posix.join(pkg.dir, "src", "index"), posix.join(pkg.dir, "index"), posix.join(pkg.dir, "src")];
     for (const b of bases) {
       const hit = tryResolve(norm(b));
@@ -1450,13 +1557,28 @@ function resolvePython(fromRel, spec, ctx) {
   }
   return { kind: "external" };
 }
-function resolveGo(spec, ctx) {
-  if (!ctx.goModule) return { kind: "external" };
-  if (spec !== ctx.goModule && !spec.startsWith(ctx.goModule + "/")) return { kind: "external" };
-  const sub = spec.slice(ctx.goModule.length).replace(/^\//, "");
-  const dir = norm(posix.join(ctx.goModuleDir, sub)).replace(/^\.$/, "");
-  const inDir = (ctx.filesByDir.get(dir) ?? []).filter((f) => f.endsWith(".go")).sort();
-  return inDir.length ? { kind: "resolved", target: inDir[0] } : { kind: "dangling", reason: "missing-package" };
+function resolveGo(fromRel, spec, ctx) {
+  if (!ctx.goModules.length) return { kind: "external" };
+  const probePkg = (dir) => {
+    const d = norm(dir).replace(/^\.$/, "");
+    const inDir = (ctx.filesByDir.get(d) ?? []).filter((f) => f.endsWith(".go")).sort();
+    return inDir.length ? { kind: "resolved", target: inDir[0] } : { kind: "dangling", reason: "missing-package" };
+  };
+  const home = ctx.goModules.find((g) => !g.dir || fromRel === g.dir || fromRel.startsWith(g.dir + "/"));
+  if (home) {
+    for (const r of home.replaces) {
+      if (spec !== r.from && !spec.startsWith(r.from + "/")) continue;
+      const sub = spec.slice(r.from.length).replace(/^\//, "");
+      return probePkg(posix.join(r.toDir, sub));
+    }
+  }
+  const ordered = home ? [home, ...ctx.goModules.filter((g) => g !== home)] : ctx.goModules;
+  for (const g of ordered) {
+    if (spec !== g.module && !spec.startsWith(g.module + "/")) continue;
+    const sub = spec.slice(g.module.length).replace(/^\//, "");
+    return probePkg(posix.join(g.dir, sub));
+  }
+  return { kind: "external" };
 }
 function resolveImport(fromRel, ext, spec, ctx) {
   const dot = spec.lastIndexOf(".");
@@ -1465,7 +1587,7 @@ function resolveImport(fromRel, ext, spec, ctx) {
   }
   if (JS_TS2.has(ext)) return resolveJs(fromRel, spec, ctx);
   if (PY2.has(ext)) return resolvePython(fromRel, spec, ctx);
-  if (ext === ".go") return resolveGo(spec, ctx);
+  if (ext === ".go") return resolveGo(fromRel, spec, ctx);
   return { kind: "external" };
 }
 
