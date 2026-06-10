@@ -47,12 +47,21 @@ interface GoModule {
   replaces: { from: string; toDir: string }[]; // in-repo relative replaces only
 }
 
+interface RustCrate {
+  name: string; // [package].name with "-" mapped to "_" (the in-code identifier)
+  dir: string; // posix dir of Cargo.toml, "" for root
+  srcDir: string; // dir/src
+  rootFile?: string; // src/lib.rs or src/main.rs, whichever exists
+}
+
 export interface ResolveContext {
   fileSet: Set<string>;
   dirSet: Set<string>; // every directory that has any file beneath it
   filesByDir: Map<string, string[]>; // dir (posix, "" for root) -> rel files
   tsConfigs: TsConfigScope[]; // nearest-enclosing first (deepest dir wins)
   goModules: GoModule[]; // every in-repo go.mod, deepest dir first
+  rustCrates: RustCrate[]; // every in-repo Cargo.toml [package], deepest dir first
+  javaRoots: string[]; // dirs that java package paths resolve against
   pyRoots: string[]; // posix dirs that are python import roots ("" allowed)
   workspacePackages: WorkspacePackage[]; // monorepo pkg name -> its dir + entry points
   warnings: string[]; // build-time config issues (e.g. an unparseable tsconfig)
@@ -95,6 +104,18 @@ function norm(p: string): string {
   // posix.normalize keeps ".." that escape the root as a leading "../"; callers
   // treat an escaping path as unresolved.
   return posix.normalize(p).replace(/\/$/, "");
+}
+
+function firstThat(fileSet: Set<string>, candidates: string[]): string | undefined {
+  for (const c of candidates) {
+    const n = norm(c);
+    if (fileSet.has(n)) return n;
+  }
+  return undefined;
+}
+
+function byLen(a: string, b: string): number {
+  return a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
 }
 
 function tolerantJsonParse(text: string): unknown {
@@ -375,6 +396,36 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
   }
   goModules.sort((a, b) => b.dir.length - a.dir.length || (a.dir < b.dir ? -1 : 1));
 
+  // Rust crates: every Cargo.toml with a [package] section. The crate's in-code
+  // name maps "-" to "_" (cargo's identifier rule); deepest dir first so the
+  // crate enclosing an importing file is found by a simple scan.
+  const rustCrates: RustCrate[] = [];
+  for (const rel of fileSet) {
+    if (rel !== "Cargo.toml" && !rel.endsWith("/Cargo.toml")) continue;
+    const text = readText(join(scan.root, rel));
+    // [package] name = "x" — section-scoped so a [dependencies] entry named
+    // `name` can't masquerade as the crate name.
+    const m = /\[package\][^[]*?^\s*name\s*=\s*"([^"]+)"/ms.exec(text);
+    if (!m) continue; // a virtual workspace manifest — no crate of its own
+    const dir = rel.includes("/") ? posix.dirname(rel) : "";
+    const srcDir = norm(posix.join(dir, "src")).replace(/^\.$/, "");
+    const rootFile = firstThat(fileSet, [posix.join(srcDir, "lib.rs"), posix.join(srcDir, "main.rs")]);
+    rustCrates.push({ name: m[1]!.replace(/-/g, "_"), dir, srcDir, rootFile });
+  }
+  rustCrates.sort((a, b) => b.dir.length - a.dir.length || (a.dir < b.dir ? -1 : 1));
+
+  // Java source roots: a file at X/com/a/b/C.java declaring `package com.a.b`
+  // anchors X as a root — covers src/main/java, Maven/Gradle multi-module, any
+  // layout, with zero extra file reads (the package came along with the scan).
+  const javaRoots = new Set<string>();
+  for (const f of scan.files) {
+    if (f.ext !== ".java" || !f.pkg) continue;
+    const dir = f.rel.includes("/") ? posix.dirname(f.rel) : "";
+    const pkgPath = f.pkg.replace(/\./g, "/");
+    if (dir === pkgPath) javaRoots.add("");
+    else if (dir.endsWith("/" + pkgPath)) javaRoots.add(dir.slice(0, -pkgPath.length - 1));
+  }
+
   // Python roots: dirs containing __init__.py / pyproject.toml / setup.py, plus root.
   const pyRoots = new Set<string>([""]);
   for (const rel of fileSet) {
@@ -416,7 +467,18 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
   }
   workspacePackages.sort((a, b) => b.name.length - a.name.length);
 
-  return { fileSet, dirSet, filesByDir, tsConfigs, goModules, pyRoots: [...pyRoots], workspacePackages, warnings };
+  return {
+    fileSet,
+    dirSet,
+    filesByDir,
+    tsConfigs,
+    goModules,
+    rustCrates,
+    javaRoots: [...javaRoots].sort(byLen),
+    pyRoots: [...pyRoots],
+    workspacePackages,
+    warnings,
+  };
 }
 
 function firstExisting(ctx: ResolveContext, candidates: string[]): string | undefined {
@@ -614,6 +676,121 @@ function resolveGo(fromRel: string, spec: string, ctx: ResolveContext): Resoluti
   return { kind: "external" };
 }
 
+function resolveRust(fromRel: string, spec: string, ctx: ResolveContext): Resolution {
+  if (!ctx.rustCrates.length) return { kind: "external" };
+  // Probe a module path: `dir/name.rs` (2018 layout) or `dir/name/mod.rs` (2015).
+  const probeMod = (dir: string, name: string): string | undefined =>
+    firstExisting(ctx, [posix.join(dir, name + ".rs"), posix.join(dir, name, "mod.rs")]);
+  // Walk a `::` path under a base dir, longest prefix first — trailing segments
+  // are items (fn/struct), not files, so peel until a module file matches.
+  const walkPath = (baseDir: string, segs: string[]): string | undefined => {
+    for (let n = segs.length; n >= 1; n--) {
+      const dir = norm(posix.join(baseDir, ...segs.slice(0, n - 1)));
+      const hit = probeMod(dir, segs[n - 1]!);
+      if (hit) return hit;
+    }
+    return undefined;
+  };
+
+  const fromDir = fromRel.includes("/") ? posix.dirname(fromRel) : "";
+  const stem = fromRel.slice(fromRel.lastIndexOf("/") + 1).replace(/\.rs$/, "");
+  const isRootish = stem === "mod" || stem === "lib" || stem === "main";
+  // The directory the importing file's CHILD modules live in.
+  const childDir = isRootish ? fromDir : posix.join(fromDir, stem);
+
+  if (spec.startsWith("mod ")) {
+    const name = spec.slice(4);
+    // A declared `mod` MUST exist as a file — safe to call dangling. Probe the
+    // edition-correct dir first, then the sibling dir (lenient on mixed layouts).
+    const hit = probeMod(childDir, name) ?? (isRootish ? undefined : probeMod(fromDir, name));
+    return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
+  }
+
+  const segs = spec.split("::").map((s) => s.trim()).filter(Boolean);
+  if (!segs.length) return { kind: "external" };
+  const head = segs[0]!;
+
+  // The crate enclosing the importing file (deepest dir first).
+  const home = ctx.rustCrates.find((c) => !c.dir || fromRel === c.dir || fromRel.startsWith(c.dir + "/"));
+
+  let baseDir: string | undefined;
+  let rest: string[] = [];
+  if (head === "crate" && home) {
+    baseDir = home.srcDir;
+    rest = segs.slice(1);
+  } else if (head === "self") {
+    baseDir = childDir;
+    rest = segs.slice(1);
+  } else if (head === "super") {
+    // One `super` per leading segment; the importing file's own module dir is
+    // childDir, so the first super lands on fromDir (for rootish, its parent).
+    let dir = isRootish ? (fromDir.includes("/") ? posix.dirname(fromDir) : "") : fromDir;
+    let i = 1;
+    while (i < segs.length && segs[i] === "super") {
+      dir = dir.includes("/") ? posix.dirname(dir) : "";
+      i++;
+    }
+    baseDir = dir;
+    rest = segs.slice(i);
+  } else {
+    // A bare first segment may be a sibling in-repo crate (`other_crate::…`).
+    const target = ctx.rustCrates.find((c) => c.name === head);
+    if (target) {
+      const walked = walkPath(target.srcDir, segs.slice(1));
+      if (walked) return { kind: "resolved", target: walked };
+      if (target.rootFile) return { kind: "resolved", target: target.rootFile };
+    }
+    return { kind: "external" }; // std/serde/… or an unmapped re-export
+  }
+
+  if (!rest.length) return { kind: "external" }; // `use crate;` style — no edge
+  const hit = walkPath(baseDir, rest);
+  if (hit) return { kind: "resolved", target: hit };
+  // No module file matched — the leaf is usually an ITEM (fn/struct) defined in
+  // the module that owns baseDir; point the edge at that owning file. For the
+  // crate root that's lib.rs/main.rs; for a subdir, `<dir>.rs` or `<dir>/mod.rs`.
+  if (home && baseDir === home.srcDir && home.rootFile) return { kind: "resolved", target: home.rootFile };
+  const ownerDir = baseDir.includes("/") ? posix.dirname(baseDir) : "";
+  const ownerName = baseDir.slice(baseDir.lastIndexOf("/") + 1);
+  const owner = ownerName ? probeMod(ownerDir, ownerName) : undefined;
+  if (owner && owner !== fromRel) return { kind: "resolved", target: owner };
+  // Still nothing — the path may route through `pub use` re-exports or inline
+  // `mod {}` blocks we don't model. External, never false-dangling.
+  return { kind: "external" };
+}
+
+function resolveJava(spec: string, ctx: ResolveContext): Resolution {
+  if (!ctx.javaRoots.length) return { kind: "external" };
+  const probe = (pkgPath: string): string | undefined => {
+    for (const root of ctx.javaRoots) {
+      const p = norm(posix.join(root, pkgPath));
+      // Wildcard import: the package directory — resolve to its
+      // lexicographically-first .java file (the Go-package pattern).
+      if (p.endsWith("/*") || p === "*") {
+        const dir = p === "*" ? "" : p.slice(0, -2);
+        const inDir = (ctx.filesByDir.get(dir) ?? []).filter((f) => f.endsWith(".java")).sort();
+        if (inDir.length) return inDir[0];
+        continue;
+      }
+      if (ctx.fileSet.has(p + ".java")) return p + ".java";
+    }
+    return undefined;
+  };
+
+  const path = spec.replace(/\./g, "/");
+  let hit = probe(path);
+  if (!hit && !spec.endsWith(".*")) {
+    // `import com.a.Outer.Inner` (nested class) or `import static com.a.C.m` —
+    // peel trailing segments until a type file matches.
+    const segs = path.split("/");
+    for (let n = segs.length - 1; n >= 2 && !hit; n--) {
+      hit = probe(segs.slice(0, n).join("/"));
+    }
+  }
+  // stdlib/third-party (java.util.*, com.google.*) simply never match a root.
+  return hit ? { kind: "resolved", target: hit } : { kind: "external" };
+}
+
 // Resolve an import specifier for a file of the given extension.
 export function resolveImport(
   fromRel: string,
@@ -630,5 +807,7 @@ export function resolveImport(
   if (JS_TS.has(ext)) return resolveJs(fromRel, spec, ctx);
   if (PY.has(ext)) return resolvePython(fromRel, spec, ctx);
   if (ext === ".go") return resolveGo(fromRel, spec, ctx);
+  if (ext === ".rs") return resolveRust(fromRel, spec, ctx);
+  if (ext === ".java") return resolveJava(spec, ctx);
   return { kind: "external" };
 }

@@ -138,11 +138,12 @@ touched (new modules surface as unenriched; changed hubs deserve a re-read).
 - **No keys, no network, deterministic.** ripgrep is used when present (faster
   `find`); without it a built-in scanner is used. Without `git`, the manifest
   simply omits the commit. Two builds of an unchanged repo are byte-identical.
-- **Scope (v1).** Link edges: `contains` (module→file), `doc-link` (markdown
+- **Scope.** Link edges: `contains` (module→file), `doc-link` (markdown
   links), `import` (local imports for JS/TS incl. tsconfig `paths` and package
-  `exports` maps, Python, Go incl. multi-module + `replace`), and conservative
-  `mention` edges (a doc naming an exported symbol). Other languages are still
-  scanned and searchable; they just get no import edges.
+  `exports` maps, Python, Go incl. multi-module + `replace`, Rust `mod`/`use`,
+  Java packages), and conservative `mention` edges (a doc naming an exported
+  symbol). Other languages are still scanned and searchable; they just get no
+  import edges.
 - **Yarn PnP** repos resolve workspace imports via package.json names (the same
   detection as every other monorepo), not `.pnp.cjs` — PnP's virtual filesystem
   is out of scope.

@@ -83,6 +83,7 @@ export function scanRepo(root: string, opts: ScanOptions = {}): RepoScan {
         record.summary = code.summary;
         record.symbols = code.symbols;
         record.refs = code.refs;
+        record.pkg = code.pkg;
       } else {
         record.title = basename(f.rel);
       }

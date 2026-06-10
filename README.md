@@ -89,10 +89,12 @@ A **deterministic engine** (no model, no network) does the mechanical work:
   headings / links) and code (exported symbols + signatures incl. `export default`
   and barrel re-exports, top doc-comment, local imports).
 - **Resolve** — markdown relative links, and local imports for **JS/TS** (incl.
-  `tsconfig` path aliases and **pnpm/Lerna workspace packages** → in-repo source),
-  **Python**, and **Go** (via `go.mod`). Unresolved local targets become
-  **dangling** edges (surfaced, never silently dropped); third-party/stdlib and
-  asset imports are external (no edge).
+  `tsconfig` path aliases — even Nx-style root `tsconfig.base.json` — and
+  **workspace packages** with their `exports` maps → in-repo source), **Python**,
+  **Go** (multi-module `go.mod` incl. `replace` directives), **Rust**
+  (`mod`/`use`, cross-crate), and **Java** (package → source-root mapping).
+  Unresolved local targets become **dangling** edges (surfaced, never silently
+  dropped); third-party/stdlib and asset imports are external (no edge).
 - **Graph** — typed edges (`doc-link`, `import`, conservative `mention`),
   file-level and lifted to module level; degree centrality picks the hubs.
 - **Render** — a budgeted `INDEX.md`, per-module entries split into tool-owned

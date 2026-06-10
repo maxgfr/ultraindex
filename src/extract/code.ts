@@ -5,6 +5,7 @@ export interface CodeInfo {
   symbols: CodeSymbol[];
   summary?: string;
   refs: RawRef[]; // import refs (raw specifiers, unresolved)
+  pkg?: string; // Java: the file's own `package x.y.z;` — used to derive source roots
 }
 
 const JS_TS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -77,6 +78,50 @@ function topDocComment(content: string): string | undefined {
   return (sentence ? sentence[1]! : text).slice(0, 200);
 }
 
+// Rust `use` paths may end in a brace group (`use crate::a::{b, c::d};`, nested
+// allowed). Expand each leaf into a full path, capped — a giant prelude group
+// shouldn't explode into hundreds of refs.
+const MAX_USE_EXPANSION = 16;
+function expandUseGroups(path: string, out: string[] = []): string[] {
+  if (out.length >= MAX_USE_EXPANSION) return out;
+  const brace = path.indexOf("{");
+  if (brace === -1) {
+    const cleaned = path.replace(/\s+as\s+\w+\s*$/, "").replace(/::\s*\*\s*$/, "").replace(/^::/, "").trim();
+    if (cleaned) out.push(cleaned);
+    return out;
+  }
+  const prefix = path.slice(0, brace);
+  let depth = 0;
+  let end = -1;
+  for (let i = brace; i < path.length; i++) {
+    if (path[i] === "{") depth++;
+    else if (path[i] === "}" && --depth === 0) {
+      end = i;
+      break;
+    }
+  }
+  if (end === -1) return out; // unbalanced — drop rather than guess
+  const parts: string[] = [];
+  let cur = "";
+  depth = 0;
+  for (const ch of path.slice(brace + 1, end)) {
+    if (ch === "{") depth++;
+    if (ch === "}") depth--;
+    if (ch === "," && depth === 0) {
+      parts.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  parts.push(cur);
+  for (const part of parts) {
+    const t = part.trim();
+    if (!t) continue;
+    if (t === "self") expandUseGroups(prefix.replace(/::\s*$/, ""), out);
+    else expandUseGroups(prefix + t, out);
+  }
+  return out;
+}
+
 // Extract import specifiers as written (no resolution). Resolution needs
 // repo-wide context (tsconfig paths, go.mod, python roots) and happens later.
 function extractImports(ext: string, content: string): RawRef[] {
@@ -133,6 +178,24 @@ function extractImports(ext: string, content: string): RawRef[] {
       const single = /^import\s+(?:[\w.]+\s+)?"([^"]+)"/.exec(t);
       if (single) specs.add(single[1]!);
     }
+  } else if (ext === ".rs") {
+    let m: RegExpExecArray | null;
+    // `mod foo;` declares a child module that MUST exist as a file (an inline
+    // `mod foo { … }` body has no `;` and is skipped).
+    const modRe = /^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_]\w*)\s*;/gm;
+    while ((m = modRe.exec(content))) specs.add(`mod ${m[1]}`);
+    // `use` paths, brace groups expanded. External crates (std, serde, …) are
+    // filtered at resolve time, where the in-repo crate list lives.
+    const useRe = /^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([^;]+);/gm;
+    while ((m = useRe.exec(content))) {
+      for (const p of expandUseGroups(m[1]!.trim())) specs.add(p);
+    }
+  } else if (ext === ".java") {
+    // `import com.a.b.C;` / `import static com.a.b.C.method;` — wildcards kept
+    // as written; the resolver maps packages onto source roots.
+    let m: RegExpExecArray | null;
+    const imp = /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)\s*;/gm;
+    while ((m = imp.exec(content))) specs.add(m[1]!);
   }
 
   return [...specs].map((spec) => ({ kind: "import" as const, spec }));
@@ -191,5 +254,6 @@ export function extractCode(rel: string, ext: string, content: string): CodeInfo
     symbols: [...symbols, ...reexports],
     summary: topDocComment(content),
     refs: extractImports(ext, content),
+    pkg: ext === ".java" ? /^\s*package\s+([\w.]+)\s*;/m.exec(content)?.[1] : undefined,
   };
 }

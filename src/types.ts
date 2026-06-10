@@ -56,6 +56,7 @@ export interface FileRecord {
   headings: string[]; // markdown section headings
   symbols: CodeSymbol[]; // declared symbols (capped per file)
   refs: RawRef[]; // unresolved outbound links/imports
+  pkg?: string; // Java: the file's `package` declaration — anchors source roots
 }
 
 // A node in the link-graph. Files and modules are both nodes; `find`/`neighbors`

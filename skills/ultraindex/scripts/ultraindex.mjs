@@ -984,6 +984,46 @@ function topDocComment(content) {
   const sentence = /^(.*?[.!?])(\s|$)/.exec(text);
   return (sentence ? sentence[1] : text).slice(0, 200);
 }
+var MAX_USE_EXPANSION = 16;
+function expandUseGroups(path, out = []) {
+  if (out.length >= MAX_USE_EXPANSION) return out;
+  const brace = path.indexOf("{");
+  if (brace === -1) {
+    const cleaned = path.replace(/\s+as\s+\w+\s*$/, "").replace(/::\s*\*\s*$/, "").replace(/^::/, "").trim();
+    if (cleaned) out.push(cleaned);
+    return out;
+  }
+  const prefix = path.slice(0, brace);
+  let depth = 0;
+  let end = -1;
+  for (let i = brace; i < path.length; i++) {
+    if (path[i] === "{") depth++;
+    else if (path[i] === "}" && --depth === 0) {
+      end = i;
+      break;
+    }
+  }
+  if (end === -1) return out;
+  const parts = [];
+  let cur = "";
+  depth = 0;
+  for (const ch of path.slice(brace + 1, end)) {
+    if (ch === "{") depth++;
+    if (ch === "}") depth--;
+    if (ch === "," && depth === 0) {
+      parts.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  parts.push(cur);
+  for (const part of parts) {
+    const t = part.trim();
+    if (!t) continue;
+    if (t === "self") expandUseGroups(prefix.replace(/::\s*$/, ""), out);
+    else expandUseGroups(prefix + t, out);
+  }
+  return out;
+}
 function extractImports(ext, content) {
   const specs = /* @__PURE__ */ new Set();
   const lines = content.split(/\r?\n/);
@@ -1032,6 +1072,18 @@ function extractImports(ext, content) {
       const single = /^import\s+(?:[\w.]+\s+)?"([^"]+)"/.exec(t);
       if (single) specs.add(single[1]);
     }
+  } else if (ext === ".rs") {
+    let m;
+    const modRe = /^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_]\w*)\s*;/gm;
+    while (m = modRe.exec(content)) specs.add(`mod ${m[1]}`);
+    const useRe = /^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([^;]+);/gm;
+    while (m = useRe.exec(content)) {
+      for (const p of expandUseGroups(m[1].trim())) specs.add(p);
+    }
+  } else if (ext === ".java") {
+    let m;
+    const imp = /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)\s*;/gm;
+    while (m = imp.exec(content)) specs.add(m[1]);
   }
   return [...specs].map((spec) => ({ kind: "import", spec }));
 }
@@ -1088,7 +1140,8 @@ function extractCode(rel, ext, content) {
   return {
     symbols: [...symbols, ...reexports],
     summary: topDocComment(content),
-    refs: extractImports(ext, content)
+    refs: extractImports(ext, content),
+    pkg: ext === ".java" ? /^\s*package\s+([\w.]+)\s*;/m.exec(content)?.[1] : void 0
   };
 }
 
@@ -1141,6 +1194,7 @@ function scanRepo(root, opts = {}) {
         record.summary = code.summary;
         record.symbols = code.symbols;
         record.refs = code.refs;
+        record.pkg = code.pkg;
       } else {
         record.title = basename(f.rel);
       }
@@ -1200,6 +1254,16 @@ function distToSrcCandidates(target) {
 }
 function norm(p) {
   return posix.normalize(p).replace(/\/$/, "");
+}
+function firstThat(fileSet, candidates) {
+  for (const c2 of candidates) {
+    const n = norm(c2);
+    if (fileSet.has(n)) return n;
+  }
+  return void 0;
+}
+function byLen(a, b) {
+  return a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
 }
 function tolerantJsonParse(text) {
   let stripped = "";
@@ -1402,6 +1466,26 @@ function buildResolveContext(scan2) {
     goModules.push({ module: m[1], dir, replaces: parseGoReplaces(text, dir) });
   }
   goModules.sort((a, b) => b.dir.length - a.dir.length || (a.dir < b.dir ? -1 : 1));
+  const rustCrates = [];
+  for (const rel of fileSet) {
+    if (rel !== "Cargo.toml" && !rel.endsWith("/Cargo.toml")) continue;
+    const text = readText(join2(scan2.root, rel));
+    const m = /\[package\][^[]*?^\s*name\s*=\s*"([^"]+)"/ms.exec(text);
+    if (!m) continue;
+    const dir = rel.includes("/") ? posix.dirname(rel) : "";
+    const srcDir = norm(posix.join(dir, "src")).replace(/^\.$/, "");
+    const rootFile = firstThat(fileSet, [posix.join(srcDir, "lib.rs"), posix.join(srcDir, "main.rs")]);
+    rustCrates.push({ name: m[1].replace(/-/g, "_"), dir, srcDir, rootFile });
+  }
+  rustCrates.sort((a, b) => b.dir.length - a.dir.length || (a.dir < b.dir ? -1 : 1));
+  const javaRoots = /* @__PURE__ */ new Set();
+  for (const f of scan2.files) {
+    if (f.ext !== ".java" || !f.pkg) continue;
+    const dir = f.rel.includes("/") ? posix.dirname(f.rel) : "";
+    const pkgPath = f.pkg.replace(/\./g, "/");
+    if (dir === pkgPath) javaRoots.add("");
+    else if (dir.endsWith("/" + pkgPath)) javaRoots.add(dir.slice(0, -pkgPath.length - 1));
+  }
   const pyRoots = /* @__PURE__ */ new Set([""]);
   for (const rel of fileSet) {
     const base = rel.split("/").pop();
@@ -1429,7 +1513,18 @@ function buildResolveContext(scan2) {
     });
   }
   workspacePackages.sort((a, b) => b.name.length - a.name.length);
-  return { fileSet, dirSet, filesByDir, tsConfigs, goModules, pyRoots: [...pyRoots], workspacePackages, warnings };
+  return {
+    fileSet,
+    dirSet,
+    filesByDir,
+    tsConfigs,
+    goModules,
+    rustCrates,
+    javaRoots: [...javaRoots].sort(byLen),
+    pyRoots: [...pyRoots],
+    workspacePackages,
+    warnings
+  };
 }
 function firstExisting(ctx, candidates) {
   for (const c2 of candidates) {
@@ -1580,6 +1675,91 @@ function resolveGo(fromRel, spec, ctx) {
   }
   return { kind: "external" };
 }
+function resolveRust(fromRel, spec, ctx) {
+  if (!ctx.rustCrates.length) return { kind: "external" };
+  const probeMod = (dir, name) => firstExisting(ctx, [posix.join(dir, name + ".rs"), posix.join(dir, name, "mod.rs")]);
+  const walkPath = (baseDir2, segs2) => {
+    for (let n = segs2.length; n >= 1; n--) {
+      const dir = norm(posix.join(baseDir2, ...segs2.slice(0, n - 1)));
+      const hit2 = probeMod(dir, segs2[n - 1]);
+      if (hit2) return hit2;
+    }
+    return void 0;
+  };
+  const fromDir = fromRel.includes("/") ? posix.dirname(fromRel) : "";
+  const stem = fromRel.slice(fromRel.lastIndexOf("/") + 1).replace(/\.rs$/, "");
+  const isRootish = stem === "mod" || stem === "lib" || stem === "main";
+  const childDir = isRootish ? fromDir : posix.join(fromDir, stem);
+  if (spec.startsWith("mod ")) {
+    const name = spec.slice(4);
+    const hit2 = probeMod(childDir, name) ?? (isRootish ? void 0 : probeMod(fromDir, name));
+    return hit2 ? { kind: "resolved", target: hit2 } : { kind: "dangling", reason: "missing-module" };
+  }
+  const segs = spec.split("::").map((s) => s.trim()).filter(Boolean);
+  if (!segs.length) return { kind: "external" };
+  const head = segs[0];
+  const home = ctx.rustCrates.find((c2) => !c2.dir || fromRel === c2.dir || fromRel.startsWith(c2.dir + "/"));
+  let baseDir;
+  let rest = [];
+  if (head === "crate" && home) {
+    baseDir = home.srcDir;
+    rest = segs.slice(1);
+  } else if (head === "self") {
+    baseDir = childDir;
+    rest = segs.slice(1);
+  } else if (head === "super") {
+    let dir = isRootish ? fromDir.includes("/") ? posix.dirname(fromDir) : "" : fromDir;
+    let i = 1;
+    while (i < segs.length && segs[i] === "super") {
+      dir = dir.includes("/") ? posix.dirname(dir) : "";
+      i++;
+    }
+    baseDir = dir;
+    rest = segs.slice(i);
+  } else {
+    const target = ctx.rustCrates.find((c2) => c2.name === head);
+    if (target) {
+      const walked = walkPath(target.srcDir, segs.slice(1));
+      if (walked) return { kind: "resolved", target: walked };
+      if (target.rootFile) return { kind: "resolved", target: target.rootFile };
+    }
+    return { kind: "external" };
+  }
+  if (!rest.length) return { kind: "external" };
+  const hit = walkPath(baseDir, rest);
+  if (hit) return { kind: "resolved", target: hit };
+  if (home && baseDir === home.srcDir && home.rootFile) return { kind: "resolved", target: home.rootFile };
+  const ownerDir = baseDir.includes("/") ? posix.dirname(baseDir) : "";
+  const ownerName = baseDir.slice(baseDir.lastIndexOf("/") + 1);
+  const owner = ownerName ? probeMod(ownerDir, ownerName) : void 0;
+  if (owner && owner !== fromRel) return { kind: "resolved", target: owner };
+  return { kind: "external" };
+}
+function resolveJava(spec, ctx) {
+  if (!ctx.javaRoots.length) return { kind: "external" };
+  const probe = (pkgPath) => {
+    for (const root of ctx.javaRoots) {
+      const p = norm(posix.join(root, pkgPath));
+      if (p.endsWith("/*") || p === "*") {
+        const dir = p === "*" ? "" : p.slice(0, -2);
+        const inDir = (ctx.filesByDir.get(dir) ?? []).filter((f) => f.endsWith(".java")).sort();
+        if (inDir.length) return inDir[0];
+        continue;
+      }
+      if (ctx.fileSet.has(p + ".java")) return p + ".java";
+    }
+    return void 0;
+  };
+  const path = spec.replace(/\./g, "/");
+  let hit = probe(path);
+  if (!hit && !spec.endsWith(".*")) {
+    const segs = path.split("/");
+    for (let n = segs.length - 1; n >= 2 && !hit; n--) {
+      hit = probe(segs.slice(0, n).join("/"));
+    }
+  }
+  return hit ? { kind: "resolved", target: hit } : { kind: "external" };
+}
 function resolveImport(fromRel, ext, spec, ctx) {
   const dot = spec.lastIndexOf(".");
   if (dot !== -1 && ASSET_EXT.has(spec.slice(dot).toLowerCase().replace(/[?#].*$/, ""))) {
@@ -1588,6 +1768,8 @@ function resolveImport(fromRel, ext, spec, ctx) {
   if (JS_TS2.has(ext)) return resolveJs(fromRel, spec, ctx);
   if (PY2.has(ext)) return resolvePython(fromRel, spec, ctx);
   if (ext === ".go") return resolveGo(fromRel, spec, ctx);
+  if (ext === ".rs") return resolveRust(fromRel, spec, ctx);
+  if (ext === ".java") return resolveJava(spec, ctx);
   return { kind: "external" };
 }
 
