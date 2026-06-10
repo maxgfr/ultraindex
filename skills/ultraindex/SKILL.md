@@ -41,31 +41,52 @@ No `npm install`, no API keys. Run `--help` for the full surface. Commands:
   graph neighbours. Read this, then write the analysis. This is how you analyze
   from evidence instead of memory.
 - `map [--out <dir>] [--module <slug>]` — print `INDEX.md` (or one module's entry)
-  to stdout cheaply, without reading the whole tree.
+  to stdout cheaply, without reading the whole tree. `map --json` emits the module
+  table (slug, tier, degree, summary) for parsing.
+- `status [--out <dir>]` — the **enrichment work-queue**: which modules still hold
+  stubs, in the exact order to enrich them (unenriched first, foundations/features
+  before tail, most-connected first). Use `--json` to drive a loop.
 - `find <query…> [--out <dir>] [--k <n>]` — rank modules for a task, print the **exact files to open**.
 - `neighbors <file|module> [--out <dir>] [--depth <n>]` — graph neighbours (what links to / from it).
 - `check [--out <dir>] [--repo <dir>]` — report staleness, integrity, AND **grounding**:
   every `[file:line]` citation in your analysis must resolve. Exit non-zero ⇒
   stale, broken, or ungrounded.
 
+Most commands accept `--json` for machine-readable output — prefer it whenever
+you branch on the result rather than read it as prose.
+
 ## Workflow
 
 You are invoked to **build the index and analyze the repo into it**. The engine
 does the scan; you do the grounded analysis.
 
-1. **Build the index.**
+1. **Build the index — and read the report.**
    ```
-   node scripts/ultraindex.mjs build --repo <path-to-repo>
+   node scripts/ultraindex.mjs build --repo <path-to-repo> --json
    ```
    Add `--out docs/ultraindex` if the team wants it committed and reviewed in PRs.
-   Fast even on huge repos — pure file I/O, no model involvement. It prints where
-   it wrote the artifact and a summary (file/module/edge counts, dangling links).
+   Fast even on huge repos — pure file I/O, no model involvement. The `--json`
+   report is self-diagnosing: if `dangling > 0`, read `danglingByReason` and its
+   `reasonHints`, and check `notes` (unparseable tsconfig/package.json files are
+   listed there). Fix what's fixable before enriching: `--exclude` vendored or
+   generated trees, flag repo config issues. Dangling edges usually mean **the
+   repo itself** has broken imports or stale doc links — that's a finding, report
+   it to the user rather than papering over it.
 
 2. **Skim the map.** `node scripts/ultraindex.mjs map` prints `INDEX.md`: project
-   summary, the **hub** modules (highest-connected), and the module table. Decide
-   which modules matter — start with the hubs.
+   summary, the **hub** modules (highest-connected), and the module table. Read it
+   once to understand the shape of the repo.
 
-3. **Analyze each important module — grounded.** For a module `<slug>`:
+3. **Enrich under a budget — let `status` drive.**
+   ```
+   node scripts/ultraindex.mjs status --json
+   ```
+   It lists every module in the exact order to enrich: unenriched first,
+   foundations/features before tail, most-connected first. Work the list
+   top-down. On a large repo, enriching the **top 10–20** entries captures most
+   of the navigation value — trivial leaves can stay as stubs (partial enrichment
+   is fine). Re-run `status` between modules to track progress and pick the next
+   one. For each module `<slug>`:
    ```
    node scripts/ultraindex.mjs dossier <slug>
    ```
@@ -75,8 +96,6 @@ does the scan; you do the grounded analysis.
    genuine analysis, **citing the evidence** as `[file]`, `[file:line]`, or
    `[file:start-end]` (e.g. `Resolves IDCC redirects [packages/utils/src/idcc.ts:30-44]`).
    Write only what the source supports — no guessing. Leave the `ui:gen` regions alone.
-   Scale effort to the repo: hubs and core modules deserve real analysis; trivial
-   leaves can stay as stubs (partial enrichment is fine).
 
 4. **Verify grounding.** `node scripts/ultraindex.mjs check`. It fails if any
    citation you wrote doesn't resolve to a real file/line (or the index is stale /
@@ -92,12 +111,38 @@ does the scan; you do the grounded analysis.
    skill (or any agent) can now navigate AND answer grounded questions over it —
    loading `INDEX.md` + the handful of entries/files a task needs, not the whole repo.
 
+## When something fails
+
+- **`check` rejects a citation** — re-run `dossier <slug>` and fix the file/line
+  numbers against the real source. **Never delete a citation just to make
+  `check` pass** — an uncited claim is worse than a failing one; if the evidence
+  moved, re-read it and re-cite.
+- **`check` reports stale** — re-run `build`; your prose survives. Then run
+  `status` and re-visit only the modules whose member files changed
+  (`check --json` lists `changed`/`added`/`removed`).
+- **`build` reports orphaned prose** — a module was removed (or renamed in a way
+  the migrator missed). Review `encyclopedia/_orphaned/<slug>.md` and fold
+  anything still true into the successor module's entry by hand.
+- **A region fence got mangled** (hand-edit gone wrong) — `build` refuses to
+  rewrite that entry and notes a conflict in the manifest; fix the fences
+  (`<!-- ui:human key=… -->` … `<!-- /ui:human key=… -->`) and rebuild.
+
+## Maintenance visits (the freshness loop)
+
+On returning to an already-indexed repo:
+`check --json` → if `stale`, `build` → `status` → enrich only what the change
+touched (new modules surface as unenriched; changed hubs deserve a re-read).
+
 ## Notes
 
 - **No keys, no network, deterministic.** ripgrep is used when present (faster
   `find`); without it a built-in scanner is used. Without `git`, the manifest
   simply omits the commit. Two builds of an unchanged repo are byte-identical.
 - **Scope (v1).** Link edges: `contains` (module→file), `doc-link` (markdown
-  links), `import` (local imports for JS/TS incl. tsconfig `paths`, Python, Go),
-  and conservative `mention` edges (a doc naming an exported symbol). Other
-  languages are still scanned and searchable; they just get no import edges.
+  links), `import` (local imports for JS/TS incl. tsconfig `paths` and package
+  `exports` maps, Python, Go incl. multi-module + `replace`), and conservative
+  `mention` edges (a doc naming an exported symbol). Other languages are still
+  scanned and searchable; they just get no import edges.
+- **Yarn PnP** repos resolve workspace imports via package.json names (the same
+  detection as every other monorepo), not `.pnp.cjs` — PnP's virtual filesystem
+  is out of scope.

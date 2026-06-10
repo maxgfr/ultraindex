@@ -45,3 +45,41 @@ describe.each(SKILLS)("$dir/SKILL.md is installable", ({ dir, name }) => {
     expect(VERSION).toBe(pkg.version);
   });
 });
+
+// Content guards: the docs must not drift from the CLI they describe.
+const CLI_COMMANDS = new Set(["build", "find", "neighbors", "map", "status", "dossier", "ask", "check"]);
+
+describe.each(SKILLS)("$dir/SKILL.md content stays in sync with the CLI", ({ dir }) => {
+  const body = readFileSync(join(ROOT, dir, "SKILL.md"), "utf8").replace(FRONTMATTER_RE, "$2");
+
+  it("only references commands the CLI actually has", () => {
+    // Every `ultraindex.mjs <command>` invocation in the doc must be a real command.
+    for (const m of body.matchAll(/ultraindex\.mjs\s+([a-z-]+)/g)) {
+      expect(CLI_COMMANDS.has(m[1]!), `SKILL.md references unknown command "${m[1]}"`).toBe(true);
+    }
+  });
+
+  it("teaches the machine-readable surface (--json)", () => {
+    expect(body).toContain("--json");
+  });
+});
+
+describe("generator SKILL.md teaches the agent loop", () => {
+  const body = readFileSync(join(ROOT, "skills/ultraindex/SKILL.md"), "utf8");
+  it("drives enrichment through `status`", () => {
+    expect(body).toContain("status");
+    expect(body).toMatch(/work-queue/i);
+  });
+  it("covers error recovery without weakening the grounding gate", () => {
+    expect(body).toMatch(/Never delete a citation/i);
+  });
+});
+
+describe("navigator SKILL.md teaches escalation", () => {
+  const body = readFileSync(join(ROOT, "skills/ultraindex-nav/SKILL.md"), "utf8");
+  it("mentions the enriched flag and the find-miss escalation ladder", () => {
+    expect(body).toContain("enriched");
+    expect(body).toMatch(/neighbors/);
+    expect(body).toMatch(/never whole-repo/i);
+  });
+});

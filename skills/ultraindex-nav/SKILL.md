@@ -17,6 +17,10 @@ what the task needs. The same zero-dependency bundle ships here:
 > those entries/files one at a time, and answer. Do **not** read `graph.json` or
 > the whole `encyclopedia/` directory — that defeats the purpose.
 
+`find`, `neighbors`, `map`, `ask` and `check` all accept `--json`. Prefer it
+whenever you **branch** on the result (is the index stale? which files matched?);
+use the text form when you're reading evidence as prose.
+
 ## Workflow
 
 1. **Locate the index.** Look for `.ultraindex/` (default) or `docs/ultraindex/`
@@ -27,8 +31,10 @@ what the task needs. The same zero-dependency bundle ships here:
    - **Missing** (no index dir): tell the user to build it first —
      `node scripts/ultraindex.mjs build --repo <repo>` (the **ultraindex** skill) —
      and stop. Do not auto-build; building also expects a light enrichment pass.
-   - **Stale** (`check` reports changed files): proceed, but warn the results may
-     be slightly out of date and suggest a rebuild.
+   - **Stale** (`check` reports changed files): run `check --json` and look at
+     `changed`/`added`/`removed` — if none of those files touch the modules your
+     task needs, proceed; otherwise warn that results may be out of date and
+     suggest a rebuild.
    - **Fresh:** continue.
 
 2. **Orient (once, cheap).** `node scripts/ultraindex.mjs map --out <index-dir>`
@@ -40,8 +46,17 @@ what the task needs. The same zero-dependency bundle ships here:
    node scripts/ultraindex.mjs find "<task keywords>" --out <index-dir>
    ```
    It returns the top modules with their **exact source files to open**, the
-   matched terms, and graph neighbours. Use `neighbors <file|module>` to expand
-   along the graph ("what else touches this").
+   matched terms, and graph neighbours. Results flagged `enriched` carry
+   verified, citation-checked analysis in their entry — trust those entries
+   first. Use `neighbors <file|module>` to expand along the graph ("what else
+   touches this").
+
+   **When `find` comes up empty or wrong, escalate in this order:**
+   1. Re-query with synonyms and identifier-style terms (`auth login session`,
+      `parseConfig`, the feature's route or flag name).
+   2. `neighbors` from any file or module you DO know is involved.
+   3. Last resort: `rg` (or grep) **restricted to the module paths the index
+      listed** — never whole-repo reads; that defeats the purpose.
 
 4. **Load only those.** Open the listed `encyclopedia/<module>.md` entries (for
    the business + code overview) and the specific source files — one at a time,
