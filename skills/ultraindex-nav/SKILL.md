@@ -3,7 +3,7 @@ name: ultraindex-nav
 description: "Use when working in a large repo that has an ultraindex index (a `.ultraindex/` or `docs/ultraindex/` folder with INDEX.md + graph.json) and you need to find the right files for a task — OR answer a question about the codebase — WITHOUT reading the whole thing into context. The light companion to the ultraindex generator skill: it consults the prebuilt map and link-graph to open only the handful of entries and source files that matter, and can answer questions grounded in real code with citations that `ultraindex check --answer` verifies. Triggers: 'where is X handled', 'what touches Y', 'how does Z work in this repo', 'navigate/work in this huge repo', 'which files do I change for Z', any task or question in a repo where loading everything would blow the context window. If no index exists yet, it tells you to run the ultraindex generator first."
 license: MIT
 metadata:
-  version: 1.2.0
+  version: 1.3.0
 ---
 
 # ultraindex-nav — navigate a huge repo through its index
