@@ -1,5 +1,8 @@
+import { join } from "node:path";
 import type { FileNode, FindResult, Graph } from "./types.js";
-import { loadGraph } from "./store.js";
+import { loadGraph, indexPaths } from "./store.js";
+import { readIfExists } from "./output.js";
+import { humanBodies, isEnrichedBody } from "./merge.js";
 import { keywords } from "./util.js";
 import { byStr } from "./sort.js";
 
@@ -29,10 +32,31 @@ function scoreText(hay: string, kws: string[]): { score: number; matched: string
   return { score, matched };
 }
 
+// Verified analysis written into `ui:human` regions is the highest-signal text
+// in the index — weight it above the structural summary, below nothing.
+const PROSE_WEIGHT = 1.5;
+
+// Load each module's enriched prose (stub regions excluded) for query-time
+// scoring. Citations and other bracketed tokens are stripped so `[file:line]`
+// references don't pollute keyword matching. Read at query time — prose written
+// AFTER the last build is searchable immediately, and graph.json stays untouched.
+export function loadEnrichedProse(outDir: string, graph: Graph): Map<string, string> {
+  const enc = indexPaths(outDir).encyclopedia;
+  const out = new Map<string, string>();
+  for (const m of graph.modules) {
+    const text = readIfExists(join(enc, `${m.slug}.md`));
+    if (!text) continue;
+    const bodies = [...humanBodies(text).values()].filter(isEnrichedBody);
+    if (!bodies.length) continue;
+    out.set(m.slug, bodies.join(" ").replace(/\[[^\]]*\]/g, " ").toLowerCase());
+  }
+  return out;
+}
+
 // Rank modules for a task and return the EXACT files to open. This is the
 // navigator's core: read the index (not the repo), match deterministically, and
 // point the agent at a handful of files instead of the whole tree.
-export function findModules(graph: Graph, query: string, k = DEFAULT_K): FindResult[] {
+export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: Map<string, string>): FindResult[] {
   const kws = keywords(query);
   if (kws.length === 0) return [];
 
@@ -52,6 +76,8 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K): FindRes
     const summary = /^\d+ file\(s\) in /.test(m.summary) ? undefined : m.summary;
     const moduleHay = textOf([m.slug, m.path, summary]);
     const mod = scoreText(moduleHay, kws);
+    const enrichedText = prose?.get(m.slug);
+    const pro = enrichedText ? scoreText(enrichedText, kws) : { score: 0, matched: [] as string[] };
 
     // Per-file scoring drives both the module score and the file ordering.
     const scoredFiles = members
@@ -69,9 +95,9 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K): FindRes
     const matchCount = scoredFiles.filter((x) => x.score > 0).length;
     // Require an actual keyword hit — a module with no match shouldn't surface
     // just because it's well-connected. Degree only breaks ties among matches.
-    if (mod.score === 0 && bestFile === 0) continue;
+    if (mod.score === 0 && bestFile === 0 && pro.score === 0) continue;
 
-    const matchedTerms = new Set([...mod.matched, ...scoredFiles.flatMap((x) => x.matched)]);
+    const matchedTerms = new Set([...mod.matched, ...pro.matched, ...scoredFiles.flatMap((x) => x.matched)]);
     // Coverage: reward matching MORE of the distinct query terms, so a 2/2 match
     // outranks a 1/2 match on the same token.
     const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / kws.length);
@@ -85,7 +111,7 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K): FindRes
     const leaf = m.path.split("/").pop() ?? "";
     const genericPenalty = /^(stores?|components?|types?|utils?|hooks?|constants?|helpers?|styles?|assets?|queries|state)$/i.test(leaf) ? 0.8 : 1;
 
-    const keywordScore = mod.score * 2 + bestFile + Math.min(matchCount, 5) * 0.5;
+    const keywordScore = mod.score * 2 + pro.score * PROSE_WEIGHT + bestFile + Math.min(matchCount, 5) * 0.5;
     const total = keywordScore * tierWeight * pathPenalty * genericPenalty * coverageWeight + Math.min(m.degIn + m.degOut, 5) * 0.25;
 
     const matched = [...matchedTerms].sort(byStr);
@@ -114,6 +140,7 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K): FindRes
         matched,
         files: files.slice(0, MAX_FILES),
         neighbors: [...new Set(neighbors)].sort(byStr).slice(0, 8),
+        enriched: enrichedText !== undefined,
       },
     });
   }
@@ -126,5 +153,5 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K): FindRes
 export function runFind(outDir: string, query: string, k = DEFAULT_K): FindResult[] | undefined {
   const graph = loadGraph(outDir);
   if (!graph) return undefined;
-  return findModules(graph, query, k);
+  return findModules(graph, query, k, loadEnrichedProse(outDir, graph));
 }

@@ -1,5 +1,5 @@
 import type { FileRecord, Graph, ModuleNode, Tier } from "../types.js";
-import type { Region } from "../merge.js";
+import { ENRICH_MARKER, type Region } from "../merge.js";
 import { byStr } from "../sort.js";
 import { clip } from "../util.js";
 
@@ -24,7 +24,7 @@ function businessStub(): Region {
   return {
     type: "human",
     key: "business",
-    body: "<!-- ui:enrich --> _What this module does for the product and how it connects to the rest of the system. Replace this paragraph during the enrichment pass._",
+    body: `${ENRICH_MARKER} _What this module does for the product and how it connects to the rest of the system. Replace this paragraph during the enrichment pass._`,
   };
 }
 
@@ -32,7 +32,7 @@ function gotchasStub(): Region {
   return {
     type: "human",
     key: "gotchas",
-    body: "<!-- ui:enrich --> _Caveats, invariants, or pitfalls worth knowing before changing this module. Optional._",
+    body: `${ENRICH_MARKER} _Caveats, invariants, or pitfalls worth knowing before changing this module. Optional._`,
   };
 }
 

@@ -7,9 +7,10 @@ import { runBuild } from "./build.js";
 import { runFind } from "./find.js";
 import { runNeighbors } from "./neighbors.js";
 import { runMap } from "./mapcmd.js";
+import { runStatus } from "./status.js";
 import { runCheck, checkAnswer } from "./check.js";
 import { runDossier, runAsk } from "./explain.js";
-import { indexExists, loadManifest } from "./store.js";
+import { indexExists, loadGraph, loadManifest } from "./store.js";
 
 const HELP = `ultraindex v${VERSION}
 Deterministically index a whole repo (code + docs) into a navigable encyclopedia
@@ -21,6 +22,7 @@ Usage:
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
   ultraindex map     [--out <dir>] [--module <slug>]
+  ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
   ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>]
@@ -31,7 +33,10 @@ Commands:
              preserves your enriched prose.
   find       Rank modules for a task and print the exact files to open.
   neighbors  Show graph neighbours of a file or module (what links to/from it).
-  map        Print INDEX.md (the map) or one module's entry.
+  map        Print INDEX.md (the map) or one module's entry. With --json, emit
+             the module table (slug, path, tier, degree, summary) for parsing.
+  status     Show enrichment progress and the suggested order to enrich next —
+             unenriched first, foundations/features before tail, hubs first.
   dossier    Print a grounding packet for a module (its real key source + graph
              neighbours) so you can write a cited business analysis into its entry.
   ask        Assemble grounded evidence for a question (real source of the
@@ -61,9 +66,19 @@ Grounding:
   citation does not resolve to a real file/line — the anti-hallucination guard.
 `;
 
-const COMMANDS = new Set(["build", "find", "neighbors", "map", "dossier", "ask", "check"]);
+const COMMANDS = new Set(["build", "find", "neighbors", "map", "status", "dossier", "ask", "check"]);
 const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module", "answer", "q", "question"]);
 const BOOL_FLAGS = new Set(["json", "no-mermaid", "quiet"]);
+
+// What each dangling reason means and what to do about it — emitted in
+// `build --json` so the report is self-diagnosing.
+const REASON_HINTS: Record<string, string> = {
+  "missing-module": "a relative import's target file does not exist — usually a real broken import in the repo, worth reporting",
+  "alias-unresolved": "a tsconfig path alias matched but its target file is missing — check the tsconfig paths or uncommitted build artifacts",
+  "escapes-repo-root": "an import walks above the indexed root — index the parent directory, or ignore if intentional",
+  "missing-package": "a Go import maps to a directory with no .go files — broken import or ungenerated code",
+  "missing-target": "a markdown link points at a file that does not exist — a stale doc link",
+};
 
 function fail(message: string): never {
   process.stderr.write(`ultraindex: ${message}\n`);
@@ -187,6 +202,12 @@ function cmdBuild(p: Parsed): void {
       const r = e.reason ?? "unknown";
       danglingByReason[r] = (danglingByReason[r] ?? 0) + 1;
     }
+    // One actionable sentence per reason actually present, so an agent reading
+    // the report knows what each bucket means without opening the docs.
+    const reasonHints: Record<string, string> = {};
+    for (const r of Object.keys(danglingByReason)) {
+      if (REASON_HINTS[r]) reasonHints[r] = REASON_HINTS[r];
+    }
     process.stdout.write(
       JSON.stringify(
         {
@@ -195,7 +216,7 @@ function cmdBuild(p: Parsed): void {
           modules: graph.modules.length,
           edges: graph.fileEdges.length,
           dangling,
-          ...(dangling ? { danglingByReason } : {}),
+          ...(dangling ? { danglingByReason, reasonHints } : {}),
           orphaned: manifest.orphaned,
           ...(manifest.notes.length ? { notes: manifest.notes } : {}),
         },
@@ -274,11 +295,49 @@ function cmdNeighbors(p: Parsed): void {
 function cmdMap(p: Parsed): void {
   const base = resolve(p.values.repo ?? ".");
   const out = resolveOut(p, base);
+  if (p.bools.has("json")) {
+    // The machine-readable map: the module table agents would otherwise have to
+    // parse out of INDEX.md. (--module entries are markdown by design — prose.)
+    if (p.values.module) fail("--json applies to the map view, not a single entry (read the markdown)");
+    const graph = loadGraph(out);
+    if (!graph) fail(`no index at ${out} — run \`ultraindex build\` first`);
+    const modules = graph.modules.map((m) => ({
+      slug: m.slug,
+      path: m.path,
+      tier: m.tier,
+      degree: m.degIn + m.degOut,
+      files: m.members.length,
+      summary: m.summary,
+    }));
+    process.stdout.write(JSON.stringify(modules, null, 2) + "\n");
+    return;
+  }
   const content = runMap(out, p.values.module);
   if (content === undefined) {
     fail(p.values.module ? `no entry for module "${p.values.module}" at ${out}` : `no index at ${out} — run \`ultraindex build\` first`);
   }
   process.stdout.write(content.endsWith("\n") ? content : content + "\n");
+}
+
+function cmdStatus(p: Parsed): void {
+  const base = resolve(p.values.repo ?? ".");
+  const out = resolveOut(p, base);
+  const res = runStatus(out);
+  if (res === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    return;
+  }
+  const lines = [`ultraindex: ${res.enriched}/${res.total} modules enriched`];
+  if (res.suggestedNext.length) lines.push(`  next:     ${res.suggestedNext.join(", ")}`);
+  lines.push("");
+  for (const m of res.modules.slice(0, 15)) {
+    const state = m.enriched ? "✓" : "·";
+    lines.push(`  ${state} ${m.slug}  (${m.path}, tier ${m.tier}, degree ${m.degree}) — ${m.regions.enriched}/${m.regions.total} regions`);
+  }
+  if (res.modules.length > 15) lines.push(`  …and ${res.modules.length - 15} more (use --json for all)`);
+  lines.push("", `  enrich:   \`ultraindex dossier <slug>\` then fill the ui:human regions, then \`ultraindex check\``);
+  process.stdout.write(lines.join("\n") + "\n");
 }
 
 function cmdDossier(p: Parsed): void {
@@ -359,6 +418,8 @@ function main(): void {
       return cmdNeighbors(p);
     case "map":
       return cmdMap(p);
+    case "status":
+      return cmdStatus(p);
     case "dossier":
       return cmdDossier(p);
     case "ask":

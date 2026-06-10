@@ -157,6 +157,7 @@ export interface FindResult {
   matched: string[]; // query terms that hit
   files: string[]; // exact source files to open, best-first
   neighbors: string[]; // related module slugs
+  enriched: boolean; // the entry carries verified human analysis — higher-trust
 }
 
 // One file's staleness verdict from `check`.

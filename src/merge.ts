@@ -11,6 +11,16 @@ export interface Region {
   body: string;
 }
 
+// Marker carried by freshly rendered human-region stubs; its presence (or an
+// empty body) means "not yet enriched". status/find key off it, so enrichment
+// detection has exactly one definition.
+export const ENRICH_MARKER = "<!-- ui:enrich -->";
+
+// True when a human region body carries real prose (the stub marker is gone).
+export function isEnrichedBody(body: string): boolean {
+  return body.trim() !== "" && !body.includes(ENRICH_MARKER);
+}
+
 const OPEN_RE = /^<!--\s*ui:(gen|human)\s+key=([A-Za-z0-9_-]+)(?:\s+hash=([a-f0-9]+))?\s*-->\s*$/;
 const CLOSE_RE = /^<!--\s*\/ui:(gen|human)\s+key=([A-Za-z0-9_-]+)\s*-->\s*$/;
 

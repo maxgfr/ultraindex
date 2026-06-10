@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve, join as join10 } from "path";
+import { resolve, join as join12 } from "path";
 import { existsSync as existsSync2 } from "fs";
 import { pathToFileURL, fileURLToPath } from "url";
 import { realpathSync as realpathSync2 } from "fs";
@@ -1817,6 +1817,129 @@ function buildGraph(scan2, ctx, modules, moduleOf) {
   };
 }
 
+// src/merge.ts
+var ENRICH_MARKER = "<!-- ui:enrich -->";
+function isEnrichedBody(body) {
+  return body.trim() !== "" && !body.includes(ENRICH_MARKER);
+}
+var OPEN_RE = /^<!--\s*ui:(gen|human)\s+key=([A-Za-z0-9_-]+)(?:\s+hash=([a-f0-9]+))?\s*-->\s*$/;
+var CLOSE_RE = /^<!--\s*\/ui:(gen|human)\s+key=([A-Za-z0-9_-]+)\s*-->\s*$/;
+function trimBlank(lines) {
+  let start = 0;
+  let end = lines.length;
+  while (start < end && lines[start].trim() === "") start++;
+  while (end > start && lines[end - 1].trim() === "") end--;
+  return lines.slice(start, end).join("\n");
+}
+function serializeRegions(regions) {
+  const blocks = regions.map((r) => {
+    if (r.type === "gen") {
+      return `<!-- ui:gen key=${r.key} hash=${shortHash(r.body)} -->
+${r.body}
+<!-- /ui:gen key=${r.key} -->`;
+    }
+    return `<!-- ui:human key=${r.key} -->
+${r.body}
+<!-- /ui:human key=${r.key} -->`;
+  });
+  return blocks.join("\n\n") + "\n";
+}
+function parseRegions(text) {
+  const lines = text.split(/\r?\n/);
+  const regions = [];
+  let orphan = [];
+  let open = null;
+  const flushOrphan = () => {
+    const body = trimBlank(orphan);
+    orphan = [];
+    if (body) regions.push({ type: "human", key: `orphan-${shortHash(body)}`, body });
+  };
+  for (const line of lines) {
+    const o = OPEN_RE.exec(line);
+    const c2 = CLOSE_RE.exec(line);
+    if (open) {
+      if (c2) {
+        if (c2[1] !== open.type || c2[2] !== open.key) return { regions: [], ok: false };
+        regions.push({ type: open.type, key: open.key, body: trimBlank(open.body) });
+        open = null;
+        continue;
+      }
+      if (o) return { regions: [], ok: false };
+      open.body.push(line);
+      continue;
+    }
+    if (c2) return { regions: [], ok: false };
+    if (o) {
+      flushOrphan();
+      open = { type: o[1], key: o[2], body: [] };
+      continue;
+    }
+    orphan.push(line);
+  }
+  if (open) return { regions: [], ok: false };
+  flushOrphan();
+  return { regions, ok: true };
+}
+function humanBodies(text) {
+  const out = /* @__PURE__ */ new Map();
+  const { regions, ok } = parseRegions(text);
+  if (!ok) return out;
+  for (const r of regions) if (r.type === "human") out.set(r.key, r.body);
+  return out;
+}
+function mergeEntry(spec, existing, migrated) {
+  const specKeys = new Set(spec.filter((r) => r.type === "human").map((r) => r.key));
+  let existingHuman = /* @__PURE__ */ new Map();
+  let dupConflict;
+  if (existing && existing.trim()) {
+    const parsed = parseRegions(existing);
+    if (!parsed.ok) {
+      return {
+        content: existing,
+        humanKeys: [],
+        migratedKeys: [],
+        conflict: "unparseable region fences \u2014 kept existing entry, refused to rewrite"
+      };
+    }
+    for (const r of parsed.regions) {
+      if (r.type !== "human") continue;
+      if (existingHuman.has(r.key) && existingHuman.get(r.key) !== r.body) {
+        existingHuman.set(`${r.key}-dup-${shortHash(r.body)}`, r.body);
+        dupConflict = `duplicate human region key "${r.key}" \u2014 preserved both bodies`;
+      } else {
+        existingHuman.set(r.key, r.body);
+      }
+    }
+  }
+  const migratedKeysUsed = [];
+  const out = spec.map((r) => {
+    if (r.type === "gen") return r;
+    const fromExisting = existingHuman.get(r.key);
+    if (fromExisting !== void 0) return { ...r, body: fromExisting };
+    const fromMigrated = migrated?.get(r.key);
+    if (fromMigrated !== void 0) {
+      migratedKeysUsed.push(r.key);
+      return { ...r, body: fromMigrated };
+    }
+    return r;
+  });
+  const appended = /* @__PURE__ */ new Map();
+  for (const [key, body] of existingHuman) if (!specKeys.has(key)) appended.set(key, body);
+  if (migrated) {
+    for (const [key, body] of migrated) {
+      if (specKeys.has(key) || appended.has(key)) continue;
+      const mk = key.startsWith("migrated-from-") || key.startsWith("orphan-") ? key : `migrated-${key}`;
+      appended.set(mk, body);
+      migratedKeysUsed.push(mk);
+    }
+  }
+  for (const key of [...appended.keys()].sort(byStr)) {
+    out.push({ type: "human", key, body: appended.get(key) });
+  }
+  const humanKeys = out.filter((r) => r.type === "human").map((r) => r.key);
+  return { content: serializeRegions(out), humanKeys, migratedKeys: migratedKeysUsed, conflict: dupConflict };
+}
+
 // src/render/encyclopedia.ts
 var TIER_LABEL = { 0: "Foundations", 1: "Features", 2: "Tail" };
 var MAX_SYMBOLS_PER_FILE = 15;
@@ -1837,14 +1960,14 @@ function businessStub() {
   return {
     type: "human",
     key: "business",
-    body: "<!-- ui:enrich --> _What this module does for the product and how it connects to the rest of the system. Replace this paragraph during the enrichment pass._"
+    body: `${ENRICH_MARKER} _What this module does for the product and how it connects to the rest of the system. Replace this paragraph during the enrichment pass._`
   };
 }
 function gotchasStub() {
   return {
     type: "human",
     key: "gotchas",
-    body: "<!-- ui:enrich --> _Caveats, invariants, or pitfalls worth knowing before changing this module. Optional._"
+    body: `${ENRICH_MARKER} _Caveats, invariants, or pitfalls worth knowing before changing this module. Optional._`
   };
 }
 function codeViewRegion(m, records) {
@@ -2090,125 +2213,6 @@ function renderManifestJson(manifest) {
 // src/entries.ts
 import { join as join5 } from "path";
 
-// src/merge.ts
-var OPEN_RE = /^<!--\s*ui:(gen|human)\s+key=([A-Za-z0-9_-]+)(?:\s+hash=([a-f0-9]+))?\s*-->\s*$/;
-var CLOSE_RE = /^<!--\s*\/ui:(gen|human)\s+key=([A-Za-z0-9_-]+)\s*-->\s*$/;
-function trimBlank(lines) {
-  let start = 0;
-  let end = lines.length;
-  while (start < end && lines[start].trim() === "") start++;
-  while (end > start && lines[end - 1].trim() === "") end--;
-  return lines.slice(start, end).join("\n");
-}
-function serializeRegions(regions) {
-  const blocks = regions.map((r) => {
-    if (r.type === "gen") {
-      return `<!-- ui:gen key=${r.key} hash=${shortHash(r.body)} -->
-${r.body}
-<!-- /ui:gen key=${r.key} -->`;
-    }
-    return `<!-- ui:human key=${r.key} -->
-${r.body}
-<!-- /ui:human key=${r.key} -->`;
-  });
-  return blocks.join("\n\n") + "\n";
-}
-function parseRegions(text) {
-  const lines = text.split(/\r?\n/);
-  const regions = [];
-  let orphan = [];
-  let open = null;
-  const flushOrphan = () => {
-    const body = trimBlank(orphan);
-    orphan = [];
-    if (body) regions.push({ type: "human", key: `orphan-${shortHash(body)}`, body });
-  };
-  for (const line of lines) {
-    const o = OPEN_RE.exec(line);
-    const c2 = CLOSE_RE.exec(line);
-    if (open) {
-      if (c2) {
-        if (c2[1] !== open.type || c2[2] !== open.key) return { regions: [], ok: false };
-        regions.push({ type: open.type, key: open.key, body: trimBlank(open.body) });
-        open = null;
-        continue;
-      }
-      if (o) return { regions: [], ok: false };
-      open.body.push(line);
-      continue;
-    }
-    if (c2) return { regions: [], ok: false };
-    if (o) {
-      flushOrphan();
-      open = { type: o[1], key: o[2], body: [] };
-      continue;
-    }
-    orphan.push(line);
-  }
-  if (open) return { regions: [], ok: false };
-  flushOrphan();
-  return { regions, ok: true };
-}
-function humanBodies(text) {
-  const out = /* @__PURE__ */ new Map();
-  const { regions, ok } = parseRegions(text);
-  if (!ok) return out;
-  for (const r of regions) if (r.type === "human") out.set(r.key, r.body);
-  return out;
-}
-function mergeEntry(spec, existing, migrated) {
-  const specKeys = new Set(spec.filter((r) => r.type === "human").map((r) => r.key));
-  let existingHuman = /* @__PURE__ */ new Map();
-  let dupConflict;
-  if (existing && existing.trim()) {
-    const parsed = parseRegions(existing);
-    if (!parsed.ok) {
-      return {
-        content: existing,
-        humanKeys: [],
-        migratedKeys: [],
-        conflict: "unparseable region fences \u2014 kept existing entry, refused to rewrite"
-      };
-    }
-    for (const r of parsed.regions) {
-      if (r.type !== "human") continue;
-      if (existingHuman.has(r.key) && existingHuman.get(r.key) !== r.body) {
-        existingHuman.set(`${r.key}-dup-${shortHash(r.body)}`, r.body);
-        dupConflict = `duplicate human region key "${r.key}" \u2014 preserved both bodies`;
-      } else {
-        existingHuman.set(r.key, r.body);
-      }
-    }
-  }
-  const migratedKeysUsed = [];
-  const out = spec.map((r) => {
-    if (r.type === "gen") return r;
-    const fromExisting = existingHuman.get(r.key);
-    if (fromExisting !== void 0) return { ...r, body: fromExisting };
-    const fromMigrated = migrated?.get(r.key);
-    if (fromMigrated !== void 0) {
-      migratedKeysUsed.push(r.key);
-      return { ...r, body: fromMigrated };
-    }
-    return r;
-  });
-  const appended = /* @__PURE__ */ new Map();
-  for (const [key, body] of existingHuman) if (!specKeys.has(key)) appended.set(key, body);
-  if (migrated) {
-    for (const [key, body] of migrated) {
-      if (specKeys.has(key) || appended.has(key)) continue;
-      const mk = key.startsWith("migrated-from-") || key.startsWith("orphan-") ? key : `migrated-${key}`;
-      appended.set(mk, body);
-      migratedKeysUsed.push(mk);
-    }
-  }
-  for (const key of [...appended.keys()].sort(byStr)) {
-    out.push({ type: "human", key, body: appended.get(key) });
-  }
-  const humanKeys = out.filter((r) => r.type === "human").map((r) => r.key);
-  return { content: serializeRegions(out), humanKeys, migratedKeys: migratedKeysUsed, conflict: dupConflict };
-}
-
 // src/output.ts
 import { existsSync, mkdirSync, readFileSync as readFileSync2, writeFileSync, renameSync, rmSync, readdirSync as readdirSync2 } from "fs";
 import { dirname, join as join4 } from "path";
@@ -2386,6 +2390,7 @@ function runBuild(opts, builtAt) {
 }
 
 // src/find.ts
+import { join as join7 } from "path";
 var DEFAULT_K = 8;
 var MAX_FILES = 8;
 function textOf(parts) {
@@ -2407,7 +2412,20 @@ function scoreText(hay, kws) {
   }
   return { score, matched };
 }
-function findModules(graph, query, k = DEFAULT_K) {
+var PROSE_WEIGHT = 1.5;
+function loadEnrichedProse(outDir, graph) {
+  const enc = indexPaths(outDir).encyclopedia;
+  const out = /* @__PURE__ */ new Map();
+  for (const m of graph.modules) {
+    const text = readIfExists(join7(enc, `${m.slug}.md`));
+    if (!text) continue;
+    const bodies = [...humanBodies(text).values()].filter(isEnrichedBody);
+    if (!bodies.length) continue;
+    out.set(m.slug, bodies.join(" ").replace(/\[[^\]]*\]/g, " ").toLowerCase());
+  }
+  return out;
+}
+function findModules(graph, query, k = DEFAULT_K, prose) {
   const kws = keywords(query);
   if (kws.length === 0) return [];
   const filesByModule = /* @__PURE__ */ new Map();
@@ -2422,6 +2440,8 @@ function findModules(graph, query, k = DEFAULT_K) {
     const summary = /^\d+ file\(s\) in /.test(m.summary) ? void 0 : m.summary;
     const moduleHay = textOf([m.slug, m.path, summary]);
     const mod = scoreText(moduleHay, kws);
+    const enrichedText = prose?.get(m.slug);
+    const pro = enrichedText ? scoreText(enrichedText, kws) : { score: 0, matched: [] };
     const scoredFiles = members.map((f) => {
       const hay = textOf([f.rel, f.title, f.summary]);
       const s = scoreText(hay, kws);
@@ -2429,14 +2449,14 @@ function findModules(graph, query, k = DEFAULT_K) {
     }).sort((a, b) => b.score - a.score || b.degree - a.degree || byStr(a.f.rel, b.f.rel));
     const bestFile = scoredFiles[0]?.score ?? 0;
     const matchCount = scoredFiles.filter((x) => x.score > 0).length;
-    if (mod.score === 0 && bestFile === 0) continue;
-    const matchedTerms = /* @__PURE__ */ new Set([...mod.matched, ...scoredFiles.flatMap((x) => x.matched)]);
+    if (mod.score === 0 && bestFile === 0 && pro.score === 0) continue;
+    const matchedTerms = /* @__PURE__ */ new Set([...mod.matched, ...pro.matched, ...scoredFiles.flatMap((x) => x.matched)]);
     const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / kws.length);
     const tierWeight = m.tier === 2 ? 0.45 : 1;
     const pathPenalty = /(^|\/|-|_)(tests?|demo|examples?|sandbox|stub|mock|fixtures?)(\/|-|_|$)/i.test(m.path) ? 0.55 : 1;
     const leaf = m.path.split("/").pop() ?? "";
     const genericPenalty = /^(stores?|components?|types?|utils?|hooks?|constants?|helpers?|styles?|assets?|queries|state)$/i.test(leaf) ? 0.8 : 1;
-    const keywordScore = mod.score * 2 + bestFile + Math.min(matchCount, 5) * 0.5;
+    const keywordScore = mod.score * 2 + pro.score * PROSE_WEIGHT + bestFile + Math.min(matchCount, 5) * 0.5;
     const total = keywordScore * tierWeight * pathPenalty * genericPenalty * coverageWeight + Math.min(m.degIn + m.degOut, 5) * 0.25;
     const matched = [...matchedTerms].sort(byStr);
     let files = scoredFiles.filter((x) => x.score > 0).map((x) => x.f.rel);
@@ -2457,7 +2477,8 @@ function findModules(graph, query, k = DEFAULT_K) {
         score: Number(total.toFixed(3)),
         matched,
         files: files.slice(0, MAX_FILES),
-        neighbors: [...new Set(neighbors)].sort(byStr).slice(0, 8)
+        neighbors: [...new Set(neighbors)].sort(byStr).slice(0, 8),
+        enriched: enrichedText !== void 0
       }
     });
   }
@@ -2467,7 +2488,7 @@ function findModules(graph, query, k = DEFAULT_K) {
 function runFind(outDir, query, k = DEFAULT_K) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
-  return findModules(graph, query, k);
+  return findModules(graph, query, k, loadEnrichedProse(outDir, graph));
 }
 
 // src/neighbors.ts
@@ -2520,17 +2541,61 @@ function runNeighbors(outDir, target, depth = 1) {
 }
 
 // src/mapcmd.ts
-import { join as join7 } from "path";
+import { join as join8 } from "path";
 function runMap(outDir, moduleSlug) {
   const paths = indexPaths(outDir);
   if (moduleSlug) {
-    return readIfExists(join7(paths.encyclopedia, `${moduleSlug}.md`));
+    return readIfExists(join8(paths.encyclopedia, `${moduleSlug}.md`));
   }
   return readIfExists(paths.index);
 }
 
+// src/status.ts
+import { join as join9 } from "path";
+function runStatus(outDir) {
+  const graph = loadGraph(outDir);
+  if (!graph) return void 0;
+  const enc = indexPaths(outDir).encyclopedia;
+  const modules = graph.modules.map((m) => {
+    let total = 0;
+    let filled = 0;
+    const text = readIfExists(join9(enc, `${m.slug}.md`));
+    if (text) {
+      const parsed = parseRegions(text);
+      if (parsed.ok) {
+        for (const r of parsed.regions) {
+          if (r.type !== "human") continue;
+          total++;
+          if (isEnrichedBody(r.body)) filled++;
+        }
+      }
+    }
+    return {
+      slug: m.slug,
+      path: m.path,
+      tier: m.tier,
+      degree: m.degIn + m.degOut,
+      enriched: filled > 0,
+      regions: { enriched: filled, total }
+    };
+  });
+  modules.sort(
+    (a, b) => Number(a.enriched) - Number(b.enriched) || // work first, done last
+    Number(a.tier === 2) - Number(b.tier === 2) || // tail enriches last
+    b.degree - a.degree || // most-connected first
+    byStr(a.slug, b.slug)
+  );
+  const enriched = modules.filter((m) => m.enriched).length;
+  return {
+    enriched,
+    total: modules.length,
+    suggestedNext: modules.filter((m) => !m.enriched).slice(0, 5).map((m) => m.slug),
+    modules
+  };
+}
+
 // src/check.ts
-import { join as join8 } from "path";
+import { join as join10 } from "path";
 
 // src/cite.ts
 var EXT_TOKEN = /\[((?:[^[\]\n]|\[(?:[^[\]\n]|\[[^\]\n]*\])*\])*?\.[A-Za-z0-9]{1,8}(?::\d+(?:-\d+)?)?)\]/g;
@@ -2632,7 +2697,7 @@ function runCheck(outDir, repo) {
   removed.sort(byStr);
   const enc = indexPaths(outDir).encyclopedia;
   for (const m of graph.modules) {
-    if (readIfExists(join8(enc, `${m.slug}.md`)) === void 0) {
+    if (readIfExists(join10(enc, `${m.slug}.md`)) === void 0) {
       errors.push(`module "${m.slug}" has no encyclopedia entry`);
     }
   }
@@ -2642,7 +2707,7 @@ function runCheck(outDir, repo) {
   }
   const fileLines = fileLineTable(graph);
   for (const m of graph.modules) {
-    const text = readIfExists(join8(enc, `${m.slug}.md`));
+    const text = readIfExists(join10(enc, `${m.slug}.md`));
     if (!text) continue;
     const parsed = parseRegions(text);
     if (!parsed.ok) continue;
@@ -2676,14 +2741,14 @@ function checkAnswer(outDir, answerPath) {
 }
 
 // src/evidence.ts
-import { join as join9, extname as extname2 } from "path";
+import { join as join11, extname as extname2 } from "path";
 var HEAD_LINES = 120;
 var MAX_SYMS = 25;
 var ASK_FILE_CAP = 20;
 function gatherEvidence(repo, rels, headLines = HEAD_LINES) {
   const out = [];
   for (const rel of rels) {
-    const content = readText(join9(repo, rel));
+    const content = readText(join11(repo, rel));
     if (!content) continue;
     const lines = content.split(/\r?\n/);
     const code = extractCode(rel, extname2(rel).toLowerCase(), content);
@@ -2811,6 +2876,7 @@ Usage:
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
   ultraindex map     [--out <dir>] [--module <slug>]
+  ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
   ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>]
@@ -2821,7 +2887,10 @@ Commands:
              preserves your enriched prose.
   find       Rank modules for a task and print the exact files to open.
   neighbors  Show graph neighbours of a file or module (what links to/from it).
-  map        Print INDEX.md (the map) or one module's entry.
+  map        Print INDEX.md (the map) or one module's entry. With --json, emit
+             the module table (slug, path, tier, degree, summary) for parsing.
+  status     Show enrichment progress and the suggested order to enrich next \u2014
+             unenriched first, foundations/features before tail, hubs first.
   dossier    Print a grounding packet for a module (its real key source + graph
              neighbours) so you can write a cited business analysis into its entry.
   ask        Assemble grounded evidence for a question (real source of the
@@ -2850,9 +2919,16 @@ Grounding:
   [path:start-end]. \`check\` (encyclopedia prose) and \`check --answer\` fail if a
   citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "neighbors", "map", "dossier", "ask", "check"]);
+var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "neighbors", "map", "status", "dossier", "ask", "check"]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module", "answer", "q", "question"]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "quiet"]);
+var REASON_HINTS = {
+  "missing-module": "a relative import's target file does not exist \u2014 usually a real broken import in the repo, worth reporting",
+  "alias-unresolved": "a tsconfig path alias matched but its target file is missing \u2014 check the tsconfig paths or uncommitted build artifacts",
+  "escapes-repo-root": "an import walks above the indexed root \u2014 index the parent directory, or ignore if intentional",
+  "missing-package": "a Go import maps to a directory with no .go files \u2014 broken import or ungenerated code",
+  "missing-target": "a markdown link points at a file that does not exist \u2014 a stale doc link"
+};
 function fail(message) {
   process.stderr.write(`ultraindex: ${message}
 `);
@@ -2918,9 +2994,9 @@ function splitList(s) {
 }
 function resolveOut(p, base) {
   if (p.values.out) return resolve(p.values.out);
-  const dotted = join10(base, ".ultraindex");
+  const dotted = join12(base, ".ultraindex");
   if (existsSync2(dotted)) return dotted;
-  const docs = join10(base, "docs", "ultraindex");
+  const docs = join12(base, "docs", "ultraindex");
   if (existsSync2(docs)) return docs;
   return dotted;
 }
@@ -2931,7 +3007,7 @@ function resolveRepoRoot(p, out) {
 function cmdBuild(p) {
   const repo = resolve(p.values.repo ?? ".");
   if (!existsSync2(repo)) fail(`repo not found: ${repo}`);
-  const out = p.values.out ? resolve(p.values.out) : join10(repo, ".ultraindex");
+  const out = p.values.out ? resolve(p.values.out) : join12(repo, ".ultraindex");
   const maxBytes = p.values["max-bytes"] ? Number(p.values["max-bytes"]) : void 0;
   if (maxBytes !== void 0 && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
   const { graph, manifest } = runBuild(
@@ -2954,6 +3030,10 @@ function cmdBuild(p) {
       const r = e.reason ?? "unknown";
       danglingByReason[r] = (danglingByReason[r] ?? 0) + 1;
     }
+    const reasonHints = {};
+    for (const r of Object.keys(danglingByReason)) {
+      if (REASON_HINTS[r]) reasonHints[r] = REASON_HINTS[r];
+    }
     process.stdout.write(
       JSON.stringify(
         {
@@ -2962,7 +3042,7 @@ function cmdBuild(p) {
           modules: graph.modules.length,
           edges: graph.fileEdges.length,
           dangling,
-          ...dangling ? { danglingByReason } : {},
+          ...dangling ? { danglingByReason, reasonHints } : {},
           orphaned: manifest.orphaned,
           ...manifest.notes.length ? { notes: manifest.notes } : {}
         },
@@ -3037,11 +3117,46 @@ function cmdNeighbors(p) {
 function cmdMap(p) {
   const base = resolve(p.values.repo ?? ".");
   const out = resolveOut(p, base);
+  if (p.bools.has("json")) {
+    if (p.values.module) fail("--json applies to the map view, not a single entry (read the markdown)");
+    const graph = loadGraph(out);
+    if (!graph) fail(`no index at ${out} \u2014 run \`ultraindex build\` first`);
+    const modules = graph.modules.map((m) => ({
+      slug: m.slug,
+      path: m.path,
+      tier: m.tier,
+      degree: m.degIn + m.degOut,
+      files: m.members.length,
+      summary: m.summary
+    }));
+    process.stdout.write(JSON.stringify(modules, null, 2) + "\n");
+    return;
+  }
   const content = runMap(out, p.values.module);
   if (content === void 0) {
     fail(p.values.module ? `no entry for module "${p.values.module}" at ${out}` : `no index at ${out} \u2014 run \`ultraindex build\` first`);
   }
   process.stdout.write(content.endsWith("\n") ? content : content + "\n");
+}
+function cmdStatus(p) {
+  const base = resolve(p.values.repo ?? ".");
+  const out = resolveOut(p, base);
+  const res = runStatus(out);
+  if (res === void 0) fail(`no index at ${out} \u2014 run \`ultraindex build\` first`);
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    return;
+  }
+  const lines = [`ultraindex: ${res.enriched}/${res.total} modules enriched`];
+  if (res.suggestedNext.length) lines.push(`  next:     ${res.suggestedNext.join(", ")}`);
+  lines.push("");
+  for (const m of res.modules.slice(0, 15)) {
+    const state = m.enriched ? "\u2713" : "\xB7";
+    lines.push(`  ${state} ${m.slug}  (${m.path}, tier ${m.tier}, degree ${m.degree}) \u2014 ${m.regions.enriched}/${m.regions.total} regions`);
+  }
+  if (res.modules.length > 15) lines.push(`  \u2026and ${res.modules.length - 15} more (use --json for all)`);
+  lines.push("", `  enrich:   \`ultraindex dossier <slug>\` then fill the ui:human regions, then \`ultraindex check\``);
+  process.stdout.write(lines.join("\n") + "\n");
 }
 function cmdDossier(p) {
   const out = resolveOut(p, resolve(p.values.repo ?? "."));
@@ -3115,6 +3230,8 @@ function main() {
       return cmdNeighbors(p);
     case "map":
       return cmdMap(p);
+    case "status":
+      return cmdStatus(p);
     case "dossier":
       return cmdDossier(p);
     case "ask":
