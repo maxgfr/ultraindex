@@ -8,6 +8,7 @@ import { readIfExists } from "./output.js";
 import { byStr } from "./sort.js";
 import { parseRegions } from "./merge.js";
 import { checkCitations, fileLineTable } from "./cite.js";
+import { loadVectors, staleVectorSlugs } from "./vectors.js";
 
 // Hash every file in the repo the way the build did — SAME out-dir exclusion and
 // SAME include/exclude/max-bytes filters (read back from the manifest) — so
@@ -82,6 +83,21 @@ export function runCheck(outDir: string, repo: string): CheckResult {
       if (r.type !== "human") continue;
       for (const u of checkCitations(r.body, fileLines).unresolved) {
         errors.push(`encyclopedia/${m.slug}.md [${r.key}]: citation [${u.citation.raw}] — ${u.reason}`);
+      }
+    }
+  }
+
+  // Optional semantic layer: stale vectors degrade ranking but never break
+  // `find`, so drift is a warning, not a failure. Hash comparison only — this
+  // never touches the network.
+  const vectors = loadVectors(outDir);
+  if (vectors) {
+    if (!vectors.model || !vectors.dim) {
+      warnings.push("vectors.json is corrupt (missing model/dim) — re-run `ultraindex embed`");
+    } else {
+      const staleVecs = staleVectorSlugs(outDir, graph, vectors);
+      if (staleVecs.length) {
+        warnings.push(`vectors.json stale for ${staleVecs.length} module(s) — run \`ultraindex embed\` to refresh`);
       }
     }
   }

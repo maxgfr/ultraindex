@@ -159,6 +159,36 @@ export interface FindResult {
   files: string[]; // exact source files to open, best-first
   neighbors: string[]; // related module slugs
   enriched: boolean; // the entry carries verified human analysis — higher-trust
+  semanticRank?: number; // 1-based rank in the cosine list, only when hybrid ran
+}
+
+// Connection details for an OpenAI-compatible /v1/embeddings provider. Read
+// from env or <out>/semantic.json — when absent, the semantic layer is off and
+// the engine never touches the network.
+export interface SemanticConfig {
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+}
+
+// Optional per-module embedding store, persisted as vectors.json. Excluded from
+// the byte-identical reproducibility guarantee (floats depend on the provider/
+// model). `hash` is the sha1 of the exact text embedded — the staleness oracle.
+export interface VectorStore {
+  schemaVersion: number;
+  model: string;
+  dim: number;
+  vectors: Record<string, { hash: string; v: number[] }>; // slug -> embedded-text hash + vector
+}
+
+// Summary of an `embed` run.
+export interface EmbedReport {
+  model: string;
+  dim: number;
+  total: number; // modules in the graph
+  embedded: number; // freshly embedded this run
+  reused: number; // unchanged, vector kept
+  removed: number; // slugs pruned (module gone from the graph)
 }
 
 // One file's staleness verdict from `check`.

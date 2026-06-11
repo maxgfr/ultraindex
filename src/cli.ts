@@ -4,7 +4,9 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { VERSION } from "./types.js";
 import { runBuild } from "./build.js";
-import { runFind } from "./find.js";
+import { runFindHybrid } from "./find.js";
+import { loadSemanticConfig } from "./semantic.js";
+import { runEmbed } from "./vectors.js";
 import { runNeighbors } from "./neighbors.js";
 import { runMap } from "./mapcmd.js";
 import { runStatus } from "./status.js";
@@ -20,6 +22,7 @@ huge codebases without filling its context window. Zero deps, no keys.
 Usage:
   ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--no-mermaid]
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
+  ultraindex embed   [--out <dir>] [--force]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
   ultraindex map     [--out <dir>] [--module <slug>]
   ultraindex status  [--out <dir>]
@@ -31,7 +34,11 @@ Commands:
   build      Scan the repo and (re)write the layered index to --out (default
              <repo>/.ultraindex). Idempotent: refreshes generated sections,
              preserves your enriched prose.
-  find       Rank modules for a task and print the exact files to open.
+  find       Rank modules for a task and print the exact files to open. Hybrid
+             (lexical + semantic) when vectors.json exists; pure lexical otherwise.
+  embed      Build/refresh vectors.json: embed each module through the configured
+             provider (see Semantic below). Incremental — unchanged modules keep
+             their vectors.
   neighbors  Show graph neighbours of a file or module (what links to/from it).
   map        Print INDEX.md (the map) or one module's entry. With --json, emit
              the module table (slug, path, tier, degree, summary) for parsing.
@@ -55,10 +62,20 @@ Options:
   --depth <n>       neighbors: hops to traverse                (default: 1)
   --module <slug>   map: print this module's entry instead of INDEX.md
   --answer <file>   check: validate this answer file's citations against the index
+  --force           embed: re-embed every module even if unchanged
   --json            Machine-readable output
   --quiet           check: print nothing, use the exit code only
   -h, --help        Show this help
   -v, --version     Show version
+
+Semantic (optional):
+  \`find\` stays deterministic and offline by default. To add semantic ranking,
+  point ultraindex at any OpenAI-compatible /v1/embeddings endpoint — e.g. the
+  local container in docker-compose.yml (\`docker compose up -d\`) — via env
+  (ULTRAINDEX_EMBED_BASE_URL, ULTRAINDEX_EMBED_MODEL, ULTRAINDEX_EMBED_API_KEY)
+  or <out>/semantic.json, then run \`ultraindex embed\`. If the provider is down,
+  \`find\` degrades to pure lexical with a warning. Delete vectors.json to turn
+  the semantic layer off entirely.
 
 Grounding:
   Analysis is verified, not trusted. Cite claims with [path], [path:line] or
@@ -66,9 +83,9 @@ Grounding:
   citation does not resolve to a real file/line — the anti-hallucination guard.
 `;
 
-const COMMANDS = new Set(["build", "find", "neighbors", "map", "status", "dossier", "ask", "check"]);
+const COMMANDS = new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check"]);
 const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module", "answer", "q", "question"]);
-const BOOL_FLAGS = new Set(["json", "no-mermaid", "quiet"]);
+const BOOL_FLAGS = new Set(["json", "no-mermaid", "quiet", "force"]);
 
 // What each dangling reason means and what to do about it — emitted in
 // `build --json` so the report is self-diagnosing.
@@ -237,7 +254,7 @@ function cmdBuild(p: Parsed): void {
   process.stderr.write(lines.join("\n") + "\n");
 }
 
-function cmdFind(p: Parsed): void {
+async function cmdFind(p: Parsed): Promise<void> {
   const base = resolve(p.values.repo ?? ".");
   const out = resolveOut(p, base);
   const query = p.positional.join(" ").trim();
@@ -245,8 +262,10 @@ function cmdFind(p: Parsed): void {
   const k = p.values.k ? Number(p.values.k) : 8;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
 
-  const results = runFind(out, query, k);
-  if (results === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
+  const found = await runFindHybrid(out, query, k);
+  if (found === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
+  if (found.warning) process.stderr.write(`ultraindex: warning: ${found.warning}\n`);
+  const results = found.results;
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(results, null, 2) + "\n");
     return;
@@ -255,9 +274,9 @@ function cmdFind(p: Parsed): void {
     process.stdout.write(`No modules matched "${query}".\n`);
     return;
   }
-  const lines: string[] = [`ultraindex: ${results.length} module(s) for "${query}"`, ""];
+  const lines: string[] = [`ultraindex: ${results.length} module(s) for "${query}"${found.semantic ? " (hybrid)" : ""}`, ""];
   for (const r of results) {
-    lines.push(`▸ ${r.slug}  (${r.path}, tier ${r.tier}, score ${r.score})`);
+    lines.push(`▸ ${r.slug}  (${r.path}, tier ${r.tier}, score ${r.score}${r.semanticRank !== undefined ? `, semantic #${r.semanticRank}` : ""})`);
     if (r.matched.length) lines.push(`    matched: ${r.matched.join(", ")}`);
     lines.push(`    open:    ${r.files.join("  ") || "(no files)"}`);
     if (r.neighbors.length) lines.push(`    related: ${r.neighbors.join(", ")}`);
@@ -265,6 +284,31 @@ function cmdFind(p: Parsed): void {
     lines.push("");
   }
   process.stdout.write(lines.join("\n"));
+}
+
+async function cmdEmbed(p: Parsed): Promise<void> {
+  const base = resolve(p.values.repo ?? ".");
+  const out = resolveOut(p, base);
+  const cfg = loadSemanticConfig(out);
+  if (!cfg) {
+    fail(
+      `no semantic config — set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join(out, "semantic.json")} ` +
+        `({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). ` +
+        `To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`,
+    );
+  }
+  const report = await runEmbed(out, cfg, p.bools.has("force"));
+  if (report === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+    return;
+  }
+  const lines = [
+    `ultraindex: embedded ${report.embedded}/${report.total} module(s) (${report.reused} reused, ${report.removed} pruned)`,
+    `  model:    ${report.model} (dim ${report.dim})`,
+    `  next:     \`ultraindex find "<query>"\` now ranks hybrid (lexical + semantic)`,
+  ];
+  process.stderr.write(lines.join("\n") + "\n");
 }
 
 function cmdNeighbors(p: Parsed): void {
@@ -407,13 +451,15 @@ function cmdCheck(p: Parsed): void {
   if (!res.ok) process.exit(1);
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const p = parseArgs(process.argv.slice(2));
   switch (p.command) {
     case "build":
       return cmdBuild(p);
     case "find":
       return cmdFind(p);
+    case "embed":
+      return cmdEmbed(p);
     case "neighbors":
       return cmdNeighbors(p);
     case "map":
@@ -447,9 +493,5 @@ function isInvokedDirectly(): boolean {
 }
 
 if (isInvokedDirectly()) {
-  try {
-    main();
-  } catch (e) {
-    fail((e as Error).message);
-  }
+  main().catch((e: unknown) => fail((e as Error).message));
 }

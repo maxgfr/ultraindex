@@ -10,6 +10,8 @@ export function indexPaths(outDir: string): {
   manifest: string;
   mermaid: string;
   encyclopedia: string;
+  vectors: string;
+  semantic: string;
 } {
   return {
     index: join(outDir, "INDEX.md"),
@@ -17,6 +19,8 @@ export function indexPaths(outDir: string): {
     manifest: join(outDir, "manifest.json"),
     mermaid: join(outDir, "graph.mmd"),
     encyclopedia: join(outDir, "encyclopedia"),
+    vectors: join(outDir, "vectors.json"),
+    semantic: join(outDir, "semantic.json"),
   };
 }
 

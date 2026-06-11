@@ -61,4 +61,11 @@ describe("parseArgs", () => {
   it("exits 0 on --version", () => {
     expect(trapExit(() => parseArgs(["--version"])).code).toBe(0);
   });
+
+  it("parses embed with --force", () => {
+    const p = parseArgs(["embed", "--out", "x", "--force"]);
+    expect(p.command).toBe("embed");
+    expect(p.values.out).toBe("x");
+    expect(p.bools.has("force")).toBe(true);
+  });
 });

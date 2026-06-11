@@ -1,13 +1,25 @@
 import { join } from "node:path";
-import type { FileNode, FindResult, Graph } from "./types.js";
+import type { FileNode, FindResult, Graph, ModuleNode } from "./types.js";
 import { loadGraph, indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
 import { humanBodies, isEnrichedBody } from "./merge.js";
 import { buildHaystack, queryTerms, scoreHaystack } from "./lex.js";
+import { rrf } from "./util.js";
 import { byStr } from "./sort.js";
+import { loadVectors } from "./vectors.js";
+import { loadSemanticConfig, embedTexts, cosine } from "./semantic.js";
 
 const DEFAULT_K = 8;
 const MAX_FILES = 8;
+
+// Related module slugs, both directions, deduped and capped.
+function moduleNeighbors(graph: Graph, slug: string): string[] {
+  const ns = [
+    ...graph.moduleEdges.filter((e) => e.from === slug).map((e) => e.to),
+    ...graph.moduleEdges.filter((e) => e.to === slug).map((e) => e.from),
+  ];
+  return [...new Set(ns)].sort(byStr).slice(0, 8);
+}
 
 function textOf(parts: (string | undefined)[]): string {
   return parts.filter(Boolean).join(" ").toLowerCase();
@@ -109,11 +121,6 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: 
         .sort((a, b) => b.degIn + b.degOut - (a.degIn + a.degOut) || byStr(a.rel, b.rel))
         .map((f) => f.rel);
     }
-    const neighbors = [
-      ...graph.moduleEdges.filter((e) => e.from === m.slug).map((e) => e.to),
-      ...graph.moduleEdges.filter((e) => e.to === m.slug).map((e) => e.from),
-    ];
-
     scored.push({
       degree: m.degIn + m.degOut,
       r: {
@@ -124,7 +131,7 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: 
         score: Number(total.toFixed(3)),
         matched,
         files: files.slice(0, MAX_FILES),
-        neighbors: [...new Set(neighbors)].sort(byStr).slice(0, 8),
+        neighbors: moduleNeighbors(graph, m.slug),
         enriched: enrichedText !== undefined,
       },
     });
@@ -139,4 +146,96 @@ export function runFind(outDir: string, query: string, k = DEFAULT_K): FindResul
   const graph = loadGraph(outDir);
   if (!graph) return undefined;
   return findModules(graph, query, k, loadEnrichedProse(outDir, graph));
+}
+
+// A result row for a module that surfaced semantically but never matched a
+// keyword: no lexical score, files by degree (the same fallback findModules
+// uses when a module matches but none of its files do).
+function bareRow(graph: Graph, m: ModuleNode, members: FileNode[], enriched: boolean): FindResult {
+  const files = members
+    .slice()
+    .sort((a, b) => b.degIn + b.degOut - (a.degIn + a.degOut) || byStr(a.rel, b.rel))
+    .map((f) => f.rel)
+    .slice(0, MAX_FILES);
+  return {
+    slug: m.slug,
+    path: m.path,
+    title: m.title,
+    tier: m.tier,
+    score: 0,
+    matched: [],
+    files,
+    neighbors: moduleNeighbors(graph, m.slug),
+    enriched,
+  };
+}
+
+export interface HybridFind {
+  results: FindResult[];
+  semantic: boolean; // true when the cosine ranking actually contributed
+  warning?: string; // why the semantic side was skipped, when it was
+}
+
+// Hybrid find: fuse the lexical ranking with a cosine ranking over the stored
+// module vectors (Reciprocal Rank Fusion — no score-scale juggling). The
+// semantic side is strictly additive and strictly optional: without
+// vectors.json this NEVER touches the network and returns exactly the lexical
+// results; with it, any provider failure degrades to lexical with a warning.
+export async function runFindHybrid(outDir: string, query: string, k = DEFAULT_K): Promise<HybridFind | undefined> {
+  const graph = loadGraph(outDir);
+  if (!graph) return undefined;
+  const prose = loadEnrichedProse(outDir, graph);
+  const pool = Math.max(k * 3, 24);
+  const lexical = findModules(graph, query, pool, prose);
+
+  const store = loadVectors(outDir);
+  if (!store) return { results: lexical.slice(0, k), semantic: false };
+
+  const lexOnly = (warning: string): HybridFind => ({ results: lexical.slice(0, k), semantic: false, warning });
+  const cfg = loadSemanticConfig(outDir);
+  if (!cfg) {
+    return lexOnly("vectors.json present but no semantic config (env or semantic.json) — lexical-only results");
+  }
+  let queryVector: number[];
+  try {
+    const [v] = await embedTexts(cfg, [query]);
+    queryVector = v!;
+  } catch (e) {
+    return lexOnly(`semantic provider unavailable (${(e as Error).message}) — lexical-only results`);
+  }
+  if (queryVector.length !== store.dim) {
+    return lexOnly(`query embedding dim ${queryVector.length} != vectors.json dim ${store.dim} (model changed?) — re-run \`ultraindex embed\`; lexical-only results`);
+  }
+
+  const moduleBySlug = new Map(graph.modules.map((m) => [m.slug, m]));
+  const semanticSlugs = Object.entries(store.vectors)
+    .filter(([slug]) => moduleBySlug.has(slug)) // a stale store may carry gone modules
+    .map(([slug, rec]) => ({ slug, cos: cosine(queryVector, rec.v) }))
+    .sort((a, b) => b.cos - a.cos || byStr(a.slug, b.slug))
+    .slice(0, pool)
+    .map((s) => s.slug);
+
+  const lexicalSlugs = lexical.map((r) => r.slug);
+  const fused = rrf([lexicalSlugs, semanticSlugs], (s) => s);
+  const lexRank = new Map(lexicalSlugs.map((s, i) => [s, i]));
+  const semRank = new Map(semanticSlugs.map((s, i) => [s, i + 1])); // 1-based, reported
+  const ordered = [...fused.entries()]
+    .sort((a, b) => b[1] - a[1] || (lexRank.get(a[0]) ?? 1e9) - (lexRank.get(b[0]) ?? 1e9) || byStr(a[0], b[0]))
+    .slice(0, k)
+    .map(([slug]) => slug);
+
+  const lexRow = new Map(lexical.map((r) => [r.slug, r]));
+  const filesByModule = new Map<string, FileNode[]>();
+  for (const f of graph.files) {
+    let list = filesByModule.get(f.module);
+    if (!list) filesByModule.set(f.module, (list = []));
+    list.push(f);
+  }
+  const results = ordered.map((slug) => {
+    const sem = semRank.get(slug);
+    const row =
+      lexRow.get(slug) ?? bareRow(graph, moduleBySlug.get(slug)!, filesByModule.get(slug) ?? [], prose.has(slug));
+    return sem !== undefined ? { ...row, semanticRank: sem } : row;
+  });
+  return { results, semantic: true };
 }
