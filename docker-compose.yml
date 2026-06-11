@@ -1,0 +1,41 @@
+# Local, key-free embeddings provider for ultraindex's optional semantic layer.
+# Multi-arch (works on Apple Silicon and x86).
+#
+#   docker compose up -d          # starts Ollama + pulls the embedding model
+#   export ULTRAINDEX_EMBED_BASE_URL=http://localhost:11434/v1
+#   export ULTRAINDEX_EMBED_MODEL=nomic-embed-text
+#   node scripts/ultraindex.mjs embed
+#
+# Ollama serves an OpenAI-compatible POST /v1/embeddings. Any drop-in
+# alternative works through the same interface: huggingface
+# text-embeddings-inference on amd64/GPU hosts
+# (ghcr.io/huggingface/text-embeddings-inference, --model-id
+# BAAI/bge-small-en-v1.5, base URL http://localhost:8080/v1), or a hosted API
+# (https://api.openai.com/v1, model text-embedding-3-small, plus
+# ULTRAINDEX_EMBED_API_KEY).
+services:
+  embeddings:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama # model weights survive container recreation
+    healthcheck:
+      test: ["CMD", "ollama", "ls"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # One-shot: pull the embedding model into the server, then exit.
+  model-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      embeddings:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://embeddings:11434
+    entrypoint: ["ollama", "pull", "nomic-embed-text"]
+    restart: "no"
+
+volumes:
+  ollama-models:
