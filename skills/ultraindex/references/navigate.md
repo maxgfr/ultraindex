@@ -63,9 +63,10 @@ from real code, not memory — and prove it:
 2. **Write the answer to `ANSWER.md`**, citing every claim with the evidence
    it rests on, in **bare brackets**: `[file]`, `[file:line]`, or
    `[file:start-end]` (e.g. `Retries use exponential backoff
-   [src/util.ts:2-4]`). A markdown link `[text](path)`, or a citation inside a
-   code fence/inline-code, does **not** count — write the citation in the
-   prose. Every answer needs at least one citation.
+   [src/util.ts:2-4]`). A markdown link — `[text]` immediately followed by a
+   `(path)` — or a citation inside a code fence/inline-code does **not**
+   count — write the citation in the prose. Every answer needs at least one
+   citation.
 3. **Verify grounding.**
    ```
    node scripts/ultraindex.mjs check --answer ANSWER.md --out <index-dir>
