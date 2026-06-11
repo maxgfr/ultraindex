@@ -39,9 +39,6 @@ only the files the index points at and answering with **grounded,
 citation-checked** analysis (`dossier`/`ask` hand the agent the real source;
 `check` rejects any citation that doesn't resolve).
 
-> **Migrating from ≤1.x:** the separate `ultraindex-nav` skill was merged into
-> `ultraindex`. Remove the old install and reinstall the single skill.
-
 ## CLI
 
 ```
