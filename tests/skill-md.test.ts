@@ -1,27 +1,32 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { parse } from "yaml";
 import { VERSION } from "../src/types.js";
 
-// Guards that BOTH published SKILL.md files stay installable via `npx skills
-// add`. The `skills` CLI discovers a skill by reading SKILL.md, extracting the
+// Guards that the published SKILL.md stays installable via `npx skills add`.
+// The `skills` CLI discovers a skill by reading SKILL.md, extracting the
 // frontmatter with this exact regex and `parse()`-ing it with `yaml`. If that
 // parse throws — or name/description are missing — it SILENTLY drops the skill.
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
-const SKILLS = [
-  { dir: "skills/ultraindex", name: "ultraindex" },
-  { dir: "skills/ultraindex-nav", name: "ultraindex-nav" },
-];
+const SKILL_DIR = "skills/ultraindex";
+const REFS_DIR = join(ROOT, SKILL_DIR, "references");
 
 const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version: string };
+const raw = readFileSync(join(ROOT, SKILL_DIR, "SKILL.md"), "utf8");
+const match = raw.match(FRONTMATTER_RE);
+const frontmatter = match?.[1] ?? "";
+const body = match?.[2] ?? "";
+const refFiles = readdirSync(REFS_DIR).filter((f) => f.endsWith(".md"));
+const refBodies = Object.fromEntries(refFiles.map((f) => [f, readFileSync(join(REFS_DIR, f), "utf8")]));
 
-describe.each(SKILLS)("$dir/SKILL.md is installable", ({ dir, name }) => {
-  const raw = readFileSync(join(ROOT, dir, "SKILL.md"), "utf8");
-  const match = raw.match(FRONTMATTER_RE);
-  const frontmatter = match?.[1] ?? "";
+describe("SKILL.md is installable", () => {
+  it("is the only skill (the navigator merged into it)", () => {
+    expect(readdirSync(join(ROOT, "skills"))).toEqual(["ultraindex"]);
+    expect(existsSync(join(ROOT, "skills/ultraindex-nav"))).toBe(false);
+  });
 
   it("has a frontmatter block", () => {
     expect(match).not.toBeNull();
@@ -34,9 +39,15 @@ describe.each(SKILLS)("$dir/SKILL.md is installable", ({ dir, name }) => {
 
   it("exposes the expected name and a non-empty description", () => {
     const data = parse(frontmatter) as Record<string, unknown>;
-    expect(data.name).toBe(name);
+    expect(data.name).toBe("ultraindex");
     expect(typeof data.description).toBe("string");
     expect((data.description as string).length).toBeGreaterThan(0);
+  });
+
+  it("describes BOTH trigger sets (build it AND navigate it)", () => {
+    const description = (parse(frontmatter) as { description: string }).description;
+    expect(description).toMatch(/index|build/i);
+    expect(description).toMatch(/where is|navigate/i);
   });
 
   it("keeps version in lockstep with package.json and src/types.ts", () => {
@@ -47,15 +58,14 @@ describe.each(SKILLS)("$dir/SKILL.md is installable", ({ dir, name }) => {
 });
 
 // Content guards: the docs must not drift from the CLI they describe.
-const CLI_COMMANDS = new Set(["build", "find", "neighbors", "map", "status", "dossier", "ask", "check"]);
+const CLI_COMMANDS = new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check"]);
 
-describe.each(SKILLS)("$dir/SKILL.md content stays in sync with the CLI", ({ dir }) => {
-  const body = readFileSync(join(ROOT, dir, "SKILL.md"), "utf8").replace(FRONTMATTER_RE, "$2");
+describe("skill docs stay in sync with the CLI", () => {
+  const docs: [string, string][] = [["SKILL.md", body], ...Object.entries(refBodies)];
 
-  it("only references commands the CLI actually has", () => {
-    // Every `ultraindex.mjs <command>` invocation in the doc must be a real command.
-    for (const m of body.matchAll(/ultraindex\.mjs\s+([a-z-]+)/g)) {
-      expect(CLI_COMMANDS.has(m[1]!), `SKILL.md references unknown command "${m[1]}"`).toBe(true);
+  it.each(docs)("%s only references commands the CLI actually has", (_name, text) => {
+    for (const m of text.matchAll(/ultraindex\.mjs\s+([a-z-]+)/g)) {
+      expect(CLI_COMMANDS.has(m[1]!), `references unknown command "${m[1]}"`).toBe(true);
     }
   });
 
@@ -64,22 +74,44 @@ describe.each(SKILLS)("$dir/SKILL.md content stays in sync with the CLI", ({ dir
   });
 });
 
-describe("generator SKILL.md teaches the agent loop", () => {
-  const body = readFileSync(join(ROOT, "skills/ultraindex/SKILL.md"), "utf8");
-  it("drives enrichment through `status`", () => {
-    expect(body).toContain("status");
-    expect(body).toMatch(/work-queue/i);
+describe("SKILL.md routes to the references (progressive disclosure)", () => {
+  it("ships the three workflow references", () => {
+    expect(refFiles.sort()).toEqual(["generate.md", "navigate.md", "semantic.md"]);
   });
-  it("covers error recovery without weakening the grounding gate", () => {
-    expect(body).toMatch(/Never delete a citation/i);
+
+  it("mentions every reference file that exists", () => {
+    for (const f of refFiles) {
+      expect(body, `SKILL.md never routes to references/${f}`).toContain(`references/${f}`);
+    }
   });
 });
 
-describe("navigator SKILL.md teaches escalation", () => {
-  const body = readFileSync(join(ROOT, "skills/ultraindex-nav/SKILL.md"), "utf8");
+describe("generate.md teaches the agent loop", () => {
+  const text = refBodies["generate.md"]!;
+  it("drives enrichment through `status`", () => {
+    expect(text).toContain("status");
+    expect(text).toMatch(/work-queue/i);
+  });
+  it("covers error recovery without weakening the grounding gate", () => {
+    expect(text).toMatch(/Never delete a citation/i);
+  });
+});
+
+describe("navigate.md teaches escalation", () => {
+  const text = refBodies["navigate.md"]!;
   it("mentions the enriched flag and the find-miss escalation ladder", () => {
-    expect(body).toContain("enriched");
-    expect(body).toMatch(/neighbors/);
-    expect(body).toMatch(/never whole-repo/i);
+    expect(text).toContain("enriched");
+    expect(text).toMatch(/neighbors/);
+    expect(text).toMatch(/never whole-repo/i);
+  });
+});
+
+describe("semantic.md teaches the optional embeddings layer", () => {
+  const text = refBodies["semantic.md"]!;
+  it("covers the provider, embed, and graceful degradation", () => {
+    expect(text).toContain("docker compose");
+    expect(text).toMatch(/ultraindex\.mjs embed/);
+    expect(text).toMatch(/lexical/i);
+    expect(text).toContain("vectors.json");
   });
 });

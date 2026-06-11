@@ -4,7 +4,7 @@
 //   node scripts/sync-version.mjs <version>
 //
 // The version is duplicated in package.json, src/types.ts (the value the bundle
-// embeds) and BOTH skill SKILL.md frontmatters; semantic-release computes it
+// embeds) and the skill's SKILL.md frontmatter; semantic-release computes it
 // from the Conventional Commits, so this keeps them all in lockstep. CHANGELOG.md
 // is owned by @semantic-release/changelog and is NOT touched here.
 import { readFileSync, writeFileSync } from "node:fs";
@@ -32,10 +32,9 @@ edit("package.json", (s) => s.replace(/("version":\s*")[^"]+(")/, `$1${version}$
 // src/types.ts — the VERSION constant the CLI/bundle reports.
 edit("src/types.ts", (s) => s.replace(/(export const VERSION = ")[^"]+(";)/, `$1${version}$2`));
 
-// Both skills' SKILL.md — the indented `version:` under the `metadata:` block.
+// The skill's SKILL.md — the indented `version:` under the `metadata:` block.
 edit("skills/ultraindex/SKILL.md", setVersionField);
-edit("skills/ultraindex-nav/SKILL.md", setVersionField);
 
 console.log(
-  `sync-version: set ${version} in package.json, src/types.ts, skills/ultraindex/SKILL.md, skills/ultraindex-nav/SKILL.md`,
+  `sync-version: set ${version} in package.json, src/types.ts, skills/ultraindex/SKILL.md`,
 );

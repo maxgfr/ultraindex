@@ -1,7 +1,7 @@
 {
   "name": "ultraindex",
   "version": "1.3.0",
-  "description": "Deterministically scan a whole repo (code + docs), build a typed link-graph between files, and emit a layered, navigable encyclopedia so an AI can work in huge codebases without filling its context window. A skills.sh agent skill (generator + light navigator).",
+  "description": "Deterministically scan a whole repo (code + docs), build a typed link-graph between files, and emit a layered, navigable encyclopedia so an AI can work in huge codebases without filling its context window. A skills.sh agent skill, with optional hybrid (lexical + semantic) search.",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "bin": {
@@ -21,7 +21,7 @@
     "test:watch": "vitest",
     "test:e2e": "ULTRAINDEX_E2E=1 vitest run tests/e2e-real-repos.test.ts",
     "typecheck": "tsc --noEmit",
-    "check:build": "tsup && node scripts/copy-bundle.mjs && git diff --exit-code -- scripts/ultraindex.mjs skills/ultraindex/scripts/ultraindex.mjs skills/ultraindex-nav/scripts/ultraindex.mjs",
+    "check:build": "tsup && node scripts/copy-bundle.mjs && git diff --exit-code -- scripts/ultraindex.mjs skills/ultraindex/scripts/ultraindex.mjs",
     "demo": "node scripts/ultraindex.mjs build --repo tests/fixtures/mini-repo --out /tmp/ultraindex-demo && node scripts/ultraindex.mjs check --repo tests/fixtures/mini-repo --out /tmp/ultraindex-demo",
     "release": "semantic-release"
   },

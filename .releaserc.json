@@ -23,11 +23,9 @@
           "package.json",
           "src/types.ts",
           "skills/ultraindex/SKILL.md",
-          "skills/ultraindex-nav/SKILL.md",
           "CHANGELOG.md",
           "scripts/ultraindex.mjs",
-          "skills/ultraindex/scripts/ultraindex.mjs",
-          "skills/ultraindex-nav/scripts/ultraindex.mjs"
+          "skills/ultraindex/scripts/ultraindex.mjs"
         ],
         "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
       }

@@ -335,6 +335,16 @@ function keywords(question) {
   }
   return out;
 }
+function rrf(lists, keyOf2, k = 60) {
+  const score = /* @__PURE__ */ new Map();
+  for (const list of lists) {
+    list.forEach((item, idx) => {
+      const key = keyOf2(item);
+      score.set(key, (score.get(key) ?? 0) + 1 / (k + idx + 1));
+    });
+  }
+  return score;
+}
 
 // src/git.ts
 function headCommit(dir) {
@@ -1687,9 +1697,9 @@ function resolveRust(fromRel, spec, ctx) {
     return void 0;
   };
   const fromDir = fromRel.includes("/") ? posix.dirname(fromRel) : "";
-  const stem = fromRel.slice(fromRel.lastIndexOf("/") + 1).replace(/\.rs$/, "");
-  const isRootish = stem === "mod" || stem === "lib" || stem === "main";
-  const childDir = isRootish ? fromDir : posix.join(fromDir, stem);
+  const stem2 = fromRel.slice(fromRel.lastIndexOf("/") + 1).replace(/\.rs$/, "");
+  const isRootish = stem2 === "mod" || stem2 === "lib" || stem2 === "main";
+  const childDir = isRootish ? fromDir : posix.join(fromDir, stem2);
   if (spec.startsWith("mod ")) {
     const name = spec.slice(4);
     const hit2 = probeMod(childDir, name) ?? (isRootish ? void 0 : probeMod(fromDir, name));
@@ -2504,7 +2514,9 @@ function indexPaths(outDir) {
     graph: join6(outDir, "graph.json"),
     manifest: join6(outDir, "manifest.json"),
     mermaid: join6(outDir, "graph.mmd"),
-    encyclopedia: join6(outDir, "encyclopedia")
+    encyclopedia: join6(outDir, "encyclopedia"),
+    vectors: join6(outDir, "vectors.json"),
+    semantic: join6(outDir, "semantic.json")
   };
 }
 function indexExists(outDir) {
@@ -2573,26 +2585,334 @@ function runBuild(opts, builtAt) {
 
 // src/find.ts
 import { join as join7 } from "path";
-var DEFAULT_K = 8;
-var MAX_FILES = 8;
-function textOf(parts) {
-  return parts.filter(Boolean).join(" ").toLowerCase();
+
+// src/lex.ts
+function splitIdentifier(token) {
+  const spaced = token.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/([A-Za-z])(\d)/g, "$1 $2").replace(/(\d)([A-Za-z])/g, "$1 $2");
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const part of spaced.split(/[^A-Za-z0-9]+| /)) {
+    if (!part) continue;
+    const lower = part.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    out.push(lower);
+  }
+  return out;
 }
-function scoreText(hay, kws) {
-  let score = 0;
-  const matched = [];
-  for (const kw of kws) {
-    const k = kw.toLowerCase();
-    const word = new RegExp(`(^|[^a-z0-9_])${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9_]|$)`);
-    if (word.test(hay)) {
-      score += 3;
-      matched.push(kw);
-    } else if (hay.includes(k)) {
-      score += 1;
-      matched.push(kw);
+function stem(token) {
+  if (token.length < 4 || /\d/.test(token)) return token;
+  let t = token;
+  if (t.length >= 5 && t.endsWith("ies")) t = t.slice(0, -3) + "y";
+  else if (/(ses|xes|zes|ches|shes)$/.test(t)) t = t.slice(0, -2);
+  else if (!t.endsWith("ss") && t.endsWith("s")) t = t.slice(0, -1);
+  if (t.length >= 6 && t.endsWith("ing")) t = t.slice(0, -3);
+  else if (t.length >= 5 && t.endsWith("ed")) t = t.slice(0, -2);
+  if (t.length >= 5 && t.endsWith("e")) t = t.slice(0, -1);
+  return t.length >= 3 ? t : token;
+}
+var SYNONYM_GROUPS = [
+  ["auth", "authentication", "authn", "login", "signin", "signon", "sso", "session"],
+  ["perm", "permission", "authz", "authorization", "acl", "role", "rbac"],
+  ["db", "database", "storage", "persistence", "sql"],
+  ["config", "configuration", "settings", "options", "preferences"],
+  ["init", "initialize", "initialise", "setup", "bootstrap"],
+  ["delete", "remove", "destroy", "drop"],
+  ["fetch", "request", "http", "api"],
+  ["error", "exception", "failure", "fault"],
+  ["user", "account", "profile"],
+  ["test", "spec", "unittest"],
+  ["dir", "directory", "folder"],
+  ["doc", "docs", "documentation", "readme"],
+  ["util", "utility", "helper"],
+  ["nav", "navigate", "navigation", "router", "routing", "route"],
+  ["embed", "embedding", "vector", "semantic"],
+  ["search", "find", "query", "lookup"],
+  ["log", "logging", "logger"],
+  ["message", "messaging", "notification", "notify"]
+];
+var GROUP_OF = /* @__PURE__ */ new Map();
+SYNONYM_GROUPS.forEach((group, id) => {
+  for (const word of group) {
+    GROUP_OF.set(word, id);
+    GROUP_OF.set(stem(word), id);
+  }
+});
+function synonymGroup(token) {
+  return GROUP_OF.get(token) ?? GROUP_OF.get(stem(token));
+}
+function queryTerms(question) {
+  return keywords(question).map((raw) => {
+    const exact = raw.toLowerCase();
+    const parts = splitIdentifier(raw).filter((p) => p !== exact && keywords(p).length > 0);
+    const forms = /* @__PURE__ */ new Set();
+    for (const f of [stem(exact), ...parts, ...parts.map(stem)]) {
+      if (f !== exact) forms.add(f);
+    }
+    const groups = /* @__PURE__ */ new Set();
+    for (const f of [exact, ...parts]) {
+      const g = synonymGroup(f);
+      if (g !== void 0) groups.add(g);
+    }
+    return { raw, exact, forms: [...forms], groups: [...groups] };
+  });
+}
+function bump(map, key) {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+function buildHaystack(text) {
+  const counts = /* @__PURE__ */ new Map();
+  const groups = /* @__PURE__ */ new Map();
+  let length = 0;
+  for (const tok of text.split(/[^A-Za-z0-9_]+/)) {
+    if (!tok) continue;
+    length++;
+    const lower = tok.toLowerCase();
+    const forms = /* @__PURE__ */ new Set([lower, stem(lower)]);
+    for (const part of splitIdentifier(tok)) {
+      forms.add(part);
+      forms.add(stem(part));
+    }
+    for (const f of forms) bump(counts, f);
+    const seen = /* @__PURE__ */ new Set();
+    for (const f of forms) {
+      const g = GROUP_OF.get(f);
+      if (g !== void 0 && !seen.has(g)) {
+        seen.add(g);
+        bump(groups, g);
+      }
     }
   }
+  return { counts, groups, raw: text.toLowerCase(), length };
+}
+function scoreHaystack(hay, terms, saturate = false) {
+  let score = 0;
+  const matched = [];
+  for (const t of terms) {
+    let weight = 0;
+    let count = 0;
+    const exactCount = hay.counts.get(t.exact) ?? 0;
+    if (exactCount > 0) {
+      weight = 3;
+      count = exactCount;
+    } else {
+      for (const f of t.forms) {
+        const c2 = hay.counts.get(f) ?? 0;
+        if (c2 > count) count = c2;
+      }
+      if (count > 0) weight = 2;
+      else {
+        for (const g of t.groups) {
+          const c2 = hay.groups.get(g) ?? 0;
+          if (c2 > count) count = c2;
+        }
+        if (count > 0) weight = 1.5;
+        else if (hay.raw.includes(t.exact)) {
+          weight = 1;
+          count = 1;
+        }
+      }
+    }
+    if (weight === 0) continue;
+    score += saturate ? weight * Math.min(1.5, 1 + Math.log1p(count - 1) * 0.25) : weight;
+    matched.push(t.raw);
+  }
+  if (saturate) score /= 1 + Math.log(Math.max(1, hay.length / 200));
   return { score, matched };
+}
+
+// src/semantic.ts
+function loadSemanticConfig(outDir) {
+  const env = {
+    baseUrl: process.env.ULTRAINDEX_EMBED_BASE_URL,
+    model: process.env.ULTRAINDEX_EMBED_MODEL,
+    apiKey: process.env.ULTRAINDEX_EMBED_API_KEY
+  };
+  let file = {};
+  const raw = readIfExists(indexPaths(outDir).semantic);
+  if (raw !== void 0) {
+    try {
+      file = JSON.parse(raw);
+    } catch {
+    }
+  }
+  const baseUrl = env.baseUrl || file.baseUrl;
+  const model = env.model || file.model;
+  if (!baseUrl || !model) return void 0;
+  const apiKey = env.apiKey || file.apiKey;
+  return { baseUrl, model, ...apiKey ? { apiKey } : {} };
+}
+function embeddingsUrl(baseUrl) {
+  let base = baseUrl.replace(/\/+$/, "");
+  if (!/\/v\d+$/.test(base)) base += "/v1";
+  return base + "/embeddings";
+}
+var BATCH_SIZE = 32;
+var TIMEOUT_MS = 3e4;
+async function embedTexts(cfg, texts) {
+  const url = embeddingsUrl(cfg.baseUrl);
+  const out = [];
+  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+    const batch = texts.slice(i, i + BATCH_SIZE);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}
+        },
+        body: JSON.stringify({ model: cfg.model, input: batch }),
+        signal: controller.signal
+      });
+    } catch (e) {
+      throw new Error(`embeddings provider unreachable at ${url}: ${e.message}`);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) {
+      const body = clip(await res.text().catch(() => ""), 200);
+      throw new Error(`embeddings provider returned ${res.status} for ${url}${body ? `: ${body}` : ""}`);
+    }
+    const json = await res.json();
+    const data = json.data;
+    if (!Array.isArray(data) || data.length !== batch.length) {
+      throw new Error(`embeddings provider returned ${data?.length ?? 0} vectors for ${batch.length} inputs`);
+    }
+    const rows = new Array(batch.length);
+    data.forEach((d, j) => {
+      const idx = typeof d.index === "number" ? d.index : j;
+      if (!Array.isArray(d.embedding)) throw new Error("embeddings provider returned a row without an embedding");
+      rows[idx] = d.embedding;
+    });
+    out.push(...rows);
+  }
+  return out;
+}
+var EMBED_TEXT_MAX = 4e3;
+function moduleEmbedText(m, files, prose) {
+  const members = files.slice().sort((a, b) => byStr(a.rel, b.rel)).map((f) => [f.rel, f.title, f.summary].filter(Boolean).join(" \u2014 "));
+  const parts = [m.title, m.path, m.slug, m.summary, ...members, prose ?? ""];
+  return clip(parts.filter(Boolean).join("\n"), EMBED_TEXT_MAX);
+}
+function cosine(a, b) {
+  if (a.length !== b.length || a.length === 0) return -1;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  if (na === 0 || nb === 0) return -1;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+// src/vectors.ts
+function loadVectors(outDir) {
+  const raw = readIfExists(indexPaths(outDir).vectors);
+  if (raw === void 0) return void 0;
+  try {
+    const v = JSON.parse(raw);
+    return v.schemaVersion === SCHEMA_VERSION && v.vectors ? v : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function round6(v) {
+  return v.map((x) => Number(x.toFixed(6)));
+}
+function saveVectors(outDir, store) {
+  const sorted = {
+    schemaVersion: store.schemaVersion,
+    model: store.model,
+    dim: store.dim,
+    vectors: Object.fromEntries(
+      Object.keys(store.vectors).sort(byStr).map((slug) => [slug, store.vectors[slug]])
+    )
+  };
+  writeFileIfChanged(indexPaths(outDir).vectors, JSON.stringify(sorted, null, 2) + "\n");
+}
+function staleVectorSlugs(outDir, graph, store) {
+  const prose = loadEnrichedProse(outDir, graph);
+  const filesByModule = groupFiles(graph);
+  const stale = [];
+  for (const m of graph.modules) {
+    const text = moduleEmbedText(m, filesByModule.get(m.slug) ?? [], prose.get(m.slug));
+    const stored = store.vectors[m.slug];
+    if (!stored || stored.hash !== sha1(text)) stale.push(m.slug);
+  }
+  return stale.sort(byStr);
+}
+function groupFiles(graph) {
+  const byModule = /* @__PURE__ */ new Map();
+  for (const f of graph.files) {
+    let list = byModule.get(f.module);
+    if (!list) byModule.set(f.module, list = []);
+    list.push(f);
+  }
+  return byModule;
+}
+async function runEmbed(outDir, cfg, force = false) {
+  const graph = loadGraph(outDir);
+  if (!graph) return void 0;
+  const prior = loadVectors(outDir);
+  const reusable = !force && prior && prior.model === cfg.model ? prior.vectors : {};
+  const prose = loadEnrichedProse(outDir, graph);
+  const filesByModule = groupFiles(graph);
+  const modules = graph.modules.slice().sort((a, b) => byStr(a.slug, b.slug));
+  const next = { schemaVersion: SCHEMA_VERSION, model: cfg.model, dim: prior?.model === cfg.model ? prior.dim : 0, vectors: {} };
+  const toEmbed = [];
+  let reused = 0;
+  for (const m of modules) {
+    const text = moduleEmbedText(m, filesByModule.get(m.slug) ?? [], prose.get(m.slug));
+    const hash = sha1(text);
+    const stored = reusable[m.slug];
+    if (stored && stored.hash === hash) {
+      next.vectors[m.slug] = stored;
+      reused++;
+    } else {
+      toEmbed.push({ slug: m.slug, hash, text });
+    }
+  }
+  if (toEmbed.length) {
+    const vectors = await embedTexts(cfg, toEmbed.map((t) => t.text));
+    const dim = vectors[0]?.length ?? 0;
+    if (next.dim && dim !== next.dim) {
+      return runEmbed(outDir, cfg, true);
+    }
+    next.dim = dim;
+    toEmbed.forEach((t, i) => {
+      next.vectors[t.slug] = { hash: t.hash, v: round6(vectors[i]) };
+    });
+  }
+  const removed = prior ? Object.keys(prior.vectors).filter((slug) => !(slug in next.vectors)).length : 0;
+  saveVectors(outDir, next);
+  return {
+    model: cfg.model,
+    dim: next.dim,
+    total: graph.modules.length,
+    embedded: toEmbed.length,
+    reused,
+    removed
+  };
+}
+
+// src/find.ts
+var DEFAULT_K = 8;
+var MAX_FILES = 8;
+function moduleNeighbors(graph, slug) {
+  const ns = [
+    ...graph.moduleEdges.filter((e) => e.from === slug).map((e) => e.to),
+    ...graph.moduleEdges.filter((e) => e.to === slug).map((e) => e.from)
+  ];
+  return [...new Set(ns)].sort(byStr).slice(0, 8);
+}
+function textOf(parts) {
+  return parts.filter(Boolean).join(" ").toLowerCase();
 }
 var PROSE_WEIGHT = 1.5;
 function loadEnrichedProse(outDir, graph) {
@@ -2608,8 +2928,8 @@ function loadEnrichedProse(outDir, graph) {
   return out;
 }
 function findModules(graph, query, k = DEFAULT_K, prose) {
-  const kws = keywords(query);
-  if (kws.length === 0) return [];
+  const terms = queryTerms(query);
+  if (terms.length === 0) return [];
   const filesByModule = /* @__PURE__ */ new Map();
   for (const f of graph.files) {
     let list = filesByModule.get(f.module);
@@ -2621,19 +2941,19 @@ function findModules(graph, query, k = DEFAULT_K, prose) {
     const members = filesByModule.get(m.slug) ?? [];
     const summary = /^\d+ file\(s\) in /.test(m.summary) ? void 0 : m.summary;
     const moduleHay = textOf([m.slug, m.path, summary]);
-    const mod = scoreText(moduleHay, kws);
+    const mod = scoreHaystack(buildHaystack(moduleHay), terms);
     const enrichedText = prose?.get(m.slug);
-    const pro = enrichedText ? scoreText(enrichedText, kws) : { score: 0, matched: [] };
+    const pro = enrichedText ? scoreHaystack(buildHaystack(enrichedText), terms, true) : { score: 0, matched: [] };
     const scoredFiles = members.map((f) => {
       const hay = textOf([f.rel, f.title, f.summary]);
-      const s = scoreText(hay, kws);
+      const s = scoreHaystack(buildHaystack(hay), terms);
       return { f, score: s.score, matched: s.matched, degree: f.degIn + f.degOut };
     }).sort((a, b) => b.score - a.score || b.degree - a.degree || byStr(a.f.rel, b.f.rel));
     const bestFile = scoredFiles[0]?.score ?? 0;
     const matchCount = scoredFiles.filter((x) => x.score > 0).length;
     if (mod.score === 0 && bestFile === 0 && pro.score === 0) continue;
     const matchedTerms = /* @__PURE__ */ new Set([...mod.matched, ...pro.matched, ...scoredFiles.flatMap((x) => x.matched)]);
-    const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / kws.length);
+    const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / terms.length);
     const tierWeight = m.tier === 2 ? 0.45 : 1;
     const pathPenalty = /(^|\/|-|_)(tests?|demo|examples?|sandbox|stub|mock|fixtures?)(\/|-|_|$)/i.test(m.path) ? 0.55 : 1;
     const leaf = m.path.split("/").pop() ?? "";
@@ -2645,10 +2965,6 @@ function findModules(graph, query, k = DEFAULT_K, prose) {
     if (files.length === 0) {
       files = members.slice().sort((a, b) => b.degIn + b.degOut - (a.degIn + a.degOut) || byStr(a.rel, b.rel)).map((f) => f.rel);
     }
-    const neighbors = [
-      ...graph.moduleEdges.filter((e) => e.from === m.slug).map((e) => e.to),
-      ...graph.moduleEdges.filter((e) => e.to === m.slug).map((e) => e.from)
-    ];
     scored.push({
       degree: m.degIn + m.degOut,
       r: {
@@ -2659,7 +2975,7 @@ function findModules(graph, query, k = DEFAULT_K, prose) {
         score: Number(total.toFixed(3)),
         matched,
         files: files.slice(0, MAX_FILES),
-        neighbors: [...new Set(neighbors)].sort(byStr).slice(0, 8),
+        neighbors: moduleNeighbors(graph, m.slug),
         enriched: enrichedText !== void 0
       }
     });
@@ -2667,10 +2983,63 @@ function findModules(graph, query, k = DEFAULT_K, prose) {
   scored.sort((a, b) => b.r.score - a.r.score || b.degree - a.degree || byStr(a.r.slug, b.r.slug));
   return scored.slice(0, k).map((x) => x.r);
 }
-function runFind(outDir, query, k = DEFAULT_K) {
+function bareRow(graph, m, members, enriched) {
+  const files = members.slice().sort((a, b) => b.degIn + b.degOut - (a.degIn + a.degOut) || byStr(a.rel, b.rel)).map((f) => f.rel).slice(0, MAX_FILES);
+  return {
+    slug: m.slug,
+    path: m.path,
+    title: m.title,
+    tier: m.tier,
+    score: 0,
+    matched: [],
+    files,
+    neighbors: moduleNeighbors(graph, m.slug),
+    enriched
+  };
+}
+async function runFindHybrid(outDir, query, k = DEFAULT_K) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
-  return findModules(graph, query, k, loadEnrichedProse(outDir, graph));
+  const prose = loadEnrichedProse(outDir, graph);
+  const pool = Math.max(k * 3, 24);
+  const lexical = findModules(graph, query, pool, prose);
+  const store = loadVectors(outDir);
+  if (!store) return { results: lexical.slice(0, k), semantic: false };
+  const lexOnly = (warning) => ({ results: lexical.slice(0, k), semantic: false, warning });
+  const cfg = loadSemanticConfig(outDir);
+  if (!cfg) {
+    return lexOnly("vectors.json present but no semantic config (env or semantic.json) \u2014 lexical-only results");
+  }
+  let queryVector;
+  try {
+    const [v] = await embedTexts(cfg, [query]);
+    queryVector = v;
+  } catch (e) {
+    return lexOnly(`semantic provider unavailable (${e.message}) \u2014 lexical-only results`);
+  }
+  if (queryVector.length !== store.dim) {
+    return lexOnly(`query embedding dim ${queryVector.length} != vectors.json dim ${store.dim} (model changed?) \u2014 re-run \`ultraindex embed\`; lexical-only results`);
+  }
+  const moduleBySlug = new Map(graph.modules.map((m) => [m.slug, m]));
+  const semanticSlugs = Object.entries(store.vectors).filter(([slug]) => moduleBySlug.has(slug)).map(([slug, rec]) => ({ slug, cos: cosine(queryVector, rec.v) })).sort((a, b) => b.cos - a.cos || byStr(a.slug, b.slug)).slice(0, pool).map((s) => s.slug);
+  const lexicalSlugs = lexical.map((r) => r.slug);
+  const fused = rrf([lexicalSlugs, semanticSlugs], (s) => s);
+  const lexRank = new Map(lexicalSlugs.map((s, i) => [s, i]));
+  const semRank = new Map(semanticSlugs.map((s, i) => [s, i + 1]));
+  const ordered = [...fused.entries()].sort((a, b) => b[1] - a[1] || (lexRank.get(a[0]) ?? 1e9) - (lexRank.get(b[0]) ?? 1e9) || byStr(a[0], b[0])).slice(0, k).map(([slug]) => slug);
+  const lexRow = new Map(lexical.map((r) => [r.slug, r]));
+  const filesByModule = /* @__PURE__ */ new Map();
+  for (const f of graph.files) {
+    let list = filesByModule.get(f.module);
+    if (!list) filesByModule.set(f.module, list = []);
+    list.push(f);
+  }
+  const results = ordered.map((slug) => {
+    const sem = semRank.get(slug);
+    const row2 = lexRow.get(slug) ?? bareRow(graph, moduleBySlug.get(slug), filesByModule.get(slug) ?? [], prose.has(slug));
+    return sem !== void 0 ? { ...row2, semanticRank: sem } : row2;
+  });
+  return { results, semantic: true };
 }
 
 // src/neighbors.ts
@@ -2900,6 +3269,17 @@ function runCheck(outDir, repo) {
       }
     }
   }
+  const vectors = loadVectors(outDir);
+  if (vectors) {
+    if (!vectors.model || !vectors.dim) {
+      warnings.push("vectors.json is corrupt (missing model/dim) \u2014 re-run `ultraindex embed`");
+    } else {
+      const staleVecs = staleVectorSlugs(outDir, graph, vectors);
+      if (staleVecs.length) {
+        warnings.push(`vectors.json stale for ${staleVecs.length} module(s) \u2014 run \`ultraindex embed\` to refresh`);
+      }
+    }
+  }
   for (const slug of manifest.orphaned) {
     warnings.push(`orphaned prose kept at encyclopedia/_orphaned/${slug}.md (module removed)`);
   }
@@ -3056,6 +3436,7 @@ huge codebases without filling its context window. Zero deps, no keys.
 Usage:
   ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--no-mermaid]
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
+  ultraindex embed   [--out <dir>] [--force]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
   ultraindex map     [--out <dir>] [--module <slug>]
   ultraindex status  [--out <dir>]
@@ -3067,7 +3448,11 @@ Commands:
   build      Scan the repo and (re)write the layered index to --out (default
              <repo>/.ultraindex). Idempotent: refreshes generated sections,
              preserves your enriched prose.
-  find       Rank modules for a task and print the exact files to open.
+  find       Rank modules for a task and print the exact files to open. Hybrid
+             (lexical + semantic) when vectors.json exists; pure lexical otherwise.
+  embed      Build/refresh vectors.json: embed each module through the configured
+             provider (see Semantic below). Incremental \u2014 unchanged modules keep
+             their vectors.
   neighbors  Show graph neighbours of a file or module (what links to/from it).
   map        Print INDEX.md (the map) or one module's entry. With --json, emit
              the module table (slug, path, tier, degree, summary) for parsing.
@@ -3091,19 +3476,29 @@ Options:
   --depth <n>       neighbors: hops to traverse                (default: 1)
   --module <slug>   map: print this module's entry instead of INDEX.md
   --answer <file>   check: validate this answer file's citations against the index
+  --force           embed: re-embed every module even if unchanged
   --json            Machine-readable output
   --quiet           check: print nothing, use the exit code only
   -h, --help        Show this help
   -v, --version     Show version
+
+Semantic (optional):
+  \`find\` stays deterministic and offline by default. To add semantic ranking,
+  point ultraindex at any OpenAI-compatible /v1/embeddings endpoint \u2014 e.g. the
+  local container in docker-compose.yml (\`docker compose up -d\`) \u2014 via env
+  (ULTRAINDEX_EMBED_BASE_URL, ULTRAINDEX_EMBED_MODEL, ULTRAINDEX_EMBED_API_KEY)
+  or <out>/semantic.json, then run \`ultraindex embed\`. If the provider is down,
+  \`find\` degrades to pure lexical with a warning. Delete vectors.json to turn
+  the semantic layer off entirely.
 
 Grounding:
   Analysis is verified, not trusted. Cite claims with [path], [path:line] or
   [path:start-end]. \`check\` (encyclopedia prose) and \`check --answer\` fail if a
   citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "neighbors", "map", "status", "dossier", "ask", "check"]);
+var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check"]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module", "answer", "q", "question"]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "quiet"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "quiet", "force"]);
 var REASON_HINTS = {
   "missing-module": "a relative import's target file does not exist \u2014 usually a real broken import in the repo, worth reporting",
   "alias-unresolved": "a tsconfig path alias matched but its target file is missing \u2014 check the tsconfig paths or uncommitted build artifacts",
@@ -3244,15 +3639,18 @@ function cmdBuild(p) {
   ];
   process.stderr.write(lines.join("\n") + "\n");
 }
-function cmdFind(p) {
+async function cmdFind(p) {
   const base = resolve(p.values.repo ?? ".");
   const out = resolveOut(p, base);
   const query = p.positional.join(" ").trim();
   if (!query) fail('missing query \u2014 usage: ultraindex find "<task keywords>"');
   const k = p.values.k ? Number(p.values.k) : 8;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
-  const results = runFind(out, query, k);
-  if (results === void 0) fail(`no index at ${out} \u2014 run \`ultraindex build\` first`);
+  const found = await runFindHybrid(out, query, k);
+  if (found === void 0) fail(`no index at ${out} \u2014 run \`ultraindex build\` first`);
+  if (found.warning) process.stderr.write(`ultraindex: warning: ${found.warning}
+`);
+  const results = found.results;
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(results, null, 2) + "\n");
     return;
@@ -3262,9 +3660,9 @@ function cmdFind(p) {
 `);
     return;
   }
-  const lines = [`ultraindex: ${results.length} module(s) for "${query}"`, ""];
+  const lines = [`ultraindex: ${results.length} module(s) for "${query}"${found.semantic ? " (hybrid)" : ""}`, ""];
   for (const r of results) {
-    lines.push(`\u25B8 ${r.slug}  (${r.path}, tier ${r.tier}, score ${r.score})`);
+    lines.push(`\u25B8 ${r.slug}  (${r.path}, tier ${r.tier}, score ${r.score}${r.semanticRank !== void 0 ? `, semantic #${r.semanticRank}` : ""})`);
     if (r.matched.length) lines.push(`    matched: ${r.matched.join(", ")}`);
     lines.push(`    open:    ${r.files.join("  ") || "(no files)"}`);
     if (r.neighbors.length) lines.push(`    related: ${r.neighbors.join(", ")}`);
@@ -3272,6 +3670,28 @@ function cmdFind(p) {
     lines.push("");
   }
   process.stdout.write(lines.join("\n"));
+}
+async function cmdEmbed(p) {
+  const base = resolve(p.values.repo ?? ".");
+  const out = resolveOut(p, base);
+  const cfg = loadSemanticConfig(out);
+  if (!cfg) {
+    fail(
+      `no semantic config \u2014 set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join12(out, "semantic.json")} ({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`
+    );
+  }
+  const report = await runEmbed(out, cfg, p.bools.has("force"));
+  if (report === void 0) fail(`no index at ${out} \u2014 run \`ultraindex build\` first`);
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+    return;
+  }
+  const lines = [
+    `ultraindex: embedded ${report.embedded}/${report.total} module(s) (${report.reused} reused, ${report.removed} pruned)`,
+    `  model:    ${report.model} (dim ${report.dim})`,
+    `  next:     \`ultraindex find "<query>"\` now ranks hybrid (lexical + semantic)`
+  ];
+  process.stderr.write(lines.join("\n") + "\n");
 }
 function cmdNeighbors(p) {
   const base = resolve(p.values.repo ?? ".");
@@ -3401,13 +3821,15 @@ function cmdCheck(p) {
   }
   if (!res.ok) process.exit(1);
 }
-function main() {
+async function main() {
   const p = parseArgs(process.argv.slice(2));
   switch (p.command) {
     case "build":
       return cmdBuild(p);
     case "find":
       return cmdFind(p);
+    case "embed":
+      return cmdEmbed(p);
     case "neighbors":
       return cmdNeighbors(p);
     case "map":
@@ -3433,11 +3855,7 @@ function isInvokedDirectly() {
   return import.meta.url === pathToFileURL(argv1).href;
 }
 if (isInvokedDirectly()) {
-  try {
-    main();
-  } catch (e) {
-    fail(e.message);
-  }
+  main().catch((e) => fail(e.message));
 }
 export {
   parseArgs
