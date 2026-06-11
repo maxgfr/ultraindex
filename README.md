@@ -21,42 +21,33 @@ artifact you load piece by piece:
 
 ## Install
 
-It ships as **two [skills.sh](https://skills.sh) agent skills** that share one
-zero-dependency bundle. One command discovers and installs both:
+It ships as **one [skills.sh](https://skills.sh) agent skill** with a committed
+zero-dependency bundle:
 
 ```bash
-npx skills add maxgfr/ultraindex          # pick which to install (both are offered)
-npx skills add maxgfr/ultraindex --all    # install both, all detected agents
+npx skills add maxgfr/ultraindex             # this project
+npx skills add maxgfr/ultraindex --global    # user-level, every project
 ```
 
-Install just one, or globally:
+The skill installs self-contained (its `SKILL.md` + workflow references + the
+committed bundle), so it runs with `node` alone — no `npm install`, no API keys.
+Works with Claude Code and the other agents the `skills` CLI supports.
 
-```bash
-npx skills add maxgfr/ultraindex --skill ultraindex        # the generator only
-npx skills add maxgfr/ultraindex --skill ultraindex-nav    # the navigator only
-npx skills add maxgfr/ultraindex --all --global            # user-level, every project
-npx skills add maxgfr/ultraindex --list                    # just list what's in the repo
-```
+The skill **auto-routes** by situation: no index → it builds one; stale index →
+it rebuilds (your prose survives); a task or question → it navigates, opening
+only the files the index points at and answering with **grounded,
+citation-checked** analysis (`dossier`/`ask` hand the agent the real source;
+`check` rejects any citation that doesn't resolve).
 
-Each skill installs self-contained (its `SKILL.md` + the committed bundle), so it
-runs with `node` alone — no `npm install`, no API keys. Works with Claude Code and
-the other agents the `skills` CLI supports.
-
-The two skills:
-
-- **`ultraindex`** (generator) — scans and writes the index, then drives you
-  through a **grounded, citation-checked** business analysis of each module
-  (`dossier` hands you the real source; `check` rejects any citation that doesn't
-  resolve).
-- **`ultraindex-nav`** (navigator) — consumes the index to open only the files a
-  task needs, and answers questions grounded in real code (`ask` → cited
-  `ANSWER.md` → `check --answer`).
+> **Migrating from ≤1.x:** the separate `ultraindex-nav` skill was merged into
+> `ultraindex`. Remove the old install and reinstall the single skill.
 
 ## CLI
 
 ```
 ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--no-mermaid]
 ultraindex find    "<query>" [--out <dir>] [--k <n>]
+ultraindex embed   [--out <dir>] [--force]
 ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
 ultraindex map     [--out <dir>] [--module <slug>]
 ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
@@ -68,6 +59,10 @@ ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>]
   and graph, **preserves** your enriched prose (matched by region key even across
   module renames; truly-removed modules' prose is kept under `encyclopedia/_orphaned/`).
 - **find** — rank modules for a task and print the **exact files to open**.
+  Lexical by default (identifier splitting, light stemming, code-domain
+  synonyms); hybrid lexical + semantic when `vectors.json` exists (below).
+- **embed** — build/refresh `vectors.json` for semantic `find` (optional, needs
+  a provider — see below). Incremental: unchanged modules keep their vectors.
 - **neighbors** — walk the graph from a file or module.
 - **map** — print `INDEX.md` (or one module's entry) cheaply.
 - **dossier** — print a grounding packet for a module (its real key source + graph
@@ -112,14 +107,50 @@ ripgrep is used when present (faster); without it a built-in scanner is used.
 Without `git`, the manifest just omits the commit. Two builds of an unchanged repo
 are byte-identical.
 
+`find` is purely lexical but smarter than substring matching: queries split
+camelCase/snake_case identifiers (`getUserProfile` finds `src/user/profile.ts`),
+a conservative stemmer bridges plural/-ing variants, and a small code-domain
+synonym table bridges `auth`↔`authentication`↔`login` — all deterministic,
+offline, dependency-free.
+
+## Semantic search (optional)
+
+Lexical search can't bridge a real vocabulary gap ("invoicing" vs a module that
+only ever says "billing"). The optional semantic layer embeds each module and
+makes `find` **hybrid**: lexical and cosine rankings fused with Reciprocal Rank
+Fusion. It is strictly additive — without it, nothing changes and the engine
+never touches the network.
+
+```bash
+docker compose up -d                                    # local Ollama, no API key, multi-arch
+export ULTRAINDEX_EMBED_BASE_URL=http://localhost:11434/v1
+export ULTRAINDEX_EMBED_MODEL=nomic-embed-text
+ultraindex embed                                        # writes vectors.json (incremental)
+ultraindex find "invoicing"                             # now hybrid — results carry semanticRank
+```
+
+Any OpenAI-compatible `POST /v1/embeddings` endpoint is a drop-in provider:
+huggingface text-embeddings-inference on amd64/GPU hosts
+(`http://localhost:8080/v1`, `BAAI/bge-small-en-v1.5`), or a hosted API
+(`https://api.openai.com/v1`, `text-embedding-3-small`, plus
+`ULTRAINDEX_EMBED_API_KEY`). Instead of env vars you can write
+`<out>/semantic.json` (`{"baseUrl": …, "model": …}`) — but keep API keys in the
+env, never in a committed `semantic.json` (mind `docs/ultraindex` indexes).
+
+Degradation is graceful: provider down ⇒ lexical-only results + a stderr
+warning; no `vectors.json` ⇒ pure lexical, silent, zero network (delete the
+file to switch the layer off). `check` warns when vectors drift stale.
+**Reproducibility caveat:** `vectors.json` is the one artifact excluded from
+the byte-identical rebuild guarantee — its floats depend on the provider/model.
+
 ## Develop
 
 ```
 pnpm install
-pnpm build        # tsup → scripts/ultraindex.mjs, mirrored into both skill dirs
+pnpm build        # tsup → scripts/ultraindex.mjs, mirrored into the skill dir
 pnpm test         # vitest
 pnpm typecheck
-pnpm check:build  # asserts the three committed bundles are reproducible
+pnpm check:build  # asserts the committed bundles are reproducible
 ```
 
 Releases are Conventional-Commit-driven via semantic-release (GitHub releases).
