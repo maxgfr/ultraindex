@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [2.0.0](https://github.com/maxgfr/ultraindex/compare/v1.3.0...v2.0.0) (2026-06-11)
+
+
+* feat!: merge navigator into a single auto-routing ultraindex skill ([3ca32e8](https://github.com/maxgfr/ultraindex/commit/3ca32e803f316771d54fe1ae4d05df83ced4671e))
+
+
+### Features
+
+* **find:** identifier splitting, light stemming, synonyms in lexical ranking ([a21dc42](https://github.com/maxgfr/ultraindex/commit/a21dc42cfb66ab628290dfa6630204ed69a3bb2e))
+* **semantic:** docker-compose for a local, key-free embeddings provider ([1365705](https://github.com/maxgfr/ultraindex/commit/1365705e400e2e397762a2e23185948ddf4a8ca7))
+* **semantic:** optional embeddings provider, embed command, hybrid find via RRF ([4aefbea](https://github.com/maxgfr/ultraindex/commit/4aefbeaab8219cae68b0f4a7e1975778aea9d696))
+
+
+### BREAKING CHANGES
+
+* the ultraindex-nav skill is removed — its navigator
+workflow now lives inside the ultraindex skill. Reinstall with
+`npx skills add maxgfr/ultraindex`.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
 # [1.3.0](https://github.com/maxgfr/ultraindex/compare/v1.2.0...v1.3.0) (2026-06-10)
 
 
