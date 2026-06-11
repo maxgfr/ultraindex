@@ -3,7 +3,7 @@ import type { FileNode, FindResult, Graph } from "./types.js";
 import { loadGraph, indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
 import { humanBodies, isEnrichedBody } from "./merge.js";
-import { keywords } from "./util.js";
+import { buildHaystack, queryTerms, scoreHaystack } from "./lex.js";
 import { byStr } from "./sort.js";
 
 const DEFAULT_K = 8;
@@ -11,25 +11,6 @@ const MAX_FILES = 8;
 
 function textOf(parts: (string | undefined)[]): string {
   return parts.filter(Boolean).join(" ").toLowerCase();
-}
-
-// Score a haystack against the query keywords: an exact whole-word hit counts
-// more than a substring hit. Returns the score and which terms matched.
-function scoreText(hay: string, kws: string[]): { score: number; matched: string[] } {
-  let score = 0;
-  const matched: string[] = [];
-  for (const kw of kws) {
-    const k = kw.toLowerCase();
-    const word = new RegExp(`(^|[^a-z0-9_])${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9_]|$)`);
-    if (word.test(hay)) {
-      score += 3;
-      matched.push(kw);
-    } else if (hay.includes(k)) {
-      score += 1;
-      matched.push(kw);
-    }
-  }
-  return { score, matched };
 }
 
 // Verified analysis written into `ui:human` regions is the highest-signal text
@@ -57,8 +38,8 @@ export function loadEnrichedProse(outDir: string, graph: Graph): Map<string, str
 // navigator's core: read the index (not the repo), match deterministically, and
 // point the agent at a handful of files instead of the whole tree.
 export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: Map<string, string>): FindResult[] {
-  const kws = keywords(query);
-  if (kws.length === 0) return [];
+  const terms = queryTerms(query);
+  if (terms.length === 0) return [];
 
   const filesByModule = new Map<string, FileNode[]>();
   for (const f of graph.files) {
@@ -75,15 +56,19 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: 
     // real lexical content.
     const summary = /^\d+ file\(s\) in /.test(m.summary) ? undefined : m.summary;
     const moduleHay = textOf([m.slug, m.path, summary]);
-    const mod = scoreText(moduleHay, kws);
+    const mod = scoreHaystack(buildHaystack(moduleHay), terms);
     const enrichedText = prose?.get(m.slug);
-    const pro = enrichedText ? scoreText(enrichedText, kws) : { score: 0, matched: [] as string[] };
+    // Enriched prose is the only long haystack — score it with saturation and
+    // length normalization so verbose entries can't win on repetition alone.
+    const pro = enrichedText
+      ? scoreHaystack(buildHaystack(enrichedText), terms, true)
+      : { score: 0, matched: [] as string[] };
 
     // Per-file scoring drives both the module score and the file ordering.
     const scoredFiles = members
       .map((f) => {
         const hay = textOf([f.rel, f.title, f.summary]);
-        const s = scoreText(hay, kws);
+        const s = scoreHaystack(buildHaystack(hay), terms);
         return { f, score: s.score, matched: s.matched, degree: f.degIn + f.degOut };
       })
       .sort((a, b) => b.score - a.score || b.degree - a.degree || byStr(a.f.rel, b.f.rel));
@@ -100,7 +85,7 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: 
     const matchedTerms = new Set([...mod.matched, ...pro.matched, ...scoredFiles.flatMap((x) => x.matched)]);
     // Coverage: reward matching MORE of the distinct query terms, so a 2/2 match
     // outranks a 1/2 match on the same token.
-    const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / kws.length);
+    const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / terms.length);
     // Tail (tests/docs/examples) down-weighted so implementation outranks tests.
     const tierWeight = m.tier === 2 ? 0.45 : 1;
     // A test/demo/sandbox dir mid-path (e.g. app/api/test-sentry-error) is not a

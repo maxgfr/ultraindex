@@ -52,3 +52,35 @@ describe("findModules ranking", () => {
     expect(results.every((r) => r.matched.length > 0)).toBe(true);
   });
 });
+
+describe("findModules lexical expansion", () => {
+  function tinyGraph(): Graph {
+    const userFiles = ["src/user/profile.ts", "src/user/index.ts"];
+    const authFiles = ["src/middleware/session.ts"];
+    const auth = moduleNode("middleware", "src/middleware", 1, authFiles);
+    auth.summary = "authentication middleware";
+    return {
+      schemaVersion: SCHEMA_VERSION, version: VERSION, fileCount: 3,
+      languages: { typescript: 3 },
+      files: [
+        ...userFiles.map((r) => fileNode(r, "user")),
+        ...authFiles.map((r) => fileNode(r, "middleware")),
+      ],
+      modules: [moduleNode("user", "src/user", 1, userFiles), auth],
+      fileEdges: [], moduleEdges: [],
+    };
+  }
+
+  it("matches an identifier query against its split parts", () => {
+    const results = findModules(tinyGraph(), "getUserProfile", 5);
+    expect(results[0]?.slug).toBe("user");
+    expect(results[0]?.files).toContain("src/user/profile.ts");
+    expect(results[0]?.matched).toContain("getUserProfile");
+  });
+
+  it("matches 'auth' against 'authentication' via synonyms/stems", () => {
+    const results = findModules(tinyGraph(), "auth", 5);
+    expect(results[0]?.slug).toBe("middleware");
+    expect(results[0]?.matched).toContain("auth");
+  });
+});
