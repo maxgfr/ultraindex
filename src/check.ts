@@ -1,5 +1,6 @@
-import { join } from "node:path";
-import type { CheckResult, Manifest } from "./types.js";
+import { dirname, join } from "node:path";
+import type { CheckResult, Manifest, VerifyResult } from "./types.js";
+import { loadVerify } from "./verify.js";
 import { walk, readText } from "./walk.js";
 import { sha1 } from "./hash.js";
 import { compileGlobs } from "./glob.js";
@@ -119,11 +120,16 @@ export interface AnswerCheck {
   citations: number;
   resolved: number;
   errors: string[];
+  warnings?: string[];
+  semantic?: VerifyResult; // populated only by `check --semantic` (folds VERIFY.json)
 }
 
 // Validate an answer file's citations against the index — the Q&A grounding
-// gate. Requires at least one citation and that all of them resolve.
-export function checkAnswer(outDir: string, answerPath: string): AnswerCheck {
+// gate. Requires at least one citation and that all of them resolve. With
+// `opts.semantic`, ALSO folds the VERIFY.json verdicts written next to the
+// answer (fails on a refuted/unsupported claim) — additive: plain `checkAnswer`
+// (no opts) is unchanged.
+export function checkAnswer(outDir: string, answerPath: string, opts: { semantic?: boolean } = {}): AnswerCheck {
   const errors: string[] = [];
   const graph = loadGraph(outDir);
   if (!graph) return { ok: false, citations: 0, resolved: 0, errors: ["no index — run `ultraindex build` first"] };
@@ -134,5 +140,22 @@ export function checkAnswer(outDir: string, answerPath: string): AnswerCheck {
   const attempts = cc.resolved.length + cc.unresolved.length;
   if (attempts === 0) errors.push("answer has no citations — cite every claim with [file:line] (bare brackets, not a markdown link)");
   for (const u of cc.unresolved) errors.push(`citation [${u.citation.raw}] — ${u.reason}`);
-  return { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
+
+  const result: AnswerCheck = { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
+  if (opts.semantic) {
+    const warnings: string[] = [];
+    const sem = loadVerify(dirname(answerPath));
+    if (!sem) {
+      warnings.push("--semantic: no VERIFY.json next to the answer — run `verify` then `verify --apply <verdicts.json>` first; semantic gate skipped.");
+    } else {
+      result.semantic = sem;
+      if (!sem.ok) {
+        result.ok = false;
+        errors.push(`semantic verification failed: ${sem.failures.length} claim(s) refuted or unsupported by their cited excerpt (see VERIFY.json)`);
+      }
+      if (sem.unadjudicated?.length) warnings.push(`${sem.unadjudicated.length} claim(s) not fully adjudicated by verify`);
+    }
+    if (warnings.length) result.warnings = warnings;
+  }
+  return result;
 }

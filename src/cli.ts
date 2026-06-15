@@ -1,4 +1,4 @@
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
 import { existsSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
@@ -11,6 +11,7 @@ import { runNeighbors } from "./neighbors.js";
 import { runMap } from "./mapcmd.js";
 import { runStatus } from "./status.js";
 import { runCheck, checkAnswer } from "./check.js";
+import { runVerify, applyVerdicts, formatVerifyReport, VERIFY_MAX } from "./verify.js";
 import { runDossier, runAsk } from "./explain.js";
 import { indexExists, loadGraph, loadManifest } from "./store.js";
 
@@ -28,7 +29,8 @@ Usage:
   ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
   ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
-  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>]
+  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
+  ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>]
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -49,7 +51,10 @@ Commands:
   ask        Assemble grounded evidence for a question (real source of the
              relevant modules) so you can answer it with citations.
   check      Report staleness + integrity + grounding (cited prose must resolve).
-             With --answer <file>, validate that answer's citations instead.
+             With --answer <file>, validate that answer's citations instead;
+             add --semantic to also fail on a claim its cited excerpt doesn't support.
+  verify     Emit a claim↔citation worklist for adversarial support-checking of
+             an answer, then (--apply <verdicts.json>) gate on refuted/unsupported.
 
 Options:
   --repo <dir>      Repo to index / check / read source from  (default: .)
@@ -83,9 +88,9 @@ Grounding:
   citation does not resolve to a real file/line — the anti-hallucination guard.
 `;
 
-const COMMANDS = new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check"]);
-const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module", "answer", "q", "question"]);
-const BOOL_FLAGS = new Set(["json", "no-mermaid", "quiet", "force"]);
+const COMMANDS = new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check", "verify"]);
+const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
+const BOOL_FLAGS = new Set(["json", "no-mermaid", "quiet", "force", "semantic"]);
 
 // What each dangling reason means and what to do about it — emitted in
 // `build --json` so the report is self-diagnosing.
@@ -417,12 +422,18 @@ function cmdCheck(p: Parsed): void {
   const repo = resolveRepoRoot(p, out);
 
   if (p.values.answer) {
-    const res = checkAnswer(out, resolve(p.values.answer));
+    const res = checkAnswer(out, resolve(p.values.answer), { semantic: p.bools.has("semantic") });
     if (p.bools.has("json")) {
       process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     } else if (!p.bools.has("quiet")) {
       const lines = [`ultraindex: answer is ${res.ok ? "GROUNDED" : "NOT GROUNDED"} (${res.resolved}/${res.citations} citations resolve)`];
+      if (res.semantic) {
+        const s = res.semantic;
+        lines.push(`  semantic: supported ${s.supported} · partial ${s.partial} · refuted ${s.refuted} · unsupported ${s.unsupported}`);
+        for (const f of s.failures.slice(0, 8)) lines.push(`  ✗ semantic ${f.claimId} (${f.citation}): ${f.verdict}`);
+      }
       for (const e of res.errors) lines.push(`  error:    ${e}`);
+      for (const w of res.warnings ?? []) lines.push(`  warning:  ${w}`);
       process.stdout.write(lines.join("\n") + "\n");
     }
     if (!res.ok) process.exit(1);
@@ -451,6 +462,36 @@ function cmdCheck(p: Parsed): void {
   if (!res.ok) process.exit(1);
 }
 
+function cmdVerify(p: Parsed): void {
+  const answer = p.values.answer;
+  if (!answer) fail("missing --answer <file> — usage: ultraindex verify --answer <file> [--repo <dir>]");
+  const answerPath = resolve(answer);
+  const dir = dirname(answerPath);
+
+  if (p.values.apply) {
+    const res = applyVerdicts(dir, resolve(p.values.apply));
+    if (p.bools.has("json")) process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    else if (!p.bools.has("quiet")) process.stdout.write(formatVerifyReport(res) + "\n");
+    if (!res.ok) process.exit(1);
+    return;
+  }
+
+  if (!existsSync(answerPath)) fail(`answer file not found: ${answerPath}`);
+  const out = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out);
+  const maxVerify = p.values["max-verify"] ? Number(p.values["max-verify"]) : VERIFY_MAX;
+  if (!Number.isFinite(maxVerify) || maxVerify <= 0) fail("invalid --max-verify");
+  const wl = runVerify(answerPath, repo, { maxVerify });
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(wl, null, 2) + "\n");
+    return;
+  }
+  process.stderr.write(
+    `ultraindex: ${wl.pairs.length} claim↔citation pair(s) → ${dir}/VERIFY.md & VERIFY.todo.json\n` +
+      `  adjudicate each verdict, save as verdicts.json, then: ultraindex verify --apply verdicts.json --answer ${answerPath}\n`,
+  );
+}
+
 async function main(): Promise<void> {
   const p = parseArgs(process.argv.slice(2));
   switch (p.command) {
@@ -472,6 +513,8 @@ async function main(): Promise<void> {
       return cmdAsk(p);
     case "check":
       return cmdCheck(p);
+    case "verify":
+      return cmdVerify(p);
   }
 }
 

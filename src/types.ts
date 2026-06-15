@@ -203,3 +203,39 @@ export interface CheckResult {
   errors: string[]; // integrity failures (broken index)
   warnings: string[]; // orphaned prose, merge conflicts, etc.
 }
+
+// ---------------------------------------------------------------------------
+// Semantic claim verification (`verify` + `check --answer --semantic`). The
+// mechanical answer gate proves a `[file:line]` citation RESOLVES to a real
+// file/range; `verify` asks whether the cited EXCERPT actually SUPPORTS the
+// claim. `verify` emits ClaimEvidencePair[] (a worklist); an agent fills a
+// Verdict per pair; `verify --apply` / `check --semantic` then FAIL on a
+// refuted/unsupported claim — additive, never relaxing the resolution gate.
+// ---------------------------------------------------------------------------
+export type VerdictKind = "supported" | "partial" | "refuted" | "unsupported";
+
+export interface ClaimEvidencePair {
+  claimId: string; // "C1", "C2", …
+  claim: string; // the claim-unit text (capped)
+  citation: string; // the cited token, e.g. "src/retry.ts:2" or "src/x.ts:10-20"
+  path: string; // the cited file (repo-relative)
+  digest: string; // the cited excerpt read from the repo
+}
+
+export interface Verdict extends ClaimEvidencePair {
+  verdict: VerdictKind;
+  note: string;
+}
+
+export interface VerifyResult {
+  ok: boolean;
+  pairs: number;
+  adjudicated: number;
+  supported: number;
+  partial: number;
+  refuted: number;
+  unsupported: number;
+  failures: { claimId: string; citation: string; verdict: VerdictKind; note: string }[];
+  unadjudicated: string[];
+  verdicts?: Verdict[];
+}

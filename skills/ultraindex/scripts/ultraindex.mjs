@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve, join as join12 } from "path";
-import { existsSync as existsSync2 } from "fs";
+import { resolve, join as join13, dirname as dirname4 } from "path";
+import { existsSync as existsSync3 } from "fs";
 import { pathToFileURL, fileURLToPath } from "url";
 import { realpathSync as realpathSync2 } from "fs";
 
@@ -3146,7 +3146,11 @@ function runStatus(outDir) {
 }
 
 // src/check.ts
-import { join as join10 } from "path";
+import { dirname as dirname3, join as join11 } from "path";
+
+// src/verify.ts
+import { existsSync as existsSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync2 } from "fs";
+import { dirname as dirname2, join as join10 } from "path";
 
 // src/cite.ts
 var EXT_TOKEN = /\[((?:[^[\]\n]|\[(?:[^[\]\n]|\[[^\]\n]*\])*\])*?\.[A-Za-z0-9]{1,8}(?::\d+(?:-\d+)?)?)\]/g;
@@ -3209,6 +3213,240 @@ function fileLineTable(graph) {
   return new Map(graph.files.map((f) => [f.rel, f.lines]));
 }
 
+// src/verify.ts
+var VERIFY_MAX = 40;
+var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
+function stripHtmlComments(text) {
+  return text.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, " "));
+}
+function stripInlineCode(line) {
+  return line.replace(/`[^`\n]*`/g, " ");
+}
+function codeMask(lines) {
+  const mask = new Array(lines.length).fill(false);
+  let inFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*(```|~~~)/.test(lines[i])) {
+      mask[i] = true;
+      inFence = !inFence;
+      continue;
+    }
+    mask[i] = inFence;
+  }
+  return mask;
+}
+function isHeadingOrRule(t) {
+  return /^#{1,6}\s/.test(t) || /^([-*_])\1{2,}$/.test(t);
+}
+function isTableSep(line) {
+  return /\|/.test(line) && /^[\s:|-]+$/.test(line.trim()) && /-/.test(line);
+}
+function isTableRow(line) {
+  return /\|/.test(line.trim()) && !isTableSep(line);
+}
+function tableCells(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c2) => c2.trim()).join(" ");
+}
+function isListItem(line) {
+  return /^\s*([-*+]|\d+\.)\s+\S/.test(line);
+}
+function extractClaimUnits(text) {
+  const lines = stripHtmlComments(text).split("\n");
+  const code = codeMask(lines);
+  const units = [];
+  let prose = [];
+  const flush = () => {
+    if (prose.length) units.push({ kind: "text", text: prose.join(" ") });
+    prose = [];
+  };
+  let i = 0;
+  while (i < lines.length) {
+    if (code[i]) {
+      flush();
+      i++;
+      continue;
+    }
+    const line = stripInlineCode(lines[i]);
+    const t = line.trim();
+    if (t === "" || isHeadingOrRule(t) || isTableSep(line)) {
+      flush();
+      i++;
+      continue;
+    }
+    if (isTableRow(line)) {
+      flush();
+      units.push({ kind: "text", text: tableCells(line) });
+      i++;
+      continue;
+    }
+    if (/^\s*>/.test(line)) {
+      const dq = line.replace(/^\s*>\s?/, "").trim();
+      if (dq) prose.push(dq);
+      i++;
+      continue;
+    }
+    if (isListItem(line)) {
+      flush();
+      const items = [];
+      while (i < lines.length && !code[i]) {
+        const l = stripInlineCode(lines[i]);
+        const tt = l.trim();
+        if (tt === "" || isHeadingOrRule(tt) || isTableSep(l) || isTableRow(l)) break;
+        if (isListItem(l)) items.push(l.replace(/^\s*([-*+]|\d+\.)\s+/, "").trim());
+        else if (items.length) items[items.length - 1] += " " + tt;
+        else items.push(tt);
+        i++;
+      }
+      units.push({ kind: "list", items });
+      continue;
+    }
+    prose.push(line);
+    i++;
+  }
+  flush();
+  return units;
+}
+function claimStrings(text) {
+  const out = [];
+  for (const u of extractClaimUnits(text)) {
+    if (u.kind === "text") out.push(u.text);
+    else for (const it of u.items) out.push(it);
+  }
+  return out;
+}
+function readExcerpt(repo, c2) {
+  let full;
+  try {
+    full = readFileSync3(join10(repo, c2.path), "utf8");
+  } catch {
+    return "";
+  }
+  const lines = full.split("\n");
+  if (c2.start === void 0) return lines.slice(0, 40).join("\n").slice(0, 800).trim();
+  const s = Math.max(1, c2.start) - 1;
+  const e = Math.max(c2.start, c2.end ?? c2.start);
+  return lines.slice(s, e).join("\n").slice(0, 800).trim();
+}
+function runVerify(answerPath, repo, opts = {}) {
+  const answer = readFileSync3(answerPath, "utf8");
+  const pairs = [];
+  let claimNo = 0;
+  for (const claim of claimStrings(answer)) {
+    const cites = parseCitations(claim);
+    if (!cites.length) continue;
+    claimNo++;
+    const claimId = `C${claimNo}`;
+    for (const c2 of cites) {
+      const digest = readExcerpt(repo, c2);
+      if (!digest) continue;
+      pairs.push({ claimId, claim: claim.trim().slice(0, 400), citation: c2.raw, path: c2.path, digest });
+    }
+  }
+  const max = Math.max(1, Math.floor(opts.maxVerify ?? VERIFY_MAX));
+  const kept = pairs.length > max ? pairs.slice(0, max) : pairs;
+  const worklist = { answer: answerPath, pairs: kept };
+  const dir = dirname2(answerPath);
+  const todo = { answer: answerPath, pairs: kept.map((p) => ({ ...p, verdict: null, note: "" })) };
+  writeFileSync2(join10(dir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
+  writeFileSync2(join10(dir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
+  return worklist;
+}
+function renderWorklistMd(wl, total, kept) {
+  const out = [];
+  out.push(`# Verification worklist`);
+  out.push("");
+  out.push(
+    `For each pair, open the cited excerpt and judge whether it **supports** the claim. In \`VERIFY.todo.json\`, set each \`verdict\` to one of supported \xB7 partial \xB7 refuted \xB7 unsupported, add a short \`note\`, save it (e.g. as \`verdicts.json\`), then run \`ultraindex verify --apply verdicts.json --answer <file>\`.`
+  );
+  if (kept < total) out.push(`
+_Showing ${kept} of ${total} pair(s) \u2014 capped._`);
+  out.push("");
+  for (const p of wl.pairs) {
+    out.push(`## ${p.claimId} \xB7 ${p.citation}`);
+    out.push(`**Claim:** ${p.claim}`);
+    out.push("```");
+    out.push(p.digest);
+    out.push("```");
+    out.push(`**Verdict:** _____ \xB7 **Note:** _____`);
+    out.push("");
+  }
+  return out.join("\n");
+}
+function applyVerdicts(dir, verdictsPath) {
+  const raw = JSON.parse(readFileSync3(verdictsPath, "utf8"));
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.pairs) ? raw.pairs : [];
+  const verdicts = [];
+  for (const v of list) {
+    if (!v || typeof v.claimId !== "string" || typeof v.citation !== "string") continue;
+    const verdict = VALID_VERDICTS.includes(v.verdict) ? v.verdict : void 0;
+    verdicts.push({
+      claimId: v.claimId,
+      claim: typeof v.claim === "string" ? v.claim : "",
+      citation: v.citation,
+      path: typeof v.path === "string" ? v.path : "",
+      digest: typeof v.digest === "string" ? v.digest : "",
+      verdict,
+      note: typeof v.note === "string" ? v.note : ""
+    });
+  }
+  const result = reduceVerdicts(verdicts);
+  writeFileSync2(join10(dir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
+  return result;
+}
+function reduceVerdicts(verdicts) {
+  const counts = { supported: 0, partial: 0, refuted: 0, unsupported: 0 };
+  for (const v of verdicts) if (v.verdict && counts[v.verdict] !== void 0) counts[v.verdict]++;
+  const byClaim = /* @__PURE__ */ new Map();
+  for (const v of verdicts) {
+    const g = byClaim.get(v.claimId) ?? [];
+    g.push(v);
+    byClaim.set(v.claimId, g);
+  }
+  const failures = [];
+  const unadjudicated = [];
+  for (const [claimId, group] of byClaim) {
+    const adjudicated = group.filter((g) => !!g.verdict);
+    if (adjudicated.length < group.length) unadjudicated.push(claimId);
+    const refuted = adjudicated.find((g) => g.verdict === "refuted");
+    const hasSupport = adjudicated.some((g) => g.verdict === "supported" || g.verdict === "partial");
+    if (refuted) {
+      failures.push({ claimId, citation: refuted.citation, verdict: "refuted", note: refuted.note });
+    } else if (adjudicated.length === group.length && adjudicated.length > 0 && !hasSupport) {
+      const u = adjudicated.find((g) => g.verdict === "unsupported") ?? adjudicated[0];
+      failures.push({ claimId, citation: u.citation, verdict: u.verdict, note: u.note });
+    }
+  }
+  return {
+    ok: failures.length === 0,
+    pairs: verdicts.length,
+    adjudicated: verdicts.filter((v) => !!v.verdict).length,
+    supported: counts.supported,
+    partial: counts.partial,
+    refuted: counts.refuted,
+    unsupported: counts.unsupported,
+    failures,
+    unadjudicated
+  };
+}
+function loadVerify(dir) {
+  const p = join10(dir, "VERIFY.json");
+  if (!existsSync2(p)) return void 0;
+  try {
+    return JSON.parse(readFileSync3(p, "utf8"));
+  } catch {
+    return void 0;
+  }
+}
+function formatVerifyReport(r) {
+  const lines = [];
+  lines.push(`ultraindex verify: ${r.adjudicated}/${r.pairs} pair(s) adjudicated`);
+  lines.push(`  supported: ${r.supported} \xB7 partial: ${r.partial} \xB7 refuted: ${r.refuted} \xB7 unsupported: ${r.unsupported}`);
+  for (const f of r.failures.slice(0, 12)) lines.push(`  \u2717 ${f.claimId} (${f.citation}): ${f.verdict}${f.note ? " \u2014 " + f.note : ""}`);
+  if (r.unadjudicated.length) lines.push(`  \u26A0 ${r.unadjudicated.length} claim(s) not fully adjudicated: ${r.unadjudicated.join(", ")}`);
+  lines.push(r.ok ? `  \u2713 every claim is backed by its cited excerpt` : `  \u2717 some claims are refuted or unsupported`);
+  return lines.join("\n");
+}
+
 // src/check.ts
 function hashRepo(repo, outAbs, filters) {
   const outPrefix = outAbs.replace(/\/+$/, "") + "/";
@@ -3248,7 +3486,7 @@ function runCheck(outDir, repo) {
   removed.sort(byStr);
   const enc = indexPaths(outDir).encyclopedia;
   for (const m of graph.modules) {
-    if (readIfExists(join10(enc, `${m.slug}.md`)) === void 0) {
+    if (readIfExists(join11(enc, `${m.slug}.md`)) === void 0) {
       errors.push(`module "${m.slug}" has no encyclopedia entry`);
     }
   }
@@ -3258,7 +3496,7 @@ function runCheck(outDir, repo) {
   }
   const fileLines = fileLineTable(graph);
   for (const m of graph.modules) {
-    const text = readIfExists(join10(enc, `${m.slug}.md`));
+    const text = readIfExists(join11(enc, `${m.slug}.md`));
     if (!text) continue;
     const parsed = parseRegions(text);
     if (!parsed.ok) continue;
@@ -3289,7 +3527,7 @@ function runCheck(outDir, repo) {
   const stale = changed.length + added.length + removed.length > 0;
   return { ok: errors.length === 0 && !stale, stale, changed, added, removed, errors, warnings };
 }
-function checkAnswer(outDir, answerPath) {
+function checkAnswer(outDir, answerPath, opts = {}) {
   const errors = [];
   const graph = loadGraph(outDir);
   if (!graph) return { ok: false, citations: 0, resolved: 0, errors: ["no index \u2014 run `ultraindex build` first"] };
@@ -3299,18 +3537,34 @@ function checkAnswer(outDir, answerPath) {
   const attempts = cc.resolved.length + cc.unresolved.length;
   if (attempts === 0) errors.push("answer has no citations \u2014 cite every claim with [file:line] (bare brackets, not a markdown link)");
   for (const u of cc.unresolved) errors.push(`citation [${u.citation.raw}] \u2014 ${u.reason}`);
-  return { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
+  const result = { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
+  if (opts.semantic) {
+    const warnings = [];
+    const sem = loadVerify(dirname3(answerPath));
+    if (!sem) {
+      warnings.push("--semantic: no VERIFY.json next to the answer \u2014 run `verify` then `verify --apply <verdicts.json>` first; semantic gate skipped.");
+    } else {
+      result.semantic = sem;
+      if (!sem.ok) {
+        result.ok = false;
+        errors.push(`semantic verification failed: ${sem.failures.length} claim(s) refuted or unsupported by their cited excerpt (see VERIFY.json)`);
+      }
+      if (sem.unadjudicated?.length) warnings.push(`${sem.unadjudicated.length} claim(s) not fully adjudicated by verify`);
+    }
+    if (warnings.length) result.warnings = warnings;
+  }
+  return result;
 }
 
 // src/evidence.ts
-import { join as join11, extname as extname2 } from "path";
+import { join as join12, extname as extname2 } from "path";
 var HEAD_LINES = 120;
 var MAX_SYMS = 25;
 var ASK_FILE_CAP = 20;
 function gatherEvidence(repo, rels, headLines = HEAD_LINES) {
   const out = [];
   for (const rel of rels) {
-    const content = readText(join11(repo, rel));
+    const content = readText(join12(repo, rel));
     if (!content) continue;
     const lines = content.split(/\r?\n/);
     const code = extractCode(rel, extname2(rel).toLowerCase(), content);
@@ -3442,7 +3696,8 @@ Usage:
   ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
   ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
-  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>]
+  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
+  ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>]
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -3463,7 +3718,10 @@ Commands:
   ask        Assemble grounded evidence for a question (real source of the
              relevant modules) so you can answer it with citations.
   check      Report staleness + integrity + grounding (cited prose must resolve).
-             With --answer <file>, validate that answer's citations instead.
+             With --answer <file>, validate that answer's citations instead;
+             add --semantic to also fail on a claim its cited excerpt doesn't support.
+  verify     Emit a claim\u2194citation worklist for adversarial support-checking of
+             an answer, then (--apply <verdicts.json>) gate on refuted/unsupported.
 
 Options:
   --repo <dir>      Repo to index / check / read source from  (default: .)
@@ -3496,9 +3754,9 @@ Grounding:
   [path:start-end]. \`check\` (encyclopedia prose) and \`check --answer\` fail if a
   citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check"]);
-var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module", "answer", "q", "question"]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "quiet", "force"]);
+var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check", "verify"]);
+var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "quiet", "force", "semantic"]);
 var REASON_HINTS = {
   "missing-module": "a relative import's target file does not exist \u2014 usually a real broken import in the repo, worth reporting",
   "alias-unresolved": "a tsconfig path alias matched but its target file is missing \u2014 check the tsconfig paths or uncommitted build artifacts",
@@ -3571,10 +3829,10 @@ function splitList(s) {
 }
 function resolveOut(p, base) {
   if (p.values.out) return resolve(p.values.out);
-  const dotted = join12(base, ".ultraindex");
-  if (existsSync2(dotted)) return dotted;
-  const docs = join12(base, "docs", "ultraindex");
-  if (existsSync2(docs)) return docs;
+  const dotted = join13(base, ".ultraindex");
+  if (existsSync3(dotted)) return dotted;
+  const docs = join13(base, "docs", "ultraindex");
+  if (existsSync3(docs)) return docs;
   return dotted;
 }
 function resolveRepoRoot(p, out) {
@@ -3583,8 +3841,8 @@ function resolveRepoRoot(p, out) {
 }
 function cmdBuild(p) {
   const repo = resolve(p.values.repo ?? ".");
-  if (!existsSync2(repo)) fail(`repo not found: ${repo}`);
-  const out = p.values.out ? resolve(p.values.out) : join12(repo, ".ultraindex");
+  if (!existsSync3(repo)) fail(`repo not found: ${repo}`);
+  const out = p.values.out ? resolve(p.values.out) : join13(repo, ".ultraindex");
   const maxBytes = p.values["max-bytes"] ? Number(p.values["max-bytes"]) : void 0;
   if (maxBytes !== void 0 && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
   const { graph, manifest } = runBuild(
@@ -3677,7 +3935,7 @@ async function cmdEmbed(p) {
   const cfg = loadSemanticConfig(out);
   if (!cfg) {
     fail(
-      `no semantic config \u2014 set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join12(out, "semantic.json")} ({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`
+      `no semantic config \u2014 set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join13(out, "semantic.json")} ({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`
     );
   }
   const report = await runEmbed(out, cfg, p.bools.has("force"));
@@ -3790,12 +4048,18 @@ function cmdCheck(p) {
   const out = resolveOut(p, resolve(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out);
   if (p.values.answer) {
-    const res2 = checkAnswer(out, resolve(p.values.answer));
+    const res2 = checkAnswer(out, resolve(p.values.answer), { semantic: p.bools.has("semantic") });
     if (p.bools.has("json")) {
       process.stdout.write(JSON.stringify(res2, null, 2) + "\n");
     } else if (!p.bools.has("quiet")) {
       const lines = [`ultraindex: answer is ${res2.ok ? "GROUNDED" : "NOT GROUNDED"} (${res2.resolved}/${res2.citations} citations resolve)`];
+      if (res2.semantic) {
+        const s = res2.semantic;
+        lines.push(`  semantic: supported ${s.supported} \xB7 partial ${s.partial} \xB7 refuted ${s.refuted} \xB7 unsupported ${s.unsupported}`);
+        for (const f of s.failures.slice(0, 8)) lines.push(`  \u2717 semantic ${f.claimId} (${f.citation}): ${f.verdict}`);
+      }
       for (const e of res2.errors) lines.push(`  error:    ${e}`);
+      for (const w of res2.warnings ?? []) lines.push(`  warning:  ${w}`);
       process.stdout.write(lines.join("\n") + "\n");
     }
     if (!res2.ok) process.exit(1);
@@ -3821,6 +4085,34 @@ function cmdCheck(p) {
   }
   if (!res.ok) process.exit(1);
 }
+function cmdVerify(p) {
+  const answer = p.values.answer;
+  if (!answer) fail("missing --answer <file> \u2014 usage: ultraindex verify --answer <file> [--repo <dir>]");
+  const answerPath = resolve(answer);
+  const dir = dirname4(answerPath);
+  if (p.values.apply) {
+    const res = applyVerdicts(dir, resolve(p.values.apply));
+    if (p.bools.has("json")) process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    else if (!p.bools.has("quiet")) process.stdout.write(formatVerifyReport(res) + "\n");
+    if (!res.ok) process.exit(1);
+    return;
+  }
+  if (!existsSync3(answerPath)) fail(`answer file not found: ${answerPath}`);
+  const out = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out);
+  const maxVerify = p.values["max-verify"] ? Number(p.values["max-verify"]) : VERIFY_MAX;
+  if (!Number.isFinite(maxVerify) || maxVerify <= 0) fail("invalid --max-verify");
+  const wl = runVerify(answerPath, repo, { maxVerify });
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(wl, null, 2) + "\n");
+    return;
+  }
+  process.stderr.write(
+    `ultraindex: ${wl.pairs.length} claim\u2194citation pair(s) \u2192 ${dir}/VERIFY.md & VERIFY.todo.json
+  adjudicate each verdict, save as verdicts.json, then: ultraindex verify --apply verdicts.json --answer ${answerPath}
+`
+  );
+}
 async function main() {
   const p = parseArgs(process.argv.slice(2));
   switch (p.command) {
@@ -3842,6 +4134,8 @@ async function main() {
       return cmdAsk(p);
     case "check":
       return cmdCheck(p);
+    case "verify":
+      return cmdVerify(p);
   }
 }
 function isInvokedDirectly() {
