@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [2.1.0](https://github.com/maxgfr/ultraindex/compare/v2.0.0...v2.1.0) (2026-06-15)
+
+
+### Features
+
+* semantic verify gate — verify + check --semantic ([#1](https://github.com/maxgfr/ultraindex/issues/1)) ([53eba85](https://github.com/maxgfr/ultraindex/commit/53eba8534f7057a3521e7b0006948c0b5ed2b7dd))
+
 # [2.0.0](https://github.com/maxgfr/ultraindex/compare/v1.3.0...v2.0.0) (2026-06-11)
 
 
