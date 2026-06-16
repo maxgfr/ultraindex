@@ -1,7 +1,7 @@
 // Single source of truth for the version the CLI/bundle reports. Kept in
 // lockstep with package.json and both SKILL.md files by scripts/sync-version.mjs
 // during a semantic-release run. Do not edit by hand outside a release.
-export const VERSION = "2.1.0";
+export const VERSION = "2.2.0";
 
 // Bumped whenever the on-disk artifact shape changes, so `check`/nav can reject
 // an index written by an incompatible engine instead of misreading it.

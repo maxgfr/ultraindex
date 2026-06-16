@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [2.2.0](https://github.com/maxgfr/ultraindex/compare/v2.1.0...v2.2.0) (2026-06-16)
+
+
+### Bug Fixes
+
+* harden grounding and verify gates against bypass and false coverage ([d901a1f](https://github.com/maxgfr/ultraindex/commit/d901a1f9edee8f12e829b521bb1277cbe10ddc29))
+
+
+### Features
+
+* **skill:** document the semantic verify gate and subagent orchestration ([082b4ff](https://github.com/maxgfr/ultraindex/commit/082b4ffd9fd3c0b47f3b476895a6382ccf9d617d)), closes [hi#assurance](https://github.com/hi/issues/assurance) [hi#assurance](https://github.com/hi/issues/assurance) [#4](https://github.com/maxgfr/ultraindex/issues/4)
+
 # [2.1.0](https://github.com/maxgfr/ultraindex/compare/v2.0.0...v2.1.0) (2026-06-15)
 
 
