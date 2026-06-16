@@ -120,4 +120,88 @@ describe("checkAnswer --semantic composition", () => {
     expect(r.ok).toBe(true);
     rmSync(repo, { recursive: true, force: true });
   });
+
+  it("fails when VERIFY.json adjudicates zero pairs (empty/stale coverage)", () => {
+    const repo = miniRepo();
+    const out = join(repo, ".ultraindex");
+    runBuild({ repo, out, mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
+    const ans = join(repo, "ANSWER.md");
+    writeFileSync(ans, ANSWER); // two resolvable citations
+    runVerify(ans, repo);
+    const empty = join(repo, "empty.json");
+    writeFileSync(empty, "[]");
+    applyVerdicts(repo, empty); // VERIFY.json with 0 pairs — must NOT read as "verified"
+    expect(checkAnswer(out, ans, { semantic: true }).ok).toBe(false);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("does NOT hard-fail --semantic when citations are structurally unverifiable", () => {
+    // A citation living only in a heading is dropped as a claim unit, so verify
+    // yields 0 pairs forever. The coverage guard must size against the verifiable
+    // pair set (also 0 here), not the raw mechanical citation count — otherwise it
+    // would fail with an impossible "re-run verify" remedy.
+    const repo = miniRepo();
+    const out = join(repo, ".ultraindex");
+    runBuild({ repo, out, mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
+    const ans = join(repo, "ANSWER.md");
+    writeFileSync(ans, "# The retry helper at [src/retry.ts:2]\n");
+    expect(checkAnswer(out, ans).ok).toBe(true); // mechanically grounded
+    runVerify(ans, repo); // 0 pairs (heading dropped)
+    const v = join(repo, "v.json");
+    writeFileSync(v, "[]");
+    applyVerdicts(repo, v);
+    expect(checkAnswer(out, ans, { semantic: true }).ok).toBe(true); // no false fail
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("sizes --semantic coverage against the explicit repo, not just the manifest", () => {
+    const repo = miniRepo();
+    const out = join(repo, ".ultraindex");
+    runBuild({ repo, out, mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
+    const ans = join(repo, "ANSWER.md");
+    writeFileSync(ans, ANSWER); // 2 prose citations, resolvable in `repo`
+    runVerify(ans, repo);
+    const empty = join(repo, "v.json");
+    writeFileSync(empty, "[]");
+    applyVerdicts(repo, empty); // VERIFY.json with 0 pairs
+
+    // Default (manifest repo): the citations resolve to real excerpts → genuine
+    // empty coverage → FAIL.
+    expect(checkAnswer(out, ans, { semantic: true }).ok).toBe(false);
+
+    // With an explicit repo that has no source: buildClaimPairs reads no excerpts
+    // → expected 0 → guard must not fire. Proves opts.repo is honoured (was pinned
+    // to the manifest before, ignoring --repo and risking a spurious verdict).
+    const altRepo = mkdtempSync(join(tmpdir(), "ui-altrepo-"));
+    expect(checkAnswer(out, ans, { semantic: true, repo: altRepo }).ok).toBe(true);
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(altRepo, { recursive: true, force: true });
+  });
+});
+
+describe("runVerify claim digest (display vs parse decoupling)", () => {
+  function repoWith(answer: string): { repo: string; ans: string } {
+    const repo = miniRepo();
+    const ans = join(repo, "ANSWER.md");
+    writeFileSync(ans, answer);
+    return { repo, ans };
+  }
+
+  it("keeps backtick-wrapped identifiers in the claim (no blanked spans)", () => {
+    const { repo, ans } = repoWith("The `retry` function uses `backoff` here [src/retry.ts:2].");
+    const r = runVerify(ans, repo);
+    expect(r.pairs).toHaveLength(1);
+    expect(r.pairs[0]!.claim).toContain("retry");
+    expect(r.pairs[0]!.claim).toContain("backoff");
+    expect(r.pairs[0]!.claim).not.toMatch(/\s{2,}/);
+    expect(r.pairs[0]!.citation).toBe("src/retry.ts:2");
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("still does NOT promote a backticked path inside brackets to a citation", () => {
+    const { repo, ans } = repoWith("See [`src/util.ts`] then the real one [src/retry.ts:2].");
+    const r = runVerify(ans, repo);
+    expect(r.pairs.map((p) => p.citation)).toEqual(["src/retry.ts:2"]);
+    rmSync(repo, { recursive: true, force: true });
+  });
 });
