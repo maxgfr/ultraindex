@@ -13,13 +13,24 @@ export interface VerifyWorklist {
 }
 
 // ---- claim-unit splitting (a citation in a code fence/comment can't ground) ----
-type ClaimUnit = { kind: "text"; text: string } | { kind: "list"; items: string[] };
+type ClaimUnit =
+  | { kind: "text"; text: string; display: string }
+  | { kind: "list"; items: string[]; itemsD: string[] };
 
 function stripHtmlComments(text: string): string {
   return text.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, " "));
 }
+// Mask inline code to spaces (length-preserving). Used for block-structure
+// detection AND fed to parseCitations, so a `[file:line]` inside backticks is
+// NOT read as a real citation.
 function stripInlineCode(line: string): string {
   return line.replace(/`[^`\n]*`/g, " ");
+}
+// Same spans, but KEEP the inner text (drop only the backticks) — for the
+// human-facing claim digest, which must retain the identifier the citation is
+// about. Display-only; never fed to parseCitations.
+function stripInlineCodeText(line: string): string {
+  return line.replace(/`([^`\n]*)`/g, "$1");
 }
 function codeMask(lines: string[]): boolean[] {
   const mask = new Array(lines.length).fill(false);
@@ -54,10 +65,12 @@ function extractClaimUnits(text: string): ClaimUnit[] {
   const lines = stripHtmlComments(text).split("\n");
   const code = codeMask(lines);
   const units: ClaimUnit[] = [];
-  let prose: string[] = [];
+  let prose: string[] = []; // masked (drives structure + parsing)
+  let proseD: string[] = []; // display (identifiers kept)
   const flush = () => {
-    if (prose.length) units.push({ kind: "text", text: prose.join(" ") });
+    if (prose.length) units.push({ kind: "text", text: prose.join(" "), display: proseD.join(" ") });
     prose = [];
+    proseD = [];
   };
   let i = 0;
   while (i < lines.length) {
@@ -67,6 +80,7 @@ function extractClaimUnits(text: string): ClaimUnit[] {
       continue;
     }
     const line = stripInlineCode(lines[i]!);
+    const lineD = stripInlineCodeText(lines[i]!);
     const t = line.trim();
     if (t === "" || isHeadingOrRule(t) || isTableSep(line)) {
       flush();
@@ -75,43 +89,61 @@ function extractClaimUnits(text: string): ClaimUnit[] {
     }
     if (isTableRow(line)) {
       flush();
-      units.push({ kind: "text", text: tableCells(line) });
+      units.push({ kind: "text", text: tableCells(line), display: tableCells(lineD) });
       i++;
       continue;
     }
     if (/^\s*>/.test(line)) {
       const dq = line.replace(/^\s*>\s?/, "").trim();
-      if (dq) prose.push(dq);
+      const dqD = lineD.replace(/^\s*>\s?/, "").trim();
+      if (dq) {
+        prose.push(dq);
+        proseD.push(dqD || dq);
+      }
       i++;
       continue;
     }
     if (isListItem(line)) {
       flush();
       const items: string[] = [];
+      const itemsD: string[] = [];
       while (i < lines.length && !code[i]) {
         const l = stripInlineCode(lines[i]!);
+        const lD = stripInlineCodeText(lines[i]!);
         const tt = l.trim();
+        const ttD = lD.trim();
         if (tt === "" || isHeadingOrRule(tt) || isTableSep(l) || isTableRow(l)) break;
-        if (isListItem(l)) items.push(l.replace(/^\s*([-*+]|\d+\.)\s+/, "").trim());
-        else if (items.length) items[items.length - 1] += " " + tt;
-        else items.push(tt);
+        if (isListItem(l)) {
+          items.push(l.replace(/^\s*([-*+]|\d+\.)\s+/, "").trim());
+          itemsD.push(lD.replace(/^\s*([-*+]|\d+\.)\s+/, "").trim());
+        } else if (items.length) {
+          items[items.length - 1] += " " + tt;
+          itemsD[itemsD.length - 1] += " " + ttD;
+        } else {
+          items.push(tt);
+          itemsD.push(ttD);
+        }
         i++;
       }
-      units.push({ kind: "list", items });
+      units.push({ kind: "list", items, itemsD });
       continue;
     }
     prose.push(line);
+    proseD.push(lineD);
     i++;
   }
   flush();
   return units;
 }
 
-function claimStrings(text: string): string[] {
-  const out: string[] = [];
+// Each claim as a (parse, display) pair. `parse` masks inline code to spaces so
+// citation extraction ignores a `[file:line]` written inside backticks; `display`
+// keeps the inline-code text so the worklist shows the identifier the claim is about.
+function claimPairs(text: string): { parse: string; display: string }[] {
+  const out: { parse: string; display: string }[] = [];
   for (const u of extractClaimUnits(text)) {
-    if (u.kind === "text") out.push(u.text);
-    else for (const it of u.items) out.push(it);
+    if (u.kind === "text") out.push({ parse: u.text, display: u.display });
+    else for (let j = 0; j < u.items.length; j++) out.push({ parse: u.items[j]!, display: u.itemsD[j] ?? u.items[j]! });
   }
   return out;
 }
@@ -137,21 +169,33 @@ function readExcerpt(repo: string, c: Citation): string {
 // with the cited excerpt as the digest. Capped at maxVerify. Writes
 // VERIFY.todo.json + VERIFY.md next to the answer file. Deterministic; the
 // JUDGEMENT is the agent's.
-export function runVerify(answerPath: string, repo: string, opts: { maxVerify?: number } = {}): VerifyWorklist {
-  const answer = readFileSync(answerPath, "utf8");
+// The (uncapped) claim↔citation pairs verify would adjudicate for an answer: one
+// per claim-unit citation that resolves AND has a readable excerpt. This is the
+// gate's true "universe" — narrower than the raw mechanical citation set, because
+// a citation in a heading (dropped as a claim unit) or to an empty file (no
+// excerpt) yields no pair. `check --semantic` sizes coverage off THIS, not the
+// mechanical count, so it never demands verification it can't produce.
+export function buildClaimPairs(answerText: string, repo: string): ClaimEvidencePair[] {
   const pairs: ClaimEvidencePair[] = [];
   let claimNo = 0;
-  for (const claim of claimStrings(answer)) {
-    const cites = parseCitations(claim);
+  for (const { parse, display } of claimPairs(answerText)) {
+    const cites = parseCitations(parse);
     if (!cites.length) continue;
     claimNo++;
     const claimId = `C${claimNo}`;
+    const claimText = display.replace(/\s+/g, " ").trim().slice(0, 400);
     for (const c of cites) {
       const digest = readExcerpt(repo, c);
       if (!digest) continue; // unresolved/dangling — the mechanical check handles it
-      pairs.push({ claimId, claim: claim.trim().slice(0, 400), citation: c.raw, path: c.path, digest });
+      pairs.push({ claimId, claim: claimText, citation: c.raw, path: c.path, digest });
     }
   }
+  return pairs;
+}
+
+export function runVerify(answerPath: string, repo: string, opts: { maxVerify?: number } = {}): VerifyWorklist {
+  const answer = readFileSync(answerPath, "utf8");
+  const pairs = buildClaimPairs(answer, repo);
   const max = Math.max(1, Math.floor(opts.maxVerify ?? VERIFY_MAX));
   const kept = pairs.length > max ? pairs.slice(0, max) : pairs;
   const worklist: VerifyWorklist = { answer: answerPath, pairs: kept };

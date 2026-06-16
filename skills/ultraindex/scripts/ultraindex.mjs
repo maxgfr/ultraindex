@@ -3222,6 +3222,9 @@ function stripHtmlComments(text) {
 function stripInlineCode(line) {
   return line.replace(/`[^`\n]*`/g, " ");
 }
+function stripInlineCodeText(line) {
+  return line.replace(/`([^`\n]*)`/g, "$1");
+}
 function codeMask(lines) {
   const mask = new Array(lines.length).fill(false);
   let inFence = false;
@@ -3255,9 +3258,11 @@ function extractClaimUnits(text) {
   const code = codeMask(lines);
   const units = [];
   let prose = [];
+  let proseD = [];
   const flush = () => {
-    if (prose.length) units.push({ kind: "text", text: prose.join(" ") });
+    if (prose.length) units.push({ kind: "text", text: prose.join(" "), display: proseD.join(" ") });
     prose = [];
+    proseD = [];
   };
   let i = 0;
   while (i < lines.length) {
@@ -3267,6 +3272,7 @@ function extractClaimUnits(text) {
       continue;
     }
     const line = stripInlineCode(lines[i]);
+    const lineD = stripInlineCodeText(lines[i]);
     const t = line.trim();
     if (t === "" || isHeadingOrRule(t) || isTableSep(line)) {
       flush();
@@ -3275,42 +3281,57 @@ function extractClaimUnits(text) {
     }
     if (isTableRow(line)) {
       flush();
-      units.push({ kind: "text", text: tableCells(line) });
+      units.push({ kind: "text", text: tableCells(line), display: tableCells(lineD) });
       i++;
       continue;
     }
     if (/^\s*>/.test(line)) {
       const dq = line.replace(/^\s*>\s?/, "").trim();
-      if (dq) prose.push(dq);
+      const dqD = lineD.replace(/^\s*>\s?/, "").trim();
+      if (dq) {
+        prose.push(dq);
+        proseD.push(dqD || dq);
+      }
       i++;
       continue;
     }
     if (isListItem(line)) {
       flush();
       const items = [];
+      const itemsD = [];
       while (i < lines.length && !code[i]) {
         const l = stripInlineCode(lines[i]);
+        const lD = stripInlineCodeText(lines[i]);
         const tt = l.trim();
+        const ttD = lD.trim();
         if (tt === "" || isHeadingOrRule(tt) || isTableSep(l) || isTableRow(l)) break;
-        if (isListItem(l)) items.push(l.replace(/^\s*([-*+]|\d+\.)\s+/, "").trim());
-        else if (items.length) items[items.length - 1] += " " + tt;
-        else items.push(tt);
+        if (isListItem(l)) {
+          items.push(l.replace(/^\s*([-*+]|\d+\.)\s+/, "").trim());
+          itemsD.push(lD.replace(/^\s*([-*+]|\d+\.)\s+/, "").trim());
+        } else if (items.length) {
+          items[items.length - 1] += " " + tt;
+          itemsD[itemsD.length - 1] += " " + ttD;
+        } else {
+          items.push(tt);
+          itemsD.push(ttD);
+        }
         i++;
       }
-      units.push({ kind: "list", items });
+      units.push({ kind: "list", items, itemsD });
       continue;
     }
     prose.push(line);
+    proseD.push(lineD);
     i++;
   }
   flush();
   return units;
 }
-function claimStrings(text) {
+function claimPairs(text) {
   const out = [];
   for (const u of extractClaimUnits(text)) {
-    if (u.kind === "text") out.push(u.text);
-    else for (const it of u.items) out.push(it);
+    if (u.kind === "text") out.push({ parse: u.text, display: u.display });
+    else for (let j = 0; j < u.items.length; j++) out.push({ parse: u.items[j], display: u.itemsD[j] ?? u.items[j] });
   }
   return out;
 }
@@ -3327,21 +3348,26 @@ function readExcerpt(repo, c2) {
   const e = Math.max(c2.start, c2.end ?? c2.start);
   return lines.slice(s, e).join("\n").slice(0, 800).trim();
 }
-function runVerify(answerPath, repo, opts = {}) {
-  const answer = readFileSync3(answerPath, "utf8");
+function buildClaimPairs(answerText, repo) {
   const pairs = [];
   let claimNo = 0;
-  for (const claim of claimStrings(answer)) {
-    const cites = parseCitations(claim);
+  for (const { parse, display } of claimPairs(answerText)) {
+    const cites = parseCitations(parse);
     if (!cites.length) continue;
     claimNo++;
     const claimId = `C${claimNo}`;
+    const claimText = display.replace(/\s+/g, " ").trim().slice(0, 400);
     for (const c2 of cites) {
       const digest = readExcerpt(repo, c2);
       if (!digest) continue;
-      pairs.push({ claimId, claim: claim.trim().slice(0, 400), citation: c2.raw, path: c2.path, digest });
+      pairs.push({ claimId, claim: claimText, citation: c2.raw, path: c2.path, digest });
     }
   }
+  return pairs;
+}
+function runVerify(answerPath, repo, opts = {}) {
+  const answer = readFileSync3(answerPath, "utf8");
+  const pairs = buildClaimPairs(answer, repo);
   const max = Math.max(1, Math.floor(opts.maxVerify ?? VERIFY_MAX));
   const kept = pairs.length > max ? pairs.slice(0, max) : pairs;
   const worklist = { answer: answerPath, pairs: kept };
@@ -3499,7 +3525,12 @@ function runCheck(outDir, repo) {
     const text = readIfExists(join11(enc, `${m.slug}.md`));
     if (!text) continue;
     const parsed = parseRegions(text);
-    if (!parsed.ok) continue;
+    if (!parsed.ok) {
+      errors.push(
+        `encyclopedia/${m.slug}.md: unparseable region fences \u2014 each <!-- ui:human key=\u2026 --> / <!-- /ui:human key=\u2026 --> marker must be on its own line; fix the fences and re-run \`ultraindex build\``
+      );
+      continue;
+    }
     for (const r of parsed.regions) {
       if (r.type !== "human") continue;
       for (const u of checkCitations(r.body, fileLines).unresolved) {
@@ -3548,6 +3579,18 @@ function checkAnswer(outDir, answerPath, opts = {}) {
       if (!sem.ok) {
         result.ok = false;
         errors.push(`semantic verification failed: ${sem.failures.length} claim(s) refuted or unsupported by their cited excerpt (see VERIFY.json)`);
+      }
+      const repoRoot = opts.repo ?? loadManifest(outDir)?.repo;
+      const expected = repoRoot ? buildClaimPairs(text, repoRoot).length : 0;
+      if (sem.pairs === 0 && expected > 0) {
+        result.ok = false;
+        errors.push(
+          `--semantic: VERIFY.json adjudicates 0 pair(s) but the answer has ${expected} verifiable claim\u2194citation pair(s) \u2014 the answer was not actually verified; re-run \`verify\` on a fresh worklist`
+        );
+      } else if (sem.pairs < expected) {
+        warnings.push(
+          `--semantic: VERIFY.json covers ${sem.pairs} of ${expected} verifiable pair(s) \u2014 coverage may be stale or worklist-capped; re-run \`verify\` if the answer changed`
+        );
       }
       if (sem.unadjudicated?.length) warnings.push(`${sem.unadjudicated.length} claim(s) not fully adjudicated by verify`);
     }
@@ -3697,7 +3740,7 @@ Usage:
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
   ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
-  ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>]
+  ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -3733,7 +3776,9 @@ Options:
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
   --depth <n>       neighbors: hops to traverse                (default: 1)
   --module <slug>   map: print this module's entry instead of INDEX.md
-  --answer <file>   check: validate this answer file's citations against the index
+  --answer <file>   check/verify: the answer file whose citations to validate
+  --apply <file>    verify: reduce a filled verdicts file to a pass/fail gate
+  --max-verify <n>  verify: cap the claim\u2194citation worklist           (default: 40)
   --force           embed: re-embed every module even if unchanged
   --json            Machine-readable output
   --quiet           check: print nothing, use the exit code only
@@ -4048,7 +4093,7 @@ function cmdCheck(p) {
   const out = resolveOut(p, resolve(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out);
   if (p.values.answer) {
-    const res2 = checkAnswer(out, resolve(p.values.answer), { semantic: p.bools.has("semantic") });
+    const res2 = checkAnswer(out, resolve(p.values.answer), { semantic: p.bools.has("semantic"), repo });
     if (p.bools.has("json")) {
       process.stdout.write(JSON.stringify(res2, null, 2) + "\n");
     } else if (!p.bools.has("quiet")) {

@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import type { CheckResult, Manifest, VerifyResult } from "./types.js";
-import { loadVerify } from "./verify.js";
+import { loadVerify, buildClaimPairs } from "./verify.js";
 import { walk, readText } from "./walk.js";
 import { sha1 } from "./hash.js";
 import { compileGlobs } from "./glob.js";
@@ -79,7 +79,15 @@ export function runCheck(outDir: string, repo: string): CheckResult {
     const text = readIfExists(join(enc, `${m.slug}.md`));
     if (!text) continue;
     const parsed = parseRegions(text);
-    if (!parsed.ok) continue;
+    if (!parsed.ok) {
+      // Fail CLOSED, not open: unparseable fences must NOT silently skip citation
+      // validation (that would let a bad citation through whenever a hand-edit
+      // mangles a fence). Mirrors build's "unparseable region fences" conflict.
+      errors.push(
+        `encyclopedia/${m.slug}.md: unparseable region fences — each <!-- ui:human key=… --> / <!-- /ui:human key=… --> marker must be on its own line; fix the fences and re-run \`ultraindex build\``,
+      );
+      continue;
+    }
     for (const r of parsed.regions) {
       if (r.type !== "human") continue;
       for (const u of checkCitations(r.body, fileLines).unresolved) {
@@ -129,7 +137,7 @@ export interface AnswerCheck {
 // `opts.semantic`, ALSO folds the VERIFY.json verdicts written next to the
 // answer (fails on a refuted/unsupported claim) — additive: plain `checkAnswer`
 // (no opts) is unchanged.
-export function checkAnswer(outDir: string, answerPath: string, opts: { semantic?: boolean } = {}): AnswerCheck {
+export function checkAnswer(outDir: string, answerPath: string, opts: { semantic?: boolean; repo?: string } = {}): AnswerCheck {
   const errors: string[] = [];
   const graph = loadGraph(outDir);
   if (!graph) return { ok: false, citations: 0, resolved: 0, errors: ["no index — run `ultraindex build` first"] };
@@ -152,6 +160,27 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
       if (!sem.ok) {
         result.ok = false;
         errors.push(`semantic verification failed: ${sem.failures.length} claim(s) refuted or unsupported by their cited excerpt (see VERIFY.json)`);
+      }
+      // Coverage guard: the gate can only attest to what VERIFY.json adjudicated.
+      // Size "expected" the SAME way verify does (claim units with a resolvable,
+      // readable excerpt) — NOT the raw mechanical citation count, which also counts
+      // citations in headings or to empty files that verify can never pair (those
+      // would otherwise demand a worklist that always comes back empty). An empty
+      // verdicts set against real verifiable pairs must not read as "verified".
+      // Use the SAME repo `verify` resolved its excerpts from (explicit --repo wins,
+      // else the manifest's recorded root) so `expected` and `sem.pairs` count the
+      // same content — otherwise --repo could spuriously warn/fail the gate.
+      const repoRoot = opts.repo ?? loadManifest(outDir)?.repo;
+      const expected = repoRoot ? buildClaimPairs(text, repoRoot).length : 0;
+      if (sem.pairs === 0 && expected > 0) {
+        result.ok = false;
+        errors.push(
+          `--semantic: VERIFY.json adjudicates 0 pair(s) but the answer has ${expected} verifiable claim↔citation pair(s) — the answer was not actually verified; re-run \`verify\` on a fresh worklist`,
+        );
+      } else if (sem.pairs < expected) {
+        warnings.push(
+          `--semantic: VERIFY.json covers ${sem.pairs} of ${expected} verifiable pair(s) — coverage may be stale or worklist-capped; re-run \`verify\` if the answer changed`,
+        );
       }
       if (sem.unadjudicated?.length) warnings.push(`${sem.unadjudicated.length} claim(s) not fully adjudicated by verify`);
     }

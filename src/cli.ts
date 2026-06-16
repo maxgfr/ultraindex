@@ -30,7 +30,7 @@ Usage:
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
   ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
-  ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>]
+  ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -66,7 +66,9 @@ Options:
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
   --depth <n>       neighbors: hops to traverse                (default: 1)
   --module <slug>   map: print this module's entry instead of INDEX.md
-  --answer <file>   check: validate this answer file's citations against the index
+  --answer <file>   check/verify: the answer file whose citations to validate
+  --apply <file>    verify: reduce a filled verdicts file to a pass/fail gate
+  --max-verify <n>  verify: cap the claim↔citation worklist           (default: 40)
   --force           embed: re-embed every module even if unchanged
   --json            Machine-readable output
   --quiet           check: print nothing, use the exit code only
@@ -422,7 +424,7 @@ function cmdCheck(p: Parsed): void {
   const repo = resolveRepoRoot(p, out);
 
   if (p.values.answer) {
-    const res = checkAnswer(out, resolve(p.values.answer), { semantic: p.bools.has("semantic") });
+    const res = checkAnswer(out, resolve(p.values.answer), { semantic: p.bools.has("semantic"), repo });
     if (p.bools.has("json")) {
       process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     } else if (!p.bools.has("quiet")) {
