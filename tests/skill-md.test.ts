@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -58,7 +59,7 @@ describe("SKILL.md is installable", () => {
 });
 
 // Content guards: the docs must not drift from the CLI they describe.
-const CLI_COMMANDS = new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check"]);
+const CLI_COMMANDS = new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check", "verify"]);
 
 describe("skill docs stay in sync with the CLI", () => {
   const docs: [string, string][] = [["SKILL.md", body], ...Object.entries(refBodies)];
@@ -72,11 +73,23 @@ describe("skill docs stay in sync with the CLI", () => {
   it("teaches the machine-readable surface (--json)", () => {
     expect(body).toContain("--json");
   });
+
+  // Flag-level drift guard: every `--flag` the skill documents must appear in the
+  // engine's own `--help`. Catches the class of drift that once hid `verify` /
+  // `--max-verify` from the help text for a release (command-name checks missed it).
+  it("documents every CLI flag the skill mentions (guards help-text drift)", () => {
+    const help = execFileSync(process.execPath, [join(ROOT, "scripts/ultraindex.mjs"), "--help"], { encoding: "utf8" });
+    const docText = [body, ...Object.values(refBodies)].join("\n");
+    const flags = new Set(docText.match(/--[a-z][a-z-]+/g) ?? []);
+    for (const f of flags) {
+      expect(help.includes(f), `--help omits ${f}, which the skill documents`).toBe(true);
+    }
+  });
 });
 
 describe("SKILL.md routes to the references (progressive disclosure)", () => {
   it("ships the three workflow references", () => {
-    expect(refFiles.sort()).toEqual(["generate.md", "navigate.md", "semantic.md"]);
+    expect(refFiles.sort()).toEqual(["generate.md", "navigate.md", "semantic.md", "verify.md"]);
   });
 
   it("mentions every reference file that exists", () => {
@@ -113,5 +126,16 @@ describe("semantic.md teaches the optional embeddings layer", () => {
     expect(text).toMatch(/ultraindex\.mjs embed/);
     expect(text).toMatch(/lexical/i);
     expect(text).toContain("vectors.json");
+  });
+});
+
+describe("verify.md teaches the semantic verify gate", () => {
+  const text = refBodies["verify.md"]!;
+  it("covers the verify command, the --semantic gate, and the verdict tokens", () => {
+    expect(text).toMatch(/ultraindex\.mjs verify/);
+    expect(text).toContain("--semantic");
+    expect(text).toMatch(/supported/);
+    expect(text).toMatch(/refuted/);
+    expect(text).toMatch(/unsupported/);
   });
 });

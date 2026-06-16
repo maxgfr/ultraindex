@@ -30,7 +30,9 @@ node scripts/ultraindex.mjs status --json
 ```
 
 The work-queue lists every module in the exact order to enrich: unenriched
-first, foundations/features before tail, most-connected first. Work the list
+first; then the tail (tier 2 — tests, docs, examples, fixtures) sorts last;
+every other module is ranked most-connected first (degree-descending), so a
+well-connected feature can outrank a less-connected foundation. Work the list
 top-down. On a large repo, enriching the **top 10–20** entries captures most of
 the navigation value — trivial leaves can stay as stubs (partial enrichment is
 fine). Re-run `status` between modules to track progress. For each module:
@@ -39,7 +41,8 @@ fine). Re-run `status` between modules to track progress. For each module:
 node scripts/ultraindex.mjs dossier <slug>
 ```
 
-This prints its **real source** + neighbours. Read it, then edit
+This prints its **real source** + neighbours (a docs/config-only module — often
+`root` — has no code, so cite its README/config files instead). Read it, then edit
 `encyclopedia/<slug>.md`: fill the `ui:human` regions (`business` — what it
 does for the product and how it connects; `gotchas` — caveats) with 2–5
 sentences of genuine analysis, **citing the evidence** as `[file]`,
@@ -63,6 +66,43 @@ under `encyclopedia/_orphaned/`).
 If a semantic layer is set up (vectors.json exists), re-run
 `node scripts/ultraindex.mjs embed` after enrichment or rebuilds so the
 vectors reflect the new prose — `check` warns when they drift.
+
+## Scale: enrich in parallel with subagents
+
+Each module is an independent unit of work — its own `dossier`, its own
+`encyclopedia/<slug>.md`. So when many modules need enriching and your host
+supports subagents (e.g. Claude Code's Task/Workflow), fan out rather than read
+every dossier into one context — reading them all yourself is exactly the
+context blow-up this skill exists to avoid. Without subagents the sequential loop
+above is the fallback: same steps, one module at a time.
+
+The orchestrator's sequence:
+
+1. Run `build` **once**, then `node scripts/ultraindex.mjs status --json` for the
+   work-queue.
+2. Dispatch one subagent per module (or a small batch of *distinct* slugs),
+   giving each only its slug. Each subagent:
+   - runs `node scripts/ultraindex.mjs dossier <slug> --out <abs-index-dir>` and
+     reads **only** that packet;
+   - writes 2–5 sentences of cited `ui:human` prose into its **own**
+     `encyclopedia/<slug>.md`, citing only files inside that module (it may open
+     a file the dossier lists to cite a line past the excerpt — never a file
+     outside its module);
+   - does **not** run `build`, does **not** edit another module's entry, and does
+     **not** touch `graph.json` / `manifest.json` / `vectors.json` / `INDEX.md`.
+3. **The one hard rule:** no `build` runs while subagents are working. `build`
+   rewrites *every* entry, so a mid-fan-out rebuild races and clobbers their
+   writes. Build once before; never during.
+4. When all return, the orchestrator runs a single `node scripts/ultraindex.mjs
+   check`. There is no per-module check — it is repo-wide, so it reports every
+   problem at once and keys each grounding failure to `encyclopedia/<slug>.md
+   [region]`. Route each failure back to the subagent that wrote that entry, fix,
+   and re-run `check`.
+5. After `check` passes, the orchestrator alone runs `embed` if a semantic layer
+   exists (it writes the single shared `vectors.json`).
+
+`status` reads entries straight from disk, so re-running it after the join
+reflects the subagents' writes without a rebuild.
 
 ## When something fails
 

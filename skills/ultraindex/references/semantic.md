@@ -65,7 +65,9 @@ Degradation is graceful and explicit:
 
 ## Reproducibility caveat
 
-`vectors.json` is the one artifact excluded from ultraindex's byte-identical
-rebuild guarantee — its floats depend on the provider and model. Everything
-else (`INDEX.md`, `graph.json`, encyclopedia entries) stays deterministic, and
-`find` without `vectors.json` stays byte-identical too.
+Two artifacts are excluded from ultraindex's byte-identical rebuild guarantee:
+`manifest.json` (it embeds a fresh `builtAt` timestamp each build — provenance
+only; staleness is computed from file hashes, not that field) and `vectors.json`
+(its floats depend on the provider and model). Everything else (`INDEX.md`,
+`graph.json`, encyclopedia entries) stays deterministic, and `find` without
+`vectors.json` stays byte-identical too.

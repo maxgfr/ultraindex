@@ -63,10 +63,11 @@ from real code, not memory — and prove it:
 2. **Write the answer to `ANSWER.md`**, citing every claim with the evidence
    it rests on, in **bare brackets**: `[file]`, `[file:line]`, or
    `[file:start-end]` (e.g. `Retries use exponential backoff
-   [src/util.ts:2-4]`). A markdown link — `[text]` immediately followed by a
-   `(path)` — or a citation inside a code fence/inline-code does **not**
-   count — write the citation in the prose. Every answer needs at least one
-   citation.
+   [src/util.ts:2-4]`). A markdown link whose bracket text is **not** a path —
+   `[the guide]` then `(docs/x.md)` — does **not** count, nor does a citation
+   inside a code fence/inline-code; but a path-like bracket like
+   `[src/util.ts:2-4]` still counts even if a `(…)` happens to follow it. Write
+   the citation in the prose. Every answer needs at least one citation.
 3. **Verify grounding.**
    ```
    node scripts/ultraindex.mjs check --answer ANSWER.md --out <index-dir>
@@ -74,7 +75,9 @@ from real code, not memory — and prove it:
    It fails if the answer has no citations or any citation doesn't resolve to
    a real file/line. Fix and re-run until it passes, then give the user the
    answer with its citations. Never present an answer that hasn't passed this
-   check.
+   check. For audit, security, or correctness-critical answers, escalate one
+   step further once this passes: the semantic verify gate in verify.md proves
+   each cited excerpt actually *supports* its claim, not merely that it resolves.
 
 `find`/`neighbors`/`map`/`ask` print only the slice you asked for, so each
 call is cheap. Chaining a few is still far less context than reading the repo.

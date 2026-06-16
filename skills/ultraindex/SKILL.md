@@ -24,8 +24,10 @@ and later **navigate** the result instead of reading the repo.
 > 3. **Analyze from evidence, not memory.** Write analysis only from the real
 >    source `dossier` shows you, cite it `[file:line]`, and `check` fails on any
 >    citation that doesn't resolve — so don't guess.
-> 4. **Load the minimum.** Never read `graph.json` or the whole `encyclopedia/`
->    directory into context — that defeats the purpose.
+> 4. **Load the minimum.** Read one entry (or one `dossier`) at a time — that is
+>    the intended pattern, and exactly what a per-module enrichment subagent does.
+>    Never bulk-load `graph.json` or the whole `encyclopedia/` directory into
+>    context — that defeats the purpose.
 
 Most commands accept `--json` — prefer it whenever you branch on the result
 rather than read it as prose.
@@ -49,16 +51,24 @@ reference for the detailed workflow:
    points at, ground answers with verified citations:
    read [references/navigate.md](references/navigate.md).
 
-4. **The user asked to index/analyze/document, or `status --json` shows
-   unenriched hubs and you have budget** — run the status-driven enrichment
-   loop (dossier → write cited analysis → check):
-   read [references/generate.md](references/generate.md).
+4. **The answer must be high-assurance** (audit, security, a correctness-critical
+   claim), or the user asks you to *verify*/adjudicate an answer — after
+   `check --answer` passes (citations resolve), escalate to the semantic verify
+   gate so each cited excerpt is proven to *support* its claim, not just exist:
+   read [references/verify.md](references/verify.md).
 
-5. **`find` keeps missing, or the user wants semantic/better search** — set up
+5. **The user asked to index/analyze/document, or `status --json` shows
+   unenriched hubs and you have budget** — run the status-driven enrichment
+   loop (dossier → write cited analysis → check). On a large repo this
+   parallelizes: one subagent per module from the queue, if your host supports
+   subagents — read [references/generate.md](references/generate.md).
+
+6. **`find` keeps missing, or the user wants semantic/better search** — set up
    the optional embeddings layer (docker compose, `embed`, hybrid `find`):
    read [references/semantic.md](references/semantic.md).
 
-A typical first visit chains 1 → 4 → 3; a return visit is usually 2 → 3.
+A typical first visit chains 1 → 5 → 3; a return visit is usually 2 → 3; a
+high-assurance answer adds → 4.
 
 ## Command cheat-sheet
 
@@ -67,17 +77,19 @@ A typical first visit chains 1 → 4 → 3; a return visit is usually 2 → 3.
 - `find "<query>" [--k <n>]` — rank modules, print the **exact files to open**. Hybrid (lexical + semantic) when vectors.json exists.
 - `neighbors <file|module> [--depth <n>]` — what links to / from it.
 - `status` — the enrichment **work-queue**, in the exact order to enrich.
-- `dossier <slug>` — a module's grounding packet (real source + neighbours).
+- `dossier <slug>` — a module's grounding packet (real source + neighbours; a docs/config-only module, e.g. `root`, shows no code — enrich it by citing its README/config instead).
 - `ask "<question>"` — assemble grounded evidence to answer from.
-- `check [--answer <file>]` — staleness + integrity + **grounding** (citations must resolve). Non-zero exit ⇒ stale, broken, or ungrounded.
+- `check [--answer <file>] [--semantic]` — staleness + integrity + **grounding** (citations must resolve). Non-zero exit ⇒ stale, broken, or ungrounded. `--semantic` also folds the verify gate (fails a claim whose cited excerpt refutes it, or that is fully adjudicated with no support).
+- `verify --answer <file> [--apply <verdicts.json>] [--max-verify <n>]` — the high-assurance gate **above** `check --answer`: emit a claim↔citation worklist for adversarial support-checking, then `--apply` reduces your verdicts to a pass/fail gate. See [references/verify.md](references/verify.md).
 - `embed [--force]` — build/refresh vectors.json for semantic `find` (needs a provider — see [references/semantic.md](references/semantic.md)).
 
 ## Scope notes
 
 - **No keys, no network, deterministic** (the optional semantic layer is the
   one exception, and it degrades to lexical when its provider is absent). Two
-  builds of an unchanged repo are byte-identical; `vectors.json` is excluded
-  from that guarantee.
+  builds of an unchanged repo are byte-identical except for `manifest.json`'s
+  `builtAt` provenance timestamp; `vectors.json` is also excluded (its floats
+  depend on the provider).
 - **Import edges** for JS/TS (tsconfig `paths`, package `exports` maps),
   Python, Go (multi-module + `replace`), Rust (`mod`/`use`), Java (packages).
   Other languages are scanned and searchable; they just get no import edges.
