@@ -47,9 +47,11 @@ ultraindex find    "<query>" [--out <dir>] [--k <n>]
 ultraindex embed   [--out <dir>] [--force]
 ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
 ultraindex map     [--out <dir>] [--module <slug>]
+ultraindex status  [--out <dir>]
 ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
 ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
-ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>]
+ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
+ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
 ```
 
 - **build** — scan + (re)write the index. Idempotent: regenerates the code view
@@ -62,13 +64,20 @@ ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>]
   a provider — see below). Incremental: unchanged modules keep their vectors.
 - **neighbors** — walk the graph from a file or module.
 - **map** — print `INDEX.md` (or one module's entry) cheaply.
+- **status** — the enrichment work-queue: which modules to enrich next
+  (unenriched first, the tail last, most-connected first).
 - **dossier** — print a grounding packet for a module (its real key source + graph
   neighbours) so you can write a cited analysis into its entry.
 - **ask** — assemble grounded evidence (real source of the relevant modules) for a
   question, so you can answer it with citations.
 - **check** — report staleness + integrity + **grounding** (every `[file:line]`
   citation in your prose must resolve). With `--answer <file>`, validate that
-  answer's citations instead. Non-zero exit ⇒ stale, broken, or ungrounded.
+  answer's citations instead; add `--semantic` to also fold the verify gate.
+  Non-zero exit ⇒ stale, broken, or ungrounded.
+- **verify** — the high-assurance gate *above* `check --answer`: emit a
+  claim↔citation worklist, adjudicate each (supported / partial / refuted /
+  unsupported), then `--apply` reduces the verdicts to a pass/fail — so a cited
+  excerpt must actually *support* its claim, not merely resolve.
 
 Default output is `<repo>/.ultraindex` (gitignored). Use `--out docs/ultraindex`
 to commit a PR-reviewable index — deterministic, byte-stable rebuilds keep diffs small.
@@ -98,11 +107,14 @@ Then a **grounded AI layer** (the skills, via the agent) adds the *understanding
 answers that cite `[file:line]`, and `check` mechanically **rejects any citation
 that doesn't resolve** — the anti-hallucination guard (ultradoc's model, applied
 to a local index). Citations inside code fences / inline code / markdown links
-don't count, so a decorative cite can't satisfy the gate.
+don't count, so a decorative cite can't satisfy the gate. For high-assurance
+answers an optional **verify** gate goes further — `check --answer --semantic`
+folds adjudicated verdicts and fails a claim whose cited excerpt refutes it (or,
+once fully adjudicated, supports it nowhere), not merely that it resolves.
 
 ripgrep is used when present (faster); without it a built-in scanner is used.
 Without `git`, the manifest just omits the commit. Two builds of an unchanged repo
-are byte-identical.
+are byte-identical (apart from `manifest.json`'s `builtAt` provenance timestamp).
 
 `find` is purely lexical but smarter than substring matching: queries split
 camelCase/snake_case identifiers (`getUserProfile` finds `src/user/profile.ts`),
@@ -137,8 +149,9 @@ env, never in a committed `semantic.json` (mind `docs/ultraindex` indexes).
 Degradation is graceful: provider down ⇒ lexical-only results + a stderr
 warning; no `vectors.json` ⇒ pure lexical, silent, zero network (delete the
 file to switch the layer off). `check` warns when vectors drift stale.
-**Reproducibility caveat:** `vectors.json` is the one artifact excluded from
-the byte-identical rebuild guarantee — its floats depend on the provider/model.
+**Reproducibility caveat:** two artifacts are excluded from the byte-identical
+rebuild guarantee — `manifest.json` (its `builtAt` timestamp) and `vectors.json`
+(its floats depend on the provider/model).
 
 ## Develop
 
