@@ -6,5 +6,8 @@ export default defineConfig({
     // `.ultraindex/` output, and the e2e cache holds whole cloned repos (with
     // their own test suites) — never collect tests from those trees.
     exclude: [...configDefaults.exclude, "**/.ultraindex/**", "tests/fixtures/**", "tests/.e2e-cache/**"],
+    // Load the tree-sitter grammars before every suite so unit tests extract via
+    // the AST path, matching the shipped bundle.
+    setupFiles: ["tests/setup.ts"],
   },
 });

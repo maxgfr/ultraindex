@@ -22,7 +22,7 @@
     "test:watch": "vitest",
     "test:e2e": "ULTRAINDEX_E2E=1 vitest run tests/e2e-real-repos.test.ts",
     "typecheck": "tsc --noEmit",
-    "check:build": "tsup && node scripts/copy-bundle.mjs && git diff --exit-code -- scripts/ultraindex.mjs skills/ultraindex/scripts/ultraindex.mjs",
+    "check:build": "tsup && node scripts/copy-bundle.mjs && git diff --exit-code -- scripts/ultraindex.mjs skills/ultraindex/scripts/ultraindex.mjs scripts/grammars skills/ultraindex/scripts/grammars",
     "demo": "node scripts/ultraindex.mjs build --repo tests/fixtures/mini-repo --out /tmp/ultraindex-demo && node scripts/ultraindex.mjs check --repo tests/fixtures/mini-repo --out /tmp/ultraindex-demo",
     "release": "semantic-release"
   },

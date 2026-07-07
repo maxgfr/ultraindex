@@ -14,6 +14,7 @@ import { runCheck, checkAnswer } from "./check.js";
 import { runVerify, applyVerdicts, formatVerifyReport, VERIFY_MAX } from "./verify.js";
 import { runDossier, runAsk } from "./explain.js";
 import { indexExists, loadGraph, loadManifest } from "./store.js";
+import { ensureGrammars, allGrammarKeys } from "./ast/loader.js";
 
 const HELP = `ultraindex v${VERSION}
 Deterministically index a whole repo (code + docs) into a navigable encyclopedia
@@ -199,7 +200,7 @@ function resolveRepoRoot(p: Parsed, out: string): string {
   return loadManifest(out)?.repo ?? resolve(".");
 }
 
-function cmdBuild(p: Parsed): void {
+async function cmdBuild(p: Parsed): Promise<void> {
   const repo = resolve(p.values.repo ?? ".");
   if (!existsSync(repo)) fail(`repo not found: ${repo}`);
   const out = p.values.out ? resolve(p.values.out) : join(repo, ".ultraindex");
@@ -207,6 +208,10 @@ function cmdBuild(p: Parsed): void {
   if (maxBytes !== undefined && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
   const maxFiles = p.values["max-files"] ? Number(p.values["max-files"]) : undefined;
   if (maxFiles !== undefined && (!Number.isInteger(maxFiles) || maxFiles <= 0)) fail("invalid --max-files");
+
+  // Load the tree-sitter grammars once, up front — the only async step; the scan
+  // pipeline itself stays synchronous and parses against the warmed grammars.
+  await ensureGrammars(allGrammarKeys());
 
   const { graph, manifest, capped } = runBuild(
     {

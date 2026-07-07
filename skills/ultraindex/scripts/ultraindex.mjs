@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve, join as join13, dirname as dirname4 } from "path";
-import { existsSync as existsSync3 } from "fs";
-import { pathToFileURL, fileURLToPath } from "url";
+import { resolve, join as join14, dirname as dirname5 } from "path";
+import { existsSync as existsSync4 } from "fs";
+import { pathToFileURL, fileURLToPath as fileURLToPath2 } from "url";
 import { realpathSync as realpathSync2 } from "fs";
 
 // src/types.ts
@@ -120,12 +120,12 @@ var DEFAULT_MAX_FILES = 2e4;
 function walk(root, opts = {}) {
   const maxFileBytes = opts.maxFileBytes ?? 1024 * 1024;
   const maxFiles = opts.maxFiles ?? DEFAULT_MAX_FILES;
-  const out = [];
+  const out2 = [];
   let capped = false;
   const stack = [root];
   const seenDirs = /* @__PURE__ */ new Set();
   while (stack.length) {
-    if (out.length >= maxFiles) {
+    if (out2.length >= maxFiles) {
       capped = true;
       break;
     }
@@ -144,8 +144,8 @@ function walk(root, opts = {}) {
     } catch {
       continue;
     }
-    for (const name of entries) {
-      const abs = join(dir, name);
+    for (const name2 of entries) {
+      const abs = join(dir, name2);
       let st;
       try {
         st = statSync(abs);
@@ -153,20 +153,20 @@ function walk(root, opts = {}) {
         continue;
       }
       if (st.isDirectory()) {
-        if (IGNORE_DIRS.has(name)) continue;
+        if (IGNORE_DIRS.has(name2)) continue;
         stack.push(abs);
         continue;
       }
       if (!st.isFile()) continue;
       if (st.size > maxFileBytes) continue;
-      if (LOCKFILES.has(name.toLowerCase())) continue;
-      const ext = extname(name).toLowerCase();
+      if (LOCKFILES.has(name2.toLowerCase())) continue;
+      const ext = extname(name2).toLowerCase();
       if (BINARY_EXT.has(ext)) continue;
-      if (name.endsWith(".min.js") || name.endsWith(".min.css")) continue;
-      out.push({ rel: relative(root, abs).split(sep).join("/"), abs, size: st.size, ext });
+      if (name2.endsWith(".min.js") || name2.endsWith(".min.css")) continue;
+      out2.push({ rel: relative(root, abs).split(sep).join("/"), abs, size: st.size, ext });
     }
   }
-  return { files: out, capped };
+  return { files: out2, capped };
 }
 function readText(abs) {
   try {
@@ -190,8 +190,8 @@ function readText(abs) {
 
 // src/util.ts
 import { spawnSync } from "child_process";
-function sh(cmd, args, opts = {}) {
-  const res = spawnSync(cmd, args, {
+function sh(cmd, args2, opts = {}) {
+  const res = spawnSync(cmd, args2, {
     cwd: opts.cwd,
     input: opts.input,
     encoding: "utf8",
@@ -328,7 +328,7 @@ var STOPWORDS = /* @__PURE__ */ new Set([
 ]);
 function keywords(question) {
   const seen = /* @__PURE__ */ new Set();
-  const out = [];
+  const out2 = [];
   for (const raw of question.split(/[^A-Za-z0-9_]+/)) {
     if (!raw) continue;
     const lower = raw.toLowerCase();
@@ -336,9 +336,9 @@ function keywords(question) {
     if (STOPWORDS.has(lower)) continue;
     if (seen.has(lower)) continue;
     seen.add(lower);
-    out.push(raw);
+    out2.push(raw);
   }
-  return out;
+  return out2;
 }
 function rrf(lists, keyOf2, k = 60) {
   const score = /* @__PURE__ */ new Map();
@@ -368,22 +368,22 @@ function shortHash(s, n = 8) {
 
 // src/lang/common.ts
 function scan(rel, content, lang, rules) {
-  const out = [];
+  const out2 = [];
   const lines = content.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (let i2 = 0; i2 < lines.length; i2++) {
+    const line = lines[i2];
     if (!line.trim()) continue;
     for (const rule of rules) {
       const m = rule.re.exec(line);
       if (!m) continue;
-      const name = m.groups?.name ?? m[1];
-      if (!name) continue;
+      const name2 = m.groups?.name ?? m[1];
+      if (!name2) continue;
       const exported = typeof rule.exported === "function" ? rule.exported(m, line) : rule.exported ?? false;
-      out.push({
-        name,
+      out2.push({
+        name: name2,
         kind: rule.kind,
         file: rel,
-        line: i + 1,
+        line: i2 + 1,
         signature: line.trim().slice(0, 200),
         exported,
         lang
@@ -391,7 +391,7 @@ function scan(rel, content, lang, rules) {
       break;
     }
   }
-  return out;
+  return out2;
 }
 var EXT_LANG = {
   ".ts": "typescript",
@@ -491,7 +491,7 @@ var jsTs = {
 };
 
 // src/lang/python.ts
-var pub = (name) => !name.startsWith("_") || name.startsWith("__");
+var pub = (name2) => !name2.startsWith("_") || name2.startsWith("__");
 var RULES2 = [
   { re: /^(?:async\s+)?def\s+(?<name>[\w]+)\s*\(/, kind: "function", exported: (m) => pub(m.groups.name) },
   { re: /^\s+(?:async\s+)?def\s+(?<name>[\w]+)\s*\(/, kind: "method", exported: (m) => pub(m.groups.name) },
@@ -507,7 +507,7 @@ var python = {
 };
 
 // src/lang/go.ts
-var upper = (name) => /^[A-Z]/.test(name);
+var upper = (name2) => /^[A-Z]/.test(name2);
 var RULES3 = [
   { re: /^func\s+\([^)]*\)\s+(?<name>[\w]+)\s*\(/, kind: "method", exported: (m) => upper(m.groups.name) },
   { re: /^func\s+(?<name>[\w]+)\s*\(/, kind: "function", exported: (m) => upper(m.groups.name) },
@@ -817,13 +817,13 @@ function classify(rel, ext) {
 // src/glob.ts
 function globToRegExp(glob) {
   let re = "";
-  for (let i = 0; i < glob.length; i++) {
-    const c2 = glob[i];
+  for (let i2 = 0; i2 < glob.length; i2++) {
+    const c2 = glob[i2];
     if (c2 === "*") {
-      if (glob[i + 1] === "*") {
-        i++;
-        if (glob[i + 1] === "/") {
-          i++;
+      if (glob[i2 + 1] === "*") {
+        i2++;
+        if (glob[i2 + 1] === "/") {
+          i2++;
           re += "(?:.*/)?";
         } else {
           re += ".*";
@@ -856,23 +856,23 @@ function byKey(keyOf2) {
 // src/extract/markdown.ts
 function stripFences(content) {
   const lines = content.split(/\r?\n/);
-  const out = [];
+  const out2 = [];
   let fence2 = null;
   for (const line of lines) {
     const m = /^\s*(```+|~~~+)/.exec(line);
     if (fence2) {
       if (m && line.trim().startsWith(fence2[0][0].repeat(3).slice(0, 3))) fence2 = null;
-      out.push("");
+      out2.push("");
       continue;
     }
     if (m) {
       fence2 = m[1];
-      out.push("");
+      out2.push("");
       continue;
     }
-    out.push(line);
+    out2.push(line);
   }
-  return out.join("\n");
+  return out2.join("\n");
 }
 function isExternalTarget(spec) {
   if (!spec) return true;
@@ -890,15 +890,15 @@ function isBoilerplate(s) {
   return /^(all notable changes to this project|in the interest of fostering|this project adheres to|we as members and leaders|table of contents)\b/i.test(s);
 }
 function extractMarkdown(content) {
-  let body = content;
+  let body2 = content;
   let frontTitle;
-  const fm = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(body);
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(body2);
   if (fm) {
     const t = /(^|\n)title:\s*["']?(.+?)["']?\s*(\n|$)/i.exec(fm[1]);
     if (t) frontTitle = t[2].trim();
-    body = body.slice(fm[0].length);
+    body2 = body2.slice(fm[0].length);
   }
-  const scan2 = stripFences(body);
+  const scan2 = stripFences(body2);
   const lines = scan2.split(/\r?\n/);
   const headings = [];
   let title = frontTitle;
@@ -942,6 +942,4316 @@ function extractMarkdown(content) {
   return { title, summary, headings, refs };
 }
 
+// src/ast/loader.ts
+import { readFileSync as readFileSync2, existsSync } from "fs";
+import { dirname, join as join2 } from "path";
+import { fileURLToPath } from "url";
+
+// node_modules/.pnpm/web-tree-sitter@0.26.10/node_modules/web-tree-sitter/web-tree-sitter.js
+var __defProp = Object.defineProperty;
+var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
+var Edit = class {
+  static {
+    __name(this, "Edit");
+  }
+  /** The start position of the change. */
+  startPosition;
+  /** The end position of the change before the edit. */
+  oldEndPosition;
+  /** The end position of the change after the edit. */
+  newEndPosition;
+  /** The start index of the change. */
+  startIndex;
+  /** The end index of the change before the edit. */
+  oldEndIndex;
+  /** The end index of the change after the edit. */
+  newEndIndex;
+  constructor({
+    startIndex,
+    oldEndIndex,
+    newEndIndex,
+    startPosition,
+    oldEndPosition,
+    newEndPosition
+  }) {
+    this.startIndex = startIndex >>> 0;
+    this.oldEndIndex = oldEndIndex >>> 0;
+    this.newEndIndex = newEndIndex >>> 0;
+    this.startPosition = startPosition;
+    this.oldEndPosition = oldEndPosition;
+    this.newEndPosition = newEndPosition;
+  }
+  /**
+   * Edit a point and index to keep it in-sync with source code that has been edited.
+   *
+   * This function updates a single point's byte offset and row/column position
+   * based on an edit operation. This is useful for editing points without
+   * requiring a tree or node instance.
+   */
+  editPoint(point, index) {
+    let newIndex = index;
+    const newPoint = { ...point };
+    if (index >= this.oldEndIndex) {
+      newIndex = this.newEndIndex + (index - this.oldEndIndex);
+      const originalRow = point.row;
+      newPoint.row = this.newEndPosition.row + (point.row - this.oldEndPosition.row);
+      newPoint.column = originalRow === this.oldEndPosition.row ? this.newEndPosition.column + (point.column - this.oldEndPosition.column) : point.column;
+    } else if (index > this.startIndex) {
+      newIndex = this.newEndIndex;
+      newPoint.row = this.newEndPosition.row;
+      newPoint.column = this.newEndPosition.column;
+    }
+    return { point: newPoint, index: newIndex };
+  }
+  /**
+   * Edit a range to keep it in-sync with source code that has been edited.
+   *
+   * This function updates a range's start and end positions based on an edit
+   * operation. This is useful for editing ranges without requiring a tree
+   * or node instance.
+   */
+  editRange(range) {
+    const newRange = {
+      startIndex: range.startIndex,
+      startPosition: { ...range.startPosition },
+      endIndex: range.endIndex,
+      endPosition: { ...range.endPosition }
+    };
+    if (range.endIndex >= this.oldEndIndex) {
+      if (range.endIndex !== Number.MAX_SAFE_INTEGER) {
+        newRange.endIndex = this.newEndIndex + (range.endIndex - this.oldEndIndex);
+        newRange.endPosition = {
+          row: this.newEndPosition.row + (range.endPosition.row - this.oldEndPosition.row),
+          column: range.endPosition.row === this.oldEndPosition.row ? this.newEndPosition.column + (range.endPosition.column - this.oldEndPosition.column) : range.endPosition.column
+        };
+        if (newRange.endIndex < this.newEndIndex) {
+          newRange.endIndex = Number.MAX_SAFE_INTEGER;
+          newRange.endPosition = { row: Number.MAX_SAFE_INTEGER, column: Number.MAX_SAFE_INTEGER };
+        }
+      }
+    } else if (range.endIndex > this.startIndex) {
+      newRange.endIndex = this.startIndex;
+      newRange.endPosition = { ...this.startPosition };
+    }
+    if (range.startIndex >= this.oldEndIndex) {
+      newRange.startIndex = this.newEndIndex + (range.startIndex - this.oldEndIndex);
+      newRange.startPosition = {
+        row: this.newEndPosition.row + (range.startPosition.row - this.oldEndPosition.row),
+        column: range.startPosition.row === this.oldEndPosition.row ? this.newEndPosition.column + (range.startPosition.column - this.oldEndPosition.column) : range.startPosition.column
+      };
+      if (newRange.startIndex < this.newEndIndex) {
+        newRange.startIndex = Number.MAX_SAFE_INTEGER;
+        newRange.startPosition = { row: Number.MAX_SAFE_INTEGER, column: Number.MAX_SAFE_INTEGER };
+      }
+    } else if (range.startIndex > this.startIndex) {
+      newRange.startIndex = this.startIndex;
+      newRange.startPosition = { ...this.startPosition };
+    }
+    return newRange;
+  }
+};
+var SIZE_OF_SHORT = 2;
+var SIZE_OF_INT = 4;
+var SIZE_OF_CURSOR = 4 * SIZE_OF_INT;
+var SIZE_OF_NODE = 5 * SIZE_OF_INT;
+var SIZE_OF_POINT = 2 * SIZE_OF_INT;
+var SIZE_OF_RANGE = 2 * SIZE_OF_INT + 2 * SIZE_OF_POINT;
+var ZERO_POINT = { row: 0, column: 0 };
+var INTERNAL = /* @__PURE__ */ Symbol("INTERNAL");
+function assertInternal(x) {
+  if (x !== INTERNAL) throw new Error("Illegal constructor");
+}
+__name(assertInternal, "assertInternal");
+function isPoint(point) {
+  return !!point && typeof point.row === "number" && typeof point.column === "number";
+}
+__name(isPoint, "isPoint");
+function setModule(module2) {
+  C = module2;
+}
+__name(setModule, "setModule");
+var C;
+var LookaheadIterator = class {
+  static {
+    __name(this, "LookaheadIterator");
+  }
+  /** @internal */
+  [0] = 0;
+  // Internal handle for Wasm
+  /** @internal */
+  language;
+  /** @internal */
+  constructor(internal, address, language) {
+    assertInternal(internal);
+    this[0] = address;
+    this.language = language;
+  }
+  /** Get the current symbol of the lookahead iterator. */
+  get currentTypeId() {
+    return C._ts_lookahead_iterator_current_symbol(this[0]);
+  }
+  /** Get the current symbol name of the lookahead iterator. */
+  get currentType() {
+    return this.language.types[this.currentTypeId] || "ERROR";
+  }
+  /** Delete the lookahead iterator, freeing its resources. */
+  delete() {
+    C._ts_lookahead_iterator_delete(this[0]);
+    this[0] = 0;
+  }
+  /**
+   * Reset the lookahead iterator.
+   *
+   * This returns `true` if the language was set successfully and `false`
+   * otherwise.
+   */
+  reset(language, stateId) {
+    if (C._ts_lookahead_iterator_reset(this[0], language[0], stateId)) {
+      this.language = language;
+      return true;
+    }
+    return false;
+  }
+  /**
+   * Reset the lookahead iterator to another state.
+   *
+   * This returns `true` if the iterator was reset to the given state and
+   * `false` otherwise.
+   */
+  resetState(stateId) {
+    return Boolean(C._ts_lookahead_iterator_reset_state(this[0], stateId));
+  }
+  /**
+   * Returns an iterator that iterates over the symbols of the lookahead iterator.
+   *
+   * The iterator will yield the current symbol name as a string for each step
+   * until there are no more symbols to iterate over.
+   */
+  [Symbol.iterator]() {
+    return {
+      next: /* @__PURE__ */ __name(() => {
+        if (C._ts_lookahead_iterator_next(this[0])) {
+          return { done: false, value: this.currentType };
+        }
+        return { done: true, value: "" };
+      }, "next")
+    };
+  }
+};
+function getText(tree, startIndex, endIndex, startPosition) {
+  const length = endIndex - startIndex;
+  let result = tree.textCallback(startIndex, startPosition);
+  if (result) {
+    startIndex += result.length;
+    while (startIndex < endIndex) {
+      const string = tree.textCallback(startIndex, startPosition);
+      if (string && string.length > 0) {
+        startIndex += string.length;
+        result += string;
+      } else {
+        break;
+      }
+    }
+    if (startIndex > endIndex) {
+      result = result.slice(0, length);
+    }
+  }
+  return result ?? "";
+}
+__name(getText, "getText");
+var Tree = class _Tree {
+  static {
+    __name(this, "Tree");
+  }
+  /** @internal */
+  [0] = 0;
+  // Internal handle for Wasm
+  /** @internal */
+  textCallback;
+  /** The language that was used to parse the syntax tree. */
+  language;
+  /** @internal */
+  constructor(internal, address, language, textCallback) {
+    assertInternal(internal);
+    this[0] = address;
+    this.language = language;
+    this.textCallback = textCallback;
+  }
+  /** Create a shallow copy of the syntax tree. This is very fast. */
+  copy() {
+    const address = C._ts_tree_copy(this[0]);
+    return new _Tree(INTERNAL, address, this.language, this.textCallback);
+  }
+  /** Delete the syntax tree, freeing its resources. */
+  delete() {
+    C._ts_tree_delete(this[0]);
+    this[0] = 0;
+  }
+  /** Get the root node of the syntax tree. */
+  get rootNode() {
+    C._ts_tree_root_node_wasm(this[0]);
+    return unmarshalNode(this);
+  }
+  /**
+   * Get the root node of the syntax tree, but with its position shifted
+   * forward by the given offset.
+   */
+  rootNodeWithOffset(offsetBytes, offsetExtent) {
+    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+    C.setValue(address, offsetBytes, "i32");
+    marshalPoint(address + SIZE_OF_INT, offsetExtent);
+    C._ts_tree_root_node_with_offset_wasm(this[0]);
+    return unmarshalNode(this);
+  }
+  /**
+   * Edit the syntax tree to keep it in sync with source code that has been
+   * edited.
+   *
+   * You must describe the edit both in terms of byte offsets and in terms of
+   * row/column coordinates.
+   */
+  edit(edit) {
+    marshalEdit(edit);
+    C._ts_tree_edit_wasm(this[0]);
+  }
+  /** Create a new {@link TreeCursor} starting from the root of the tree. */
+  walk() {
+    return this.rootNode.walk();
+  }
+  /**
+   * Compare this old edited syntax tree to a new syntax tree representing
+   * the same document, returning a sequence of ranges whose syntactic
+   * structure has changed.
+   *
+   * For this to work correctly, this syntax tree must have been edited such
+   * that its ranges match up to the new tree. Generally, you'll want to
+   * call this method right after calling one of the [`Parser::parse`]
+   * functions. Call it on the old tree that was passed to parse, and
+   * pass the new tree that was returned from `parse`.
+   */
+  getChangedRanges(other) {
+    if (!(other instanceof _Tree)) {
+      throw new TypeError("Argument must be a Tree");
+    }
+    C._ts_tree_get_changed_ranges_wasm(this[0], other[0]);
+    const count = C.getValue(TRANSFER_BUFFER, "i32");
+    const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+    const result = new Array(count);
+    if (count > 0) {
+      let address = buffer;
+      for (let i2 = 0; i2 < count; i2++) {
+        result[i2] = unmarshalRange(address);
+        address += SIZE_OF_RANGE;
+      }
+      C._free(buffer);
+    }
+    return result;
+  }
+  /** Get the included ranges that were used to parse the syntax tree. */
+  getIncludedRanges() {
+    C._ts_tree_included_ranges_wasm(this[0]);
+    const count = C.getValue(TRANSFER_BUFFER, "i32");
+    const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+    const result = new Array(count);
+    if (count > 0) {
+      let address = buffer;
+      for (let i2 = 0; i2 < count; i2++) {
+        result[i2] = unmarshalRange(address);
+        address += SIZE_OF_RANGE;
+      }
+      C._free(buffer);
+    }
+    return result;
+  }
+};
+var TreeCursor = class _TreeCursor {
+  static {
+    __name(this, "TreeCursor");
+  }
+  /** @internal */
+  // @ts-expect-error: never read
+  [0] = 0;
+  // Internal handle for Wasm
+  /** @internal */
+  // @ts-expect-error: never read
+  [1] = 0;
+  // Internal handle for Wasm
+  /** @internal */
+  // @ts-expect-error: never read
+  [2] = 0;
+  // Internal handle for Wasm
+  /** @internal */
+  // @ts-expect-error: never read
+  [3] = 0;
+  // Internal handle for Wasm
+  /** @internal */
+  tree;
+  /** @internal */
+  constructor(internal, tree) {
+    assertInternal(internal);
+    this.tree = tree;
+    unmarshalTreeCursor(this);
+  }
+  /** Creates a deep copy of the tree cursor. This allocates new memory. */
+  copy() {
+    const copy = new _TreeCursor(INTERNAL, this.tree);
+    C._ts_tree_cursor_copy_wasm(this.tree[0]);
+    unmarshalTreeCursor(copy);
+    return copy;
+  }
+  /** Delete the tree cursor, freeing its resources. */
+  delete() {
+    marshalTreeCursor(this);
+    C._ts_tree_cursor_delete_wasm(this.tree[0]);
+    this[0] = this[1] = this[2] = 0;
+  }
+  /** Get the tree cursor's current {@link Node}. */
+  get currentNode() {
+    marshalTreeCursor(this);
+    C._ts_tree_cursor_current_node_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /**
+   * Get the numerical field id of this tree cursor's current node.
+   *
+   * See also {@link TreeCursor#currentFieldName}.
+   */
+  get currentFieldId() {
+    marshalTreeCursor(this);
+    return C._ts_tree_cursor_current_field_id_wasm(this.tree[0]);
+  }
+  /** Get the field name of this tree cursor's current node. */
+  get currentFieldName() {
+    return this.tree.language.fields[this.currentFieldId];
+  }
+  /**
+   * Get the depth of the cursor's current node relative to the original
+   * node that the cursor was constructed with.
+   */
+  get currentDepth() {
+    marshalTreeCursor(this);
+    return C._ts_tree_cursor_current_depth_wasm(this.tree[0]);
+  }
+  /**
+   * Get the index of the cursor's current node out of all of the
+   * descendants of the original node that the cursor was constructed with.
+   */
+  get currentDescendantIndex() {
+    marshalTreeCursor(this);
+    return C._ts_tree_cursor_current_descendant_index_wasm(this.tree[0]);
+  }
+  /** Get the type of the cursor's current node. */
+  get nodeType() {
+    return this.tree.language.types[this.nodeTypeId] || "ERROR";
+  }
+  /** Get the type id of the cursor's current node. */
+  get nodeTypeId() {
+    marshalTreeCursor(this);
+    return C._ts_tree_cursor_current_node_type_id_wasm(this.tree[0]);
+  }
+  /** Get the state id of the cursor's current node. */
+  get nodeStateId() {
+    marshalTreeCursor(this);
+    return C._ts_tree_cursor_current_node_state_id_wasm(this.tree[0]);
+  }
+  /** Get the id of the cursor's current node. */
+  get nodeId() {
+    marshalTreeCursor(this);
+    return C._ts_tree_cursor_current_node_id_wasm(this.tree[0]);
+  }
+  /**
+   * Check if the cursor's current node is *named*.
+   *
+   * Named nodes correspond to named rules in the grammar, whereas
+   * *anonymous* nodes correspond to string literals in the grammar.
+   */
+  get nodeIsNamed() {
+    marshalTreeCursor(this);
+    return C._ts_tree_cursor_current_node_is_named_wasm(this.tree[0]) === 1;
+  }
+  /**
+   * Check if the cursor's current node is *missing*.
+   *
+   * Missing nodes are inserted by the parser in order to recover from
+   * certain kinds of syntax errors.
+   */
+  get nodeIsMissing() {
+    marshalTreeCursor(this);
+    return C._ts_tree_cursor_current_node_is_missing_wasm(this.tree[0]) === 1;
+  }
+  /** Get the string content of the cursor's current node. */
+  get nodeText() {
+    marshalTreeCursor(this);
+    const startIndex = C._ts_tree_cursor_start_index_wasm(this.tree[0]);
+    const endIndex = C._ts_tree_cursor_end_index_wasm(this.tree[0]);
+    C._ts_tree_cursor_start_position_wasm(this.tree[0]);
+    const startPosition = unmarshalPoint(TRANSFER_BUFFER);
+    return getText(this.tree, startIndex, endIndex, startPosition);
+  }
+  /** Get the start position of the cursor's current node. */
+  get startPosition() {
+    marshalTreeCursor(this);
+    C._ts_tree_cursor_start_position_wasm(this.tree[0]);
+    return unmarshalPoint(TRANSFER_BUFFER);
+  }
+  /** Get the end position of the cursor's current node. */
+  get endPosition() {
+    marshalTreeCursor(this);
+    C._ts_tree_cursor_end_position_wasm(this.tree[0]);
+    return unmarshalPoint(TRANSFER_BUFFER);
+  }
+  /** Get the start index of the cursor's current node. */
+  get startIndex() {
+    marshalTreeCursor(this);
+    return C._ts_tree_cursor_start_index_wasm(this.tree[0]);
+  }
+  /** Get the end index of the cursor's current node. */
+  get endIndex() {
+    marshalTreeCursor(this);
+    return C._ts_tree_cursor_end_index_wasm(this.tree[0]);
+  }
+  /**
+   * Move this cursor to the first child of its current node.
+   *
+   * This returns `true` if the cursor successfully moved, and returns
+   * `false` if there were no children.
+   */
+  gotoFirstChild() {
+    marshalTreeCursor(this);
+    const result = C._ts_tree_cursor_goto_first_child_wasm(this.tree[0]);
+    unmarshalTreeCursor(this);
+    return result === 1;
+  }
+  /**
+   * Move this cursor to the last child of its current node.
+   *
+   * This returns `true` if the cursor successfully moved, and returns
+   * `false` if there were no children.
+   *
+   * Note that this function may be slower than
+   * {@link TreeCursor#gotoFirstChild} because it needs to
+   * iterate through all the children to compute the child's position.
+   */
+  gotoLastChild() {
+    marshalTreeCursor(this);
+    const result = C._ts_tree_cursor_goto_last_child_wasm(this.tree[0]);
+    unmarshalTreeCursor(this);
+    return result === 1;
+  }
+  /**
+   * Move this cursor to the parent of its current node.
+   *
+   * This returns `true` if the cursor successfully moved, and returns
+   * `false` if there was no parent node (the cursor was already on the
+   * root node).
+   *
+   * Note that the node the cursor was constructed with is considered the root
+   * of the cursor, and the cursor cannot walk outside this node.
+   */
+  gotoParent() {
+    marshalTreeCursor(this);
+    const result = C._ts_tree_cursor_goto_parent_wasm(this.tree[0]);
+    unmarshalTreeCursor(this);
+    return result === 1;
+  }
+  /**
+   * Move this cursor to the next sibling of its current node.
+   *
+   * This returns `true` if the cursor successfully moved, and returns
+   * `false` if there was no next sibling node.
+   *
+   * Note that the node the cursor was constructed with is considered the root
+   * of the cursor, and the cursor cannot walk outside this node.
+   */
+  gotoNextSibling() {
+    marshalTreeCursor(this);
+    const result = C._ts_tree_cursor_goto_next_sibling_wasm(this.tree[0]);
+    unmarshalTreeCursor(this);
+    return result === 1;
+  }
+  /**
+   * Move this cursor to the previous sibling of its current node.
+   *
+   * This returns `true` if the cursor successfully moved, and returns
+   * `false` if there was no previous sibling node.
+   *
+   * Note that this function may be slower than
+   * {@link TreeCursor#gotoNextSibling} due to how node
+   * positions are stored. In the worst case, this will need to iterate
+   * through all the children up to the previous sibling node to recalculate
+   * its position. Also note that the node the cursor was constructed with is
+   * considered the root of the cursor, and the cursor cannot walk outside this node.
+   */
+  gotoPreviousSibling() {
+    marshalTreeCursor(this);
+    const result = C._ts_tree_cursor_goto_previous_sibling_wasm(this.tree[0]);
+    unmarshalTreeCursor(this);
+    return result === 1;
+  }
+  /**
+   * Move the cursor to the node that is the nth descendant of
+   * the original node that the cursor was constructed with, where
+   * zero represents the original node itself.
+   */
+  gotoDescendant(goalDescendantIndex) {
+    marshalTreeCursor(this);
+    C._ts_tree_cursor_goto_descendant_wasm(this.tree[0], goalDescendantIndex);
+    unmarshalTreeCursor(this);
+  }
+  /**
+   * Move this cursor to the first child of its current node that contains or
+   * starts after the given byte offset.
+   *
+   * This returns `true` if the cursor successfully moved to a child node, and returns
+   * `false` if no such child was found.
+   */
+  gotoFirstChildForIndex(goalIndex) {
+    marshalTreeCursor(this);
+    C.setValue(TRANSFER_BUFFER + SIZE_OF_CURSOR, goalIndex, "i32");
+    const result = C._ts_tree_cursor_goto_first_child_for_index_wasm(this.tree[0]);
+    unmarshalTreeCursor(this);
+    return result === 1;
+  }
+  /**
+   * Move this cursor to the first child of its current node that contains or
+   * starts after the given byte offset.
+   *
+   * This returns the index of the child node if one was found, and returns
+   * `null` if no such child was found.
+   */
+  gotoFirstChildForPosition(goalPosition) {
+    marshalTreeCursor(this);
+    marshalPoint(TRANSFER_BUFFER + SIZE_OF_CURSOR, goalPosition);
+    const result = C._ts_tree_cursor_goto_first_child_for_position_wasm(this.tree[0]);
+    unmarshalTreeCursor(this);
+    return result === 1;
+  }
+  /**
+   * Re-initialize this tree cursor to start at the original node that the
+   * cursor was constructed with.
+   */
+  reset(node) {
+    marshalNode(node);
+    marshalTreeCursor(this, TRANSFER_BUFFER + SIZE_OF_NODE);
+    C._ts_tree_cursor_reset_wasm(this.tree[0]);
+    unmarshalTreeCursor(this);
+  }
+  /**
+   * Re-initialize a tree cursor to the same position as another cursor.
+   *
+   * Unlike {@link TreeCursor#reset}, this will not lose parent
+   * information and allows reusing already created cursors.
+   */
+  resetTo(cursor) {
+    marshalTreeCursor(this, TRANSFER_BUFFER);
+    marshalTreeCursor(cursor, TRANSFER_BUFFER + SIZE_OF_CURSOR);
+    C._ts_tree_cursor_reset_to_wasm(this.tree[0], cursor.tree[0]);
+    unmarshalTreeCursor(this);
+  }
+};
+var Node = class {
+  static {
+    __name(this, "Node");
+  }
+  /** @internal */
+  // @ts-expect-error: never read
+  [0] = 0;
+  // Internal handle for Wasm
+  /** @internal */
+  _children;
+  /** @internal */
+  _namedChildren;
+  /** @internal */
+  constructor(internal, {
+    id,
+    tree,
+    startIndex,
+    startPosition,
+    other
+  }) {
+    assertInternal(internal);
+    this[0] = other;
+    this.id = id;
+    this.tree = tree;
+    this.startIndex = startIndex;
+    this.startPosition = startPosition;
+  }
+  /**
+   * The numeric id for this node that is unique.
+   *
+   * Within a given syntax tree, no two nodes have the same id. However:
+   *
+   * * If a new tree is created based on an older tree, and a node from the old tree is reused in
+   *   the process, then that node will have the same id in both trees.
+   *
+   * * A node not marked as having changes does not guarantee it was reused.
+   *
+   * * If a node is marked as having changed in the old tree, it will not be reused.
+   */
+  id;
+  /** The byte index where this node starts. */
+  startIndex;
+  /** The position where this node starts. */
+  startPosition;
+  /** The tree that this node belongs to. */
+  tree;
+  /** Get this node's type as a numerical id. */
+  get typeId() {
+    marshalNode(this);
+    return C._ts_node_symbol_wasm(this.tree[0]);
+  }
+  /**
+   * Get the node's type as a numerical id as it appears in the grammar,
+   * ignoring aliases.
+   */
+  get grammarId() {
+    marshalNode(this);
+    return C._ts_node_grammar_symbol_wasm(this.tree[0]);
+  }
+  /** Get this node's type as a string. */
+  get type() {
+    return this.tree.language.types[this.typeId] || "ERROR";
+  }
+  /**
+   * Get this node's symbol name as it appears in the grammar, ignoring
+   * aliases as a string.
+   */
+  get grammarType() {
+    return this.tree.language.types[this.grammarId] || "ERROR";
+  }
+  /**
+   * Check if this node is *named*.
+   *
+   * Named nodes correspond to named rules in the grammar, whereas
+   * *anonymous* nodes correspond to string literals in the grammar.
+   */
+  get isNamed() {
+    marshalNode(this);
+    return C._ts_node_is_named_wasm(this.tree[0]) === 1;
+  }
+  /**
+   * Check if this node is *extra*.
+   *
+   * Extra nodes represent things like comments, which are not required
+   * by the grammar, but can appear anywhere.
+   */
+  get isExtra() {
+    marshalNode(this);
+    return C._ts_node_is_extra_wasm(this.tree[0]) === 1;
+  }
+  /**
+   * Check if this node represents a syntax error.
+   *
+   * Syntax errors represent parts of the code that could not be incorporated
+   * into a valid syntax tree.
+   */
+  get isError() {
+    marshalNode(this);
+    return C._ts_node_is_error_wasm(this.tree[0]) === 1;
+  }
+  /**
+   * Check if this node is *missing*.
+   *
+   * Missing nodes are inserted by the parser in order to recover from
+   * certain kinds of syntax errors.
+   */
+  get isMissing() {
+    marshalNode(this);
+    return C._ts_node_is_missing_wasm(this.tree[0]) === 1;
+  }
+  /** Check if this node has been edited. */
+  get hasChanges() {
+    marshalNode(this);
+    return C._ts_node_has_changes_wasm(this.tree[0]) === 1;
+  }
+  /**
+   * Check if this node represents a syntax error or contains any syntax
+   * errors anywhere within it.
+   */
+  get hasError() {
+    marshalNode(this);
+    return C._ts_node_has_error_wasm(this.tree[0]) === 1;
+  }
+  /** Get the byte index where this node ends. */
+  get endIndex() {
+    marshalNode(this);
+    return C._ts_node_end_index_wasm(this.tree[0]);
+  }
+  /** Get the position where this node ends. */
+  get endPosition() {
+    marshalNode(this);
+    C._ts_node_end_point_wasm(this.tree[0]);
+    return unmarshalPoint(TRANSFER_BUFFER);
+  }
+  /** Get the string content of this node. */
+  get text() {
+    return getText(this.tree, this.startIndex, this.endIndex, this.startPosition);
+  }
+  /** Get this node's parse state. */
+  get parseState() {
+    marshalNode(this);
+    return C._ts_node_parse_state_wasm(this.tree[0]);
+  }
+  /** Get the parse state after this node. */
+  get nextParseState() {
+    marshalNode(this);
+    return C._ts_node_next_parse_state_wasm(this.tree[0]);
+  }
+  /** Check if this node is equal to another node. */
+  equals(other) {
+    return this.tree === other.tree && this.id === other.id;
+  }
+  /**
+   * Get the node's child at the given index, where zero represents the first child.
+   *
+   * This method is fairly fast, but its cost is technically log(n), so if
+   * you might be iterating over a long list of children, you should use
+   * {@link Node#children} instead.
+   */
+  child(index) {
+    marshalNode(this);
+    C._ts_node_child_wasm(this.tree[0], index);
+    return unmarshalNode(this.tree);
+  }
+  /**
+   * Get this node's *named* child at the given index.
+   *
+   * See also {@link Node#isNamed}.
+   * This method is fairly fast, but its cost is technically log(n), so if
+   * you might be iterating over a long list of children, you should use
+   * {@link Node#namedChildren} instead.
+   */
+  namedChild(index) {
+    marshalNode(this);
+    C._ts_node_named_child_wasm(this.tree[0], index);
+    return unmarshalNode(this.tree);
+  }
+  /**
+   * Get this node's child with the given numerical field id.
+   *
+   * See also {@link Node#childForFieldName}. You can
+   * convert a field name to an id using {@link Language#fieldIdForName}.
+   */
+  childForFieldId(fieldId) {
+    marshalNode(this);
+    C._ts_node_child_by_field_id_wasm(this.tree[0], fieldId);
+    return unmarshalNode(this.tree);
+  }
+  /**
+   * Get the first child with the given field name.
+   *
+   * If multiple children may have the same field name, access them using
+   * {@link Node#childrenForFieldName}.
+   */
+  childForFieldName(fieldName) {
+    const fieldId = this.tree.language.fields.indexOf(fieldName);
+    if (fieldId !== -1) return this.childForFieldId(fieldId);
+    return null;
+  }
+  /** Get the field name of this node's child at the given index. */
+  fieldNameForChild(index) {
+    marshalNode(this);
+    const address = C._ts_node_field_name_for_child_wasm(this.tree[0], index);
+    if (!address) return null;
+    return C.AsciiToString(address);
+  }
+  /** Get the field name of this node's named child at the given index. */
+  fieldNameForNamedChild(index) {
+    marshalNode(this);
+    const address = C._ts_node_field_name_for_named_child_wasm(this.tree[0], index);
+    if (!address) return null;
+    return C.AsciiToString(address);
+  }
+  /**
+   * Get an array of this node's children with a given field name.
+   *
+   * See also {@link Node#children}.
+   */
+  childrenForFieldName(fieldName) {
+    const fieldId = this.tree.language.fields.indexOf(fieldName);
+    if (fieldId !== -1 && fieldId !== 0) return this.childrenForFieldId(fieldId);
+    return [];
+  }
+  /**
+    * Get an array of this node's children with a given field id.
+    *
+    * See also {@link Node#childrenForFieldName}.
+    */
+  childrenForFieldId(fieldId) {
+    marshalNode(this);
+    C._ts_node_children_by_field_id_wasm(this.tree[0], fieldId);
+    const count = C.getValue(TRANSFER_BUFFER, "i32");
+    const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+    const result = new Array(count);
+    if (count > 0) {
+      let address = buffer;
+      for (let i2 = 0; i2 < count; i2++) {
+        result[i2] = unmarshalNode(this.tree, address);
+        address += SIZE_OF_NODE;
+      }
+      C._free(buffer);
+    }
+    return result;
+  }
+  /** Get the node's first child that contains or starts after the given byte offset. */
+  firstChildForIndex(index) {
+    marshalNode(this);
+    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+    C.setValue(address, index, "i32");
+    C._ts_node_first_child_for_byte_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /** Get the node's first named child that contains or starts after the given byte offset. */
+  firstNamedChildForIndex(index) {
+    marshalNode(this);
+    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+    C.setValue(address, index, "i32");
+    C._ts_node_first_named_child_for_byte_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /** Get this node's number of children. */
+  get childCount() {
+    marshalNode(this);
+    return C._ts_node_child_count_wasm(this.tree[0]);
+  }
+  /**
+   * Get this node's number of *named* children.
+   *
+   * See also {@link Node#isNamed}.
+   */
+  get namedChildCount() {
+    marshalNode(this);
+    return C._ts_node_named_child_count_wasm(this.tree[0]);
+  }
+  /** Get this node's first child. */
+  get firstChild() {
+    return this.child(0);
+  }
+  /**
+   * Get this node's first named child.
+   *
+   * See also {@link Node#isNamed}.
+   */
+  get firstNamedChild() {
+    return this.namedChild(0);
+  }
+  /** Get this node's last child. */
+  get lastChild() {
+    return this.child(this.childCount - 1);
+  }
+  /**
+   * Get this node's last named child.
+   *
+   * See also {@link Node#isNamed}.
+   */
+  get lastNamedChild() {
+    return this.namedChild(this.namedChildCount - 1);
+  }
+  /**
+   * Iterate over this node's children.
+   *
+   * If you're walking the tree recursively, you may want to use the
+   * {@link TreeCursor} APIs directly instead.
+   */
+  get children() {
+    if (!this._children) {
+      marshalNode(this);
+      C._ts_node_children_wasm(this.tree[0]);
+      const count = C.getValue(TRANSFER_BUFFER, "i32");
+      const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+      this._children = new Array(count);
+      if (count > 0) {
+        let address = buffer;
+        for (let i2 = 0; i2 < count; i2++) {
+          this._children[i2] = unmarshalNode(this.tree, address);
+          address += SIZE_OF_NODE;
+        }
+        C._free(buffer);
+      }
+    }
+    return this._children;
+  }
+  /**
+   * Iterate over this node's named children.
+   *
+   * See also {@link Node#children}.
+   */
+  get namedChildren() {
+    if (!this._namedChildren) {
+      marshalNode(this);
+      C._ts_node_named_children_wasm(this.tree[0]);
+      const count = C.getValue(TRANSFER_BUFFER, "i32");
+      const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+      this._namedChildren = new Array(count);
+      if (count > 0) {
+        let address = buffer;
+        for (let i2 = 0; i2 < count; i2++) {
+          this._namedChildren[i2] = unmarshalNode(this.tree, address);
+          address += SIZE_OF_NODE;
+        }
+        C._free(buffer);
+      }
+    }
+    return this._namedChildren;
+  }
+  /**
+   * Get the descendants of this node that are the given type, or in the given types array.
+   *
+   * The types array should contain node type strings, which can be retrieved from {@link Language#types}.
+   *
+   * Additionally, a `startPosition` and `endPosition` can be passed in to restrict the search to a byte range.
+   */
+  descendantsOfType(types, startPosition = ZERO_POINT, endPosition = ZERO_POINT) {
+    if (!Array.isArray(types)) types = [types];
+    const symbols = [];
+    const typesBySymbol = this.tree.language.types;
+    for (const node_type of types) {
+      if (node_type == "ERROR") {
+        symbols.push(65535);
+      }
+    }
+    for (let i2 = 0, n = typesBySymbol.length; i2 < n; i2++) {
+      if (types.includes(typesBySymbol[i2])) {
+        symbols.push(i2);
+      }
+    }
+    const symbolsAddress = C._malloc(SIZE_OF_INT * symbols.length);
+    for (let i2 = 0, n = symbols.length; i2 < n; i2++) {
+      C.setValue(symbolsAddress + i2 * SIZE_OF_INT, symbols[i2], "i32");
+    }
+    marshalNode(this);
+    C._ts_node_descendants_of_type_wasm(
+      this.tree[0],
+      symbolsAddress,
+      symbols.length,
+      startPosition.row,
+      startPosition.column,
+      endPosition.row,
+      endPosition.column
+    );
+    const descendantCount = C.getValue(TRANSFER_BUFFER, "i32");
+    const descendantAddress = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+    const result = new Array(descendantCount);
+    if (descendantCount > 0) {
+      let address = descendantAddress;
+      for (let i2 = 0; i2 < descendantCount; i2++) {
+        result[i2] = unmarshalNode(this.tree, address);
+        address += SIZE_OF_NODE;
+      }
+    }
+    C._free(descendantAddress);
+    C._free(symbolsAddress);
+    return result;
+  }
+  /** Get this node's next sibling. */
+  get nextSibling() {
+    marshalNode(this);
+    C._ts_node_next_sibling_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /** Get this node's previous sibling. */
+  get previousSibling() {
+    marshalNode(this);
+    C._ts_node_prev_sibling_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /**
+   * Get this node's next *named* sibling.
+   *
+   * See also {@link Node#isNamed}.
+   */
+  get nextNamedSibling() {
+    marshalNode(this);
+    C._ts_node_next_named_sibling_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /**
+   * Get this node's previous *named* sibling.
+   *
+   * See also {@link Node#isNamed}.
+   */
+  get previousNamedSibling() {
+    marshalNode(this);
+    C._ts_node_prev_named_sibling_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /** Get the node's number of descendants, including one for the node itself. */
+  get descendantCount() {
+    marshalNode(this);
+    return C._ts_node_descendant_count_wasm(this.tree[0]);
+  }
+  /**
+   * Get this node's immediate parent.
+   * Prefer {@link Node#childWithDescendant} for iterating over this node's ancestors.
+   */
+  get parent() {
+    marshalNode(this);
+    C._ts_node_parent_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /**
+   * Get the node that contains `descendant`.
+   *
+   * Note that this can return `descendant` itself.
+   */
+  childWithDescendant(descendant) {
+    marshalNode(this);
+    marshalNode(descendant, 1);
+    C._ts_node_child_with_descendant_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /** Get the smallest node within this node that spans the given byte range. */
+  descendantForIndex(start2, end = start2) {
+    if (typeof start2 !== "number" || typeof end !== "number") {
+      throw new Error("Arguments must be numbers");
+    }
+    marshalNode(this);
+    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+    C.setValue(address, start2, "i32");
+    C.setValue(address + SIZE_OF_INT, end, "i32");
+    C._ts_node_descendant_for_index_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /** Get the smallest named node within this node that spans the given byte range. */
+  namedDescendantForIndex(start2, end = start2) {
+    if (typeof start2 !== "number" || typeof end !== "number") {
+      throw new Error("Arguments must be numbers");
+    }
+    marshalNode(this);
+    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+    C.setValue(address, start2, "i32");
+    C.setValue(address + SIZE_OF_INT, end, "i32");
+    C._ts_node_named_descendant_for_index_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /** Get the smallest node within this node that spans the given point range. */
+  descendantForPosition(start2, end = start2) {
+    if (!isPoint(start2) || !isPoint(end)) {
+      throw new Error("Arguments must be {row, column} objects");
+    }
+    marshalNode(this);
+    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+    marshalPoint(address, start2);
+    marshalPoint(address + SIZE_OF_POINT, end);
+    C._ts_node_descendant_for_position_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /** Get the smallest named node within this node that spans the given point range. */
+  namedDescendantForPosition(start2, end = start2) {
+    if (!isPoint(start2) || !isPoint(end)) {
+      throw new Error("Arguments must be {row, column} objects");
+    }
+    marshalNode(this);
+    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+    marshalPoint(address, start2);
+    marshalPoint(address + SIZE_OF_POINT, end);
+    C._ts_node_named_descendant_for_position_wasm(this.tree[0]);
+    return unmarshalNode(this.tree);
+  }
+  /**
+   * Create a new {@link TreeCursor} starting from this node.
+   *
+   * Note that the given node is considered the root of the cursor,
+   * and the cursor cannot walk outside this node.
+   */
+  walk() {
+    marshalNode(this);
+    C._ts_tree_cursor_new_wasm(this.tree[0]);
+    return new TreeCursor(INTERNAL, this.tree);
+  }
+  /**
+   * Edit this node to keep it in-sync with source code that has been edited.
+   *
+   * This function is only rarely needed. When you edit a syntax tree with
+   * the {@link Tree#edit} method, all of the nodes that you retrieve from
+   * the tree afterward will already reflect the edit. You only need to
+   * use {@link Node#edit} when you have a specific {@link Node} instance that
+   * you want to keep and continue to use after an edit.
+   */
+  edit(edit) {
+    if (this.startIndex >= edit.oldEndIndex) {
+      this.startIndex = edit.newEndIndex + (this.startIndex - edit.oldEndIndex);
+      let subbedPointRow;
+      let subbedPointColumn;
+      if (this.startPosition.row > edit.oldEndPosition.row) {
+        subbedPointRow = this.startPosition.row - edit.oldEndPosition.row;
+        subbedPointColumn = this.startPosition.column;
+      } else {
+        subbedPointRow = 0;
+        subbedPointColumn = this.startPosition.column;
+        if (this.startPosition.column >= edit.oldEndPosition.column) {
+          subbedPointColumn = this.startPosition.column - edit.oldEndPosition.column;
+        }
+      }
+      if (subbedPointRow > 0) {
+        this.startPosition.row += subbedPointRow;
+        this.startPosition.column = subbedPointColumn;
+      } else {
+        this.startPosition.column += subbedPointColumn;
+      }
+    } else if (this.startIndex > edit.startIndex) {
+      this.startIndex = edit.newEndIndex;
+      this.startPosition.row = edit.newEndPosition.row;
+      this.startPosition.column = edit.newEndPosition.column;
+    }
+  }
+  /** Get the S-expression representation of this node. */
+  toString() {
+    marshalNode(this);
+    const address = C._ts_node_to_string_wasm(this.tree[0]);
+    const result = C.AsciiToString(address);
+    C._free(address);
+    return result;
+  }
+};
+function unmarshalCaptures(query, tree, address, patternIndex, result) {
+  for (let i2 = 0, n = result.length; i2 < n; i2++) {
+    const captureIndex = C.getValue(address, "i32");
+    address += SIZE_OF_INT;
+    const node = unmarshalNode(tree, address);
+    address += SIZE_OF_NODE;
+    result[i2] = { patternIndex, name: query.captureNames[captureIndex], node };
+  }
+  return address;
+}
+__name(unmarshalCaptures, "unmarshalCaptures");
+function marshalNode(node, index = 0) {
+  let address = TRANSFER_BUFFER + index * SIZE_OF_NODE;
+  C.setValue(address, node.id, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, node.startIndex, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, node.startPosition.row, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, node.startPosition.column, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, node[0], "i32");
+}
+__name(marshalNode, "marshalNode");
+function unmarshalNode(tree, address = TRANSFER_BUFFER) {
+  const id = C.getValue(address, "i32");
+  address += SIZE_OF_INT;
+  if (id === 0) return null;
+  const index = C.getValue(address, "i32");
+  address += SIZE_OF_INT;
+  const row2 = C.getValue(address, "i32");
+  address += SIZE_OF_INT;
+  const column = C.getValue(address, "i32");
+  address += SIZE_OF_INT;
+  const other = C.getValue(address, "i32");
+  const result = new Node(INTERNAL, {
+    id,
+    tree,
+    startIndex: index,
+    startPosition: { row: row2, column },
+    other
+  });
+  return result;
+}
+__name(unmarshalNode, "unmarshalNode");
+function marshalTreeCursor(cursor, address = TRANSFER_BUFFER) {
+  C.setValue(address + 0 * SIZE_OF_INT, cursor[0], "i32");
+  C.setValue(address + 1 * SIZE_OF_INT, cursor[1], "i32");
+  C.setValue(address + 2 * SIZE_OF_INT, cursor[2], "i32");
+  C.setValue(address + 3 * SIZE_OF_INT, cursor[3], "i32");
+}
+__name(marshalTreeCursor, "marshalTreeCursor");
+function unmarshalTreeCursor(cursor) {
+  cursor[0] = C.getValue(TRANSFER_BUFFER + 0 * SIZE_OF_INT, "i32");
+  cursor[1] = C.getValue(TRANSFER_BUFFER + 1 * SIZE_OF_INT, "i32");
+  cursor[2] = C.getValue(TRANSFER_BUFFER + 2 * SIZE_OF_INT, "i32");
+  cursor[3] = C.getValue(TRANSFER_BUFFER + 3 * SIZE_OF_INT, "i32");
+}
+__name(unmarshalTreeCursor, "unmarshalTreeCursor");
+function marshalPoint(address, point) {
+  C.setValue(address, point.row, "i32");
+  C.setValue(address + SIZE_OF_INT, point.column, "i32");
+}
+__name(marshalPoint, "marshalPoint");
+function unmarshalPoint(address) {
+  const result = {
+    row: C.getValue(address, "i32") >>> 0,
+    column: C.getValue(address + SIZE_OF_INT, "i32") >>> 0
+  };
+  return result;
+}
+__name(unmarshalPoint, "unmarshalPoint");
+function marshalRange(address, range) {
+  marshalPoint(address, range.startPosition);
+  address += SIZE_OF_POINT;
+  marshalPoint(address, range.endPosition);
+  address += SIZE_OF_POINT;
+  C.setValue(address, range.startIndex, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, range.endIndex, "i32");
+  address += SIZE_OF_INT;
+}
+__name(marshalRange, "marshalRange");
+function unmarshalRange(address) {
+  const result = {};
+  result.startPosition = unmarshalPoint(address);
+  address += SIZE_OF_POINT;
+  result.endPosition = unmarshalPoint(address);
+  address += SIZE_OF_POINT;
+  result.startIndex = C.getValue(address, "i32") >>> 0;
+  address += SIZE_OF_INT;
+  result.endIndex = C.getValue(address, "i32") >>> 0;
+  return result;
+}
+__name(unmarshalRange, "unmarshalRange");
+function marshalEdit(edit, address = TRANSFER_BUFFER) {
+  marshalPoint(address, edit.startPosition);
+  address += SIZE_OF_POINT;
+  marshalPoint(address, edit.oldEndPosition);
+  address += SIZE_OF_POINT;
+  marshalPoint(address, edit.newEndPosition);
+  address += SIZE_OF_POINT;
+  C.setValue(address, edit.startIndex, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, edit.oldEndIndex, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, edit.newEndIndex, "i32");
+  address += SIZE_OF_INT;
+}
+__name(marshalEdit, "marshalEdit");
+function unmarshalLanguageMetadata(address) {
+  const major_version = C.getValue(address, "i32");
+  const minor_version = C.getValue(address += SIZE_OF_INT, "i32");
+  const patch_version = C.getValue(address += SIZE_OF_INT, "i32");
+  return { major_version, minor_version, patch_version };
+}
+__name(unmarshalLanguageMetadata, "unmarshalLanguageMetadata");
+var LANGUAGE_FUNCTION_REGEX = /^tree_sitter_\w+$/;
+var Language = class _Language {
+  static {
+    __name(this, "Language");
+  }
+  /** @internal */
+  [0] = 0;
+  // Internal handle for Wasm
+  /**
+   * A list of all node types in the language. The index of each type in this
+   * array is its node type id.
+   */
+  types;
+  /**
+   * A list of all field names in the language. The index of each field name in
+   * this array is its field id.
+   */
+  fields;
+  /** @internal */
+  constructor(internal, address) {
+    assertInternal(internal);
+    this[0] = address;
+    this.types = new Array(C._ts_language_symbol_count(this[0]));
+    for (let i2 = 0, n = this.types.length; i2 < n; i2++) {
+      if (C._ts_language_symbol_type(this[0], i2) < 2) {
+        this.types[i2] = C.UTF8ToString(C._ts_language_symbol_name(this[0], i2));
+      }
+    }
+    this.fields = new Array(C._ts_language_field_count(this[0]) + 1);
+    for (let i2 = 0, n = this.fields.length; i2 < n; i2++) {
+      const fieldName = C._ts_language_field_name_for_id(this[0], i2);
+      if (fieldName !== 0) {
+        this.fields[i2] = C.UTF8ToString(fieldName);
+      } else {
+        this.fields[i2] = null;
+      }
+    }
+  }
+  /**
+   * Gets the name of the language.
+   */
+  get name() {
+    const ptr = C._ts_language_name(this[0]);
+    if (ptr === 0) return null;
+    return C.UTF8ToString(ptr);
+  }
+  /**
+   * Gets the ABI version of the language.
+   */
+  get abiVersion() {
+    return C._ts_language_abi_version(this[0]);
+  }
+  /**
+  * Get the metadata for this language. This information is generated by the
+  * CLI, and relies on the language author providing the correct metadata in
+  * the language's `tree-sitter.json` file.
+  */
+  get metadata() {
+    C._ts_language_metadata_wasm(this[0]);
+    const length = C.getValue(TRANSFER_BUFFER, "i32");
+    if (length === 0) return null;
+    return unmarshalLanguageMetadata(TRANSFER_BUFFER + SIZE_OF_INT);
+  }
+  /**
+   * Gets the number of fields in the language.
+   */
+  get fieldCount() {
+    return this.fields.length - 1;
+  }
+  /**
+   * Gets the number of states in the language.
+   */
+  get stateCount() {
+    return C._ts_language_state_count(this[0]);
+  }
+  /**
+   * Get the field id for a field name.
+   */
+  fieldIdForName(fieldName) {
+    const result = this.fields.indexOf(fieldName);
+    return result !== -1 ? result : null;
+  }
+  /**
+   * Get the field name for a field id.
+   */
+  fieldNameForId(fieldId) {
+    return this.fields[fieldId] ?? null;
+  }
+  /**
+   * Get the node type id for a node type name.
+   */
+  idForNodeType(type, named) {
+    const typeLength = C.lengthBytesUTF8(type);
+    const typeAddress = C._malloc(typeLength + 1);
+    C.stringToUTF8(type, typeAddress, typeLength + 1);
+    const result = C._ts_language_symbol_for_name(this[0], typeAddress, typeLength, named ? 1 : 0);
+    C._free(typeAddress);
+    return result || null;
+  }
+  /**
+   * Gets the number of node types in the language.
+   */
+  get nodeTypeCount() {
+    return C._ts_language_symbol_count(this[0]);
+  }
+  /**
+   * Get the node type name for a node type id.
+   */
+  nodeTypeForId(typeId) {
+    const name2 = C._ts_language_symbol_name(this[0], typeId);
+    return name2 ? C.UTF8ToString(name2) : null;
+  }
+  /**
+   * Check if a node type is named.
+   *
+   * @see {@link https://tree-sitter.github.io/tree-sitter/using-parsers/2-basic-parsing.html#named-vs-anonymous-nodes}
+   */
+  nodeTypeIsNamed(typeId) {
+    return C._ts_language_type_is_named_wasm(this[0], typeId) ? true : false;
+  }
+  /**
+   * Check if a node type is visible.
+   */
+  nodeTypeIsVisible(typeId) {
+    return C._ts_language_type_is_visible_wasm(this[0], typeId) ? true : false;
+  }
+  /**
+   * Get the supertypes ids of this language.
+   *
+   * @see {@link https://tree-sitter.github.io/tree-sitter/using-parsers/6-static-node-types.html?highlight=supertype#supertype-nodes}
+   */
+  get supertypes() {
+    C._ts_language_supertypes_wasm(this[0]);
+    const count = C.getValue(TRANSFER_BUFFER, "i32");
+    const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+    const result = new Array(count);
+    if (count > 0) {
+      let address = buffer;
+      for (let i2 = 0; i2 < count; i2++) {
+        result[i2] = C.getValue(address, "i16");
+        address += SIZE_OF_SHORT;
+      }
+    }
+    return result;
+  }
+  /**
+   * Get the subtype ids for a given supertype node id.
+   */
+  subtypes(supertype) {
+    C._ts_language_subtypes_wasm(this[0], supertype);
+    const count = C.getValue(TRANSFER_BUFFER, "i32");
+    const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+    const result = new Array(count);
+    if (count > 0) {
+      let address = buffer;
+      for (let i2 = 0; i2 < count; i2++) {
+        result[i2] = C.getValue(address, "i16");
+        address += SIZE_OF_SHORT;
+      }
+    }
+    return result;
+  }
+  /**
+   * Get the next state id for a given state id and node type id.
+   */
+  nextState(stateId, typeId) {
+    return C._ts_language_next_state(this[0], stateId, typeId);
+  }
+  /**
+   * Create a new lookahead iterator for this language and parse state.
+   *
+   * This returns `null` if state is invalid for this language.
+   *
+   * Iterating {@link LookaheadIterator} will yield valid symbols in the given
+   * parse state. Newly created lookahead iterators will return the `ERROR`
+   * symbol from {@link LookaheadIterator#currentType}.
+   *
+   * Lookahead iterators can be useful for generating suggestions and improving
+   * syntax error diagnostics. To get symbols valid in an `ERROR` node, use the
+   * lookahead iterator on its first leaf node state. For `MISSING` nodes, a
+   * lookahead iterator created on the previous non-extra leaf node may be
+   * appropriate.
+   */
+  lookaheadIterator(stateId) {
+    const address = C._ts_lookahead_iterator_new(this[0], stateId);
+    if (address) return new LookaheadIterator(INTERNAL, address, this);
+    return null;
+  }
+  /**
+   * Load a language from a WebAssembly module.
+   * The module can be provided as a path to a file or as a buffer.
+   */
+  static async load(input) {
+    let binary2;
+    if (input instanceof Uint8Array) {
+      binary2 = input;
+    } else if (globalThis.process?.versions.node) {
+      const fs2 = await import("fs/promises");
+      binary2 = await fs2.readFile(input);
+    } else {
+      const response = await fetch(input);
+      if (!response.ok) {
+        const body2 = await response.text();
+        throw new Error(`Language.load failed with status ${response.status}.
+
+${body2}`);
+      }
+      const retryResp = response.clone();
+      try {
+        binary2 = await WebAssembly.compileStreaming(response);
+      } catch (reason) {
+        console.error("wasm streaming compile failed:", reason);
+        console.error("falling back to ArrayBuffer instantiation");
+        binary2 = new Uint8Array(await retryResp.arrayBuffer());
+      }
+    }
+    const mod = await C.loadWebAssemblyModule(binary2, { loadAsync: true });
+    const symbolNames = Object.keys(mod);
+    const functionName = symbolNames.find((key) => LANGUAGE_FUNCTION_REGEX.test(key) && !key.includes("external_scanner_"));
+    if (!functionName) {
+      console.log(`Couldn't find language function in Wasm file. Symbols:
+${JSON.stringify(symbolNames, null, 2)}`);
+      throw new Error("Language.load failed: no language function found in Wasm file");
+    }
+    const languageAddress = mod[functionName]();
+    return new _Language(INTERNAL, languageAddress);
+  }
+};
+async function Module2(moduleArg = {}) {
+  var moduleRtn;
+  var Module = moduleArg;
+  var ENVIRONMENT_IS_WEB = typeof window == "object";
+  var ENVIRONMENT_IS_WORKER = typeof WorkerGlobalScope != "undefined";
+  var ENVIRONMENT_IS_NODE = typeof process == "object" && process.versions?.node && process.type != "renderer";
+  if (ENVIRONMENT_IS_NODE) {
+    const { createRequire } = await import("module");
+    var require = createRequire(import.meta.url);
+  }
+  Module.currentQueryProgressCallback = null;
+  Module.currentProgressCallback = null;
+  Module.currentLogCallback = null;
+  Module.currentParseCallback = null;
+  var arguments_ = [];
+  var thisProgram = "./this.program";
+  var quit_ = /* @__PURE__ */ __name((status, toThrow) => {
+    throw toThrow;
+  }, "quit_");
+  var _scriptName = import.meta.url;
+  var scriptDirectory = "";
+  function locateFile(path) {
+    if (Module["locateFile"]) {
+      return Module["locateFile"](path, scriptDirectory);
+    }
+    return scriptDirectory + path;
+  }
+  __name(locateFile, "locateFile");
+  var readAsync, readBinary;
+  if (ENVIRONMENT_IS_NODE) {
+    var fs = require("fs");
+    if (_scriptName.startsWith("file:")) {
+      scriptDirectory = require("path").dirname(require("url").fileURLToPath(_scriptName)) + "/";
+    }
+    readBinary = /* @__PURE__ */ __name((filename) => {
+      filename = isFileURI(filename) ? new URL(filename) : filename;
+      var ret = fs.readFileSync(filename);
+      return ret;
+    }, "readBinary");
+    readAsync = /* @__PURE__ */ __name(async (filename, binary2 = true) => {
+      filename = isFileURI(filename) ? new URL(filename) : filename;
+      var ret = fs.readFileSync(filename, binary2 ? void 0 : "utf8");
+      return ret;
+    }, "readAsync");
+    if (process.argv.length > 1) {
+      thisProgram = process.argv[1].replace(/\\/g, "/");
+    }
+    arguments_ = process.argv.slice(2);
+    quit_ = /* @__PURE__ */ __name((status, toThrow) => {
+      process.exitCode = status;
+      throw toThrow;
+    }, "quit_");
+  } else if (ENVIRONMENT_IS_WEB || ENVIRONMENT_IS_WORKER) {
+    try {
+      scriptDirectory = new URL(".", _scriptName).href;
+    } catch {
+    }
+    {
+      if (ENVIRONMENT_IS_WORKER) {
+        readBinary = /* @__PURE__ */ __name((url) => {
+          var xhr = new XMLHttpRequest();
+          xhr.open("GET", url, false);
+          xhr.responseType = "arraybuffer";
+          xhr.send(null);
+          return new Uint8Array(
+            /** @type{!ArrayBuffer} */
+            xhr.response
+          );
+        }, "readBinary");
+      }
+      readAsync = /* @__PURE__ */ __name(async (url) => {
+        if (isFileURI(url)) {
+          return new Promise((resolve2, reject) => {
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", url, true);
+            xhr.responseType = "arraybuffer";
+            xhr.onload = () => {
+              if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
+                resolve2(xhr.response);
+                return;
+              }
+              reject(xhr.status);
+            };
+            xhr.onerror = reject;
+            xhr.send(null);
+          });
+        }
+        var response = await fetch(url, {
+          credentials: "same-origin"
+        });
+        if (response.ok) {
+          return response.arrayBuffer();
+        }
+        throw new Error(response.status + " : " + response.url);
+      }, "readAsync");
+    }
+  } else {
+  }
+  var out = console.log.bind(console);
+  var err = console.error.bind(console);
+  var dynamicLibraries = [];
+  var wasmBinary;
+  var ABORT = false;
+  var EXITSTATUS;
+  var isFileURI = /* @__PURE__ */ __name((filename) => filename.startsWith("file://"), "isFileURI");
+  var readyPromiseResolve, readyPromiseReject;
+  var wasmMemory;
+  var HEAP8, HEAPU8, HEAP16, HEAPU16, HEAP32, HEAPU32, HEAPF32, HEAPF64;
+  var HEAP64, HEAPU64;
+  var HEAP_DATA_VIEW;
+  var runtimeInitialized = false;
+  function updateMemoryViews() {
+    var b = wasmMemory.buffer;
+    Module["HEAP8"] = HEAP8 = new Int8Array(b);
+    Module["HEAP16"] = HEAP16 = new Int16Array(b);
+    Module["HEAPU8"] = HEAPU8 = new Uint8Array(b);
+    Module["HEAPU16"] = HEAPU16 = new Uint16Array(b);
+    Module["HEAP32"] = HEAP32 = new Int32Array(b);
+    Module["HEAPU32"] = HEAPU32 = new Uint32Array(b);
+    Module["HEAPF32"] = HEAPF32 = new Float32Array(b);
+    Module["HEAPF64"] = HEAPF64 = new Float64Array(b);
+    Module["HEAP64"] = HEAP64 = new BigInt64Array(b);
+    Module["HEAPU64"] = HEAPU64 = new BigUint64Array(b);
+    Module["HEAP_DATA_VIEW"] = HEAP_DATA_VIEW = new DataView(b);
+    LE_HEAP_UPDATE();
+  }
+  __name(updateMemoryViews, "updateMemoryViews");
+  function initMemory() {
+    if (Module["wasmMemory"]) {
+      wasmMemory = Module["wasmMemory"];
+    } else {
+      var INITIAL_MEMORY = Module["INITIAL_MEMORY"] || 33554432;
+      wasmMemory = new WebAssembly.Memory({
+        "initial": INITIAL_MEMORY / 65536,
+        // In theory we should not need to emit the maximum if we want "unlimited"
+        // or 4GB of memory, but VMs error on that atm, see
+        // https://github.com/emscripten-core/emscripten/issues/14130
+        // And in the pthreads case we definitely need to emit a maximum. So
+        // always emit one.
+        "maximum": 32768
+      });
+    }
+    updateMemoryViews();
+  }
+  __name(initMemory, "initMemory");
+  var __RELOC_FUNCS__ = [];
+  function preRun() {
+    if (Module["preRun"]) {
+      if (typeof Module["preRun"] == "function") Module["preRun"] = [Module["preRun"]];
+      while (Module["preRun"].length) {
+        addOnPreRun(Module["preRun"].shift());
+      }
+    }
+    callRuntimeCallbacks(onPreRuns);
+  }
+  __name(preRun, "preRun");
+  function initRuntime() {
+    runtimeInitialized = true;
+    callRuntimeCallbacks(__RELOC_FUNCS__);
+    wasmExports["__wasm_call_ctors"]();
+    callRuntimeCallbacks(onPostCtors);
+  }
+  __name(initRuntime, "initRuntime");
+  function preMain() {
+  }
+  __name(preMain, "preMain");
+  function postRun() {
+    if (Module["postRun"]) {
+      if (typeof Module["postRun"] == "function") Module["postRun"] = [Module["postRun"]];
+      while (Module["postRun"].length) {
+        addOnPostRun(Module["postRun"].shift());
+      }
+    }
+    callRuntimeCallbacks(onPostRuns);
+  }
+  __name(postRun, "postRun");
+  function abort(what) {
+    Module["onAbort"]?.(what);
+    what = "Aborted(" + what + ")";
+    err(what);
+    ABORT = true;
+    what += ". Build with -sASSERTIONS for more info.";
+    var e = new WebAssembly.RuntimeError(what);
+    readyPromiseReject?.(e);
+    throw e;
+  }
+  __name(abort, "abort");
+  var wasmBinaryFile;
+  function findWasmBinary() {
+    if (Module["locateFile"]) {
+      return locateFile("web-tree-sitter.wasm");
+    }
+    return new URL("web-tree-sitter.wasm", import.meta.url).href;
+  }
+  __name(findWasmBinary, "findWasmBinary");
+  function getBinarySync(file) {
+    if (file == wasmBinaryFile && wasmBinary) {
+      return new Uint8Array(wasmBinary);
+    }
+    if (readBinary) {
+      return readBinary(file);
+    }
+    throw "both async and sync fetching of the wasm failed";
+  }
+  __name(getBinarySync, "getBinarySync");
+  async function getWasmBinary(binaryFile) {
+    if (!wasmBinary) {
+      try {
+        var response = await readAsync(binaryFile);
+        return new Uint8Array(response);
+      } catch {
+      }
+    }
+    return getBinarySync(binaryFile);
+  }
+  __name(getWasmBinary, "getWasmBinary");
+  async function instantiateArrayBuffer(binaryFile, imports) {
+    try {
+      var binary2 = await getWasmBinary(binaryFile);
+      var instance2 = await WebAssembly.instantiate(binary2, imports);
+      return instance2;
+    } catch (reason) {
+      err(`failed to asynchronously prepare wasm: ${reason}`);
+      abort(reason);
+    }
+  }
+  __name(instantiateArrayBuffer, "instantiateArrayBuffer");
+  async function instantiateAsync(binary2, binaryFile, imports) {
+    if (!binary2 && !isFileURI(binaryFile) && !ENVIRONMENT_IS_NODE) {
+      try {
+        var response = fetch(binaryFile, {
+          credentials: "same-origin"
+        });
+        var instantiationResult = await WebAssembly.instantiateStreaming(response, imports);
+        return instantiationResult;
+      } catch (reason) {
+        err(`wasm streaming compile failed: ${reason}`);
+        err("falling back to ArrayBuffer instantiation");
+      }
+    }
+    return instantiateArrayBuffer(binaryFile, imports);
+  }
+  __name(instantiateAsync, "instantiateAsync");
+  function getWasmImports() {
+    return {
+      "env": wasmImports,
+      "wasi_snapshot_preview1": wasmImports,
+      "GOT.mem": new Proxy(wasmImports, GOTHandler),
+      "GOT.func": new Proxy(wasmImports, GOTHandler)
+    };
+  }
+  __name(getWasmImports, "getWasmImports");
+  async function createWasm() {
+    function receiveInstance(instance2, module2) {
+      wasmExports = instance2.exports;
+      wasmExports = relocateExports(wasmExports, 1024);
+      var metadata2 = getDylinkMetadata(module2);
+      if (metadata2.neededDynlibs) {
+        dynamicLibraries = metadata2.neededDynlibs.concat(dynamicLibraries);
+      }
+      mergeLibSymbols(wasmExports, "main");
+      LDSO.init();
+      loadDylibs();
+      __RELOC_FUNCS__.push(wasmExports["__wasm_apply_data_relocs"]);
+      assignWasmExports(wasmExports);
+      return wasmExports;
+    }
+    __name(receiveInstance, "receiveInstance");
+    function receiveInstantiationResult(result2) {
+      return receiveInstance(result2["instance"], result2["module"]);
+    }
+    __name(receiveInstantiationResult, "receiveInstantiationResult");
+    var info2 = getWasmImports();
+    if (Module["instantiateWasm"]) {
+      return new Promise((resolve2, reject) => {
+        Module["instantiateWasm"](info2, (mod, inst) => {
+          resolve2(receiveInstance(mod, inst));
+        });
+      });
+    }
+    wasmBinaryFile ??= findWasmBinary();
+    var result = await instantiateAsync(wasmBinary, wasmBinaryFile, info2);
+    var exports = receiveInstantiationResult(result);
+    return exports;
+  }
+  __name(createWasm, "createWasm");
+  class ExitStatus {
+    static {
+      __name(this, "ExitStatus");
+    }
+    name = "ExitStatus";
+    constructor(status) {
+      this.message = `Program terminated with exit(${status})`;
+      this.status = status;
+    }
+  }
+  var GOT = {};
+  var currentModuleWeakSymbols = /* @__PURE__ */ new Set([]);
+  var GOTHandler = {
+    get(obj, symName) {
+      var rtn = GOT[symName];
+      if (!rtn) {
+        rtn = GOT[symName] = new WebAssembly.Global({
+          "value": "i32",
+          "mutable": true
+        });
+      }
+      if (!currentModuleWeakSymbols.has(symName)) {
+        rtn.required = true;
+      }
+      return rtn;
+    }
+  };
+  var LE_ATOMICS_NATIVE_BYTE_ORDER = [];
+  var LE_HEAP_LOAD_F32 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getFloat32(byteOffset, true), "LE_HEAP_LOAD_F32");
+  var LE_HEAP_LOAD_F64 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getFloat64(byteOffset, true), "LE_HEAP_LOAD_F64");
+  var LE_HEAP_LOAD_I16 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getInt16(byteOffset, true), "LE_HEAP_LOAD_I16");
+  var LE_HEAP_LOAD_I32 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getInt32(byteOffset, true), "LE_HEAP_LOAD_I32");
+  var LE_HEAP_LOAD_I64 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getBigInt64(byteOffset, true), "LE_HEAP_LOAD_I64");
+  var LE_HEAP_LOAD_U32 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getUint32(byteOffset, true), "LE_HEAP_LOAD_U32");
+  var LE_HEAP_STORE_F32 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setFloat32(byteOffset, value, true), "LE_HEAP_STORE_F32");
+  var LE_HEAP_STORE_F64 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setFloat64(byteOffset, value, true), "LE_HEAP_STORE_F64");
+  var LE_HEAP_STORE_I16 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setInt16(byteOffset, value, true), "LE_HEAP_STORE_I16");
+  var LE_HEAP_STORE_I32 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setInt32(byteOffset, value, true), "LE_HEAP_STORE_I32");
+  var LE_HEAP_STORE_I64 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setBigInt64(byteOffset, value, true), "LE_HEAP_STORE_I64");
+  var LE_HEAP_STORE_U32 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setUint32(byteOffset, value, true), "LE_HEAP_STORE_U32");
+  var callRuntimeCallbacks = /* @__PURE__ */ __name((callbacks) => {
+    while (callbacks.length > 0) {
+      callbacks.shift()(Module);
+    }
+  }, "callRuntimeCallbacks");
+  var onPostRuns = [];
+  var addOnPostRun = /* @__PURE__ */ __name((cb) => onPostRuns.push(cb), "addOnPostRun");
+  var onPreRuns = [];
+  var addOnPreRun = /* @__PURE__ */ __name((cb) => onPreRuns.push(cb), "addOnPreRun");
+  var UTF8Decoder = typeof TextDecoder != "undefined" ? new TextDecoder() : void 0;
+  var findStringEnd = /* @__PURE__ */ __name((heapOrArray, idx, maxBytesToRead, ignoreNul) => {
+    var maxIdx = idx + maxBytesToRead;
+    if (ignoreNul) return maxIdx;
+    while (heapOrArray[idx] && !(idx >= maxIdx)) ++idx;
+    return idx;
+  }, "findStringEnd");
+  var UTF8ArrayToString = /* @__PURE__ */ __name((heapOrArray, idx = 0, maxBytesToRead, ignoreNul) => {
+    var endPtr = findStringEnd(heapOrArray, idx, maxBytesToRead, ignoreNul);
+    if (endPtr - idx > 16 && heapOrArray.buffer && UTF8Decoder) {
+      return UTF8Decoder.decode(heapOrArray.subarray(idx, endPtr));
+    }
+    var str = "";
+    while (idx < endPtr) {
+      var u0 = heapOrArray[idx++];
+      if (!(u0 & 128)) {
+        str += String.fromCharCode(u0);
+        continue;
+      }
+      var u1 = heapOrArray[idx++] & 63;
+      if ((u0 & 224) == 192) {
+        str += String.fromCharCode((u0 & 31) << 6 | u1);
+        continue;
+      }
+      var u2 = heapOrArray[idx++] & 63;
+      if ((u0 & 240) == 224) {
+        u0 = (u0 & 15) << 12 | u1 << 6 | u2;
+      } else {
+        u0 = (u0 & 7) << 18 | u1 << 12 | u2 << 6 | heapOrArray[idx++] & 63;
+      }
+      if (u0 < 65536) {
+        str += String.fromCharCode(u0);
+      } else {
+        var ch = u0 - 65536;
+        str += String.fromCharCode(55296 | ch >> 10, 56320 | ch & 1023);
+      }
+    }
+    return str;
+  }, "UTF8ArrayToString");
+  var getDylinkMetadata = /* @__PURE__ */ __name((binary2) => {
+    var offset = 0;
+    var end = 0;
+    function getU8() {
+      return binary2[offset++];
+    }
+    __name(getU8, "getU8");
+    function getLEB() {
+      var ret = 0;
+      var mul = 1;
+      while (1) {
+        var byte = binary2[offset++];
+        ret += (byte & 127) * mul;
+        mul *= 128;
+        if (!(byte & 128)) break;
+      }
+      return ret;
+    }
+    __name(getLEB, "getLEB");
+    function getString() {
+      var len = getLEB();
+      offset += len;
+      return UTF8ArrayToString(binary2, offset - len, len);
+    }
+    __name(getString, "getString");
+    function getStringList() {
+      var count2 = getLEB();
+      var rtn = [];
+      while (count2--) rtn.push(getString());
+      return rtn;
+    }
+    __name(getStringList, "getStringList");
+    function failIf(condition, message) {
+      if (condition) throw new Error(message);
+    }
+    __name(failIf, "failIf");
+    if (binary2 instanceof WebAssembly.Module) {
+      var dylinkSection = WebAssembly.Module.customSections(binary2, "dylink.0");
+      failIf(dylinkSection.length === 0, "need dylink section");
+      binary2 = new Uint8Array(dylinkSection[0]);
+      end = binary2.length;
+    } else {
+      var int32View = new Uint32Array(new Uint8Array(binary2.subarray(0, 24)).buffer);
+      var magicNumberFound = int32View[0] == 1836278016 || int32View[0] == 6386541;
+      failIf(!magicNumberFound, "need to see wasm magic number");
+      failIf(binary2[8] !== 0, "need the dylink section to be first");
+      offset = 9;
+      var section_size = getLEB();
+      end = offset + section_size;
+      var name2 = getString();
+      failIf(name2 !== "dylink.0");
+    }
+    var customSection = {
+      neededDynlibs: [],
+      tlsExports: /* @__PURE__ */ new Set(),
+      weakImports: /* @__PURE__ */ new Set(),
+      runtimePaths: []
+    };
+    var WASM_DYLINK_MEM_INFO = 1;
+    var WASM_DYLINK_NEEDED = 2;
+    var WASM_DYLINK_EXPORT_INFO = 3;
+    var WASM_DYLINK_IMPORT_INFO = 4;
+    var WASM_DYLINK_RUNTIME_PATH = 5;
+    var WASM_SYMBOL_TLS = 256;
+    var WASM_SYMBOL_BINDING_MASK = 3;
+    var WASM_SYMBOL_BINDING_WEAK = 1;
+    while (offset < end) {
+      var subsectionType = getU8();
+      var subsectionSize = getLEB();
+      if (subsectionType === WASM_DYLINK_MEM_INFO) {
+        customSection.memorySize = getLEB();
+        customSection.memoryAlign = getLEB();
+        customSection.tableSize = getLEB();
+        customSection.tableAlign = getLEB();
+      } else if (subsectionType === WASM_DYLINK_NEEDED) {
+        customSection.neededDynlibs = getStringList();
+      } else if (subsectionType === WASM_DYLINK_EXPORT_INFO) {
+        var count = getLEB();
+        while (count--) {
+          var symname = getString();
+          var flags2 = getLEB();
+          if (flags2 & WASM_SYMBOL_TLS) {
+            customSection.tlsExports.add(symname);
+          }
+        }
+      } else if (subsectionType === WASM_DYLINK_IMPORT_INFO) {
+        var count = getLEB();
+        while (count--) {
+          var modname = getString();
+          var symname = getString();
+          var flags2 = getLEB();
+          if ((flags2 & WASM_SYMBOL_BINDING_MASK) == WASM_SYMBOL_BINDING_WEAK) {
+            customSection.weakImports.add(symname);
+          }
+        }
+      } else if (subsectionType === WASM_DYLINK_RUNTIME_PATH) {
+        customSection.runtimePaths = getStringList();
+      } else {
+        offset += subsectionSize;
+      }
+    }
+    return customSection;
+  }, "getDylinkMetadata");
+  function getValue(ptr, type = "i8") {
+    if (type.endsWith("*")) type = "*";
+    switch (type) {
+      case "i1":
+        return HEAP8[ptr];
+      case "i8":
+        return HEAP8[ptr];
+      case "i16":
+        return LE_HEAP_LOAD_I16((ptr >> 1) * 2);
+      case "i32":
+        return LE_HEAP_LOAD_I32((ptr >> 2) * 4);
+      case "i64":
+        return LE_HEAP_LOAD_I64((ptr >> 3) * 8);
+      case "float":
+        return LE_HEAP_LOAD_F32((ptr >> 2) * 4);
+      case "double":
+        return LE_HEAP_LOAD_F64((ptr >> 3) * 8);
+      case "*":
+        return LE_HEAP_LOAD_U32((ptr >> 2) * 4);
+      default:
+        abort(`invalid type for getValue: ${type}`);
+    }
+  }
+  __name(getValue, "getValue");
+  var newDSO = /* @__PURE__ */ __name((name2, handle2, syms) => {
+    var dso = {
+      refcount: Infinity,
+      name: name2,
+      exports: syms,
+      global: true
+    };
+    LDSO.loadedLibsByName[name2] = dso;
+    if (handle2 != void 0) {
+      LDSO.loadedLibsByHandle[handle2] = dso;
+    }
+    return dso;
+  }, "newDSO");
+  var LDSO = {
+    loadedLibsByName: {},
+    loadedLibsByHandle: {},
+    init() {
+      newDSO("__main__", 0, wasmImports);
+    }
+  };
+  var ___heap_base = 78240;
+  var alignMemory = /* @__PURE__ */ __name((size, alignment) => Math.ceil(size / alignment) * alignment, "alignMemory");
+  var getMemory = /* @__PURE__ */ __name((size) => {
+    if (runtimeInitialized) {
+      return _calloc(size, 1);
+    }
+    var ret = ___heap_base;
+    var end = ret + alignMemory(size, 16);
+    ___heap_base = end;
+    GOT["__heap_base"].value = end;
+    return ret;
+  }, "getMemory");
+  var isInternalSym = /* @__PURE__ */ __name((symName) => ["__cpp_exception", "__c_longjmp", "__wasm_apply_data_relocs", "__dso_handle", "__tls_size", "__tls_align", "__set_stack_limits", "_emscripten_tls_init", "__wasm_init_tls", "__wasm_call_ctors", "__start_em_asm", "__stop_em_asm", "__start_em_js", "__stop_em_js"].includes(symName) || symName.startsWith("__em_js__"), "isInternalSym");
+  var uleb128EncodeWithLen = /* @__PURE__ */ __name((arr) => {
+    const n = arr.length;
+    return [n % 128 | 128, n >> 7, ...arr];
+  }, "uleb128EncodeWithLen");
+  var wasmTypeCodes = {
+    "i": 127,
+    // i32
+    "p": 127,
+    // i32
+    "j": 126,
+    // i64
+    "f": 125,
+    // f32
+    "d": 124,
+    // f64
+    "e": 111
+  };
+  var generateTypePack = /* @__PURE__ */ __name((types) => uleb128EncodeWithLen(Array.from(types, (type) => {
+    var code = wasmTypeCodes[type];
+    return code;
+  })), "generateTypePack");
+  var convertJsFunctionToWasm = /* @__PURE__ */ __name((func2, sig) => {
+    var bytes = Uint8Array.of(
+      0,
+      97,
+      115,
+      109,
+      // magic ("\0asm")
+      1,
+      0,
+      0,
+      0,
+      // version: 1
+      1,
+      ...uleb128EncodeWithLen([
+        1,
+        // count: 1
+        96,
+        // param types
+        ...generateTypePack(sig.slice(1)),
+        // return types (for now only supporting [] if `void` and single [T] otherwise)
+        ...generateTypePack(sig[0] === "v" ? "" : sig[0])
+      ]),
+      // The rest of the module is static
+      2,
+      7,
+      // import section
+      // (import "e" "f" (func 0 (type 0)))
+      1,
+      1,
+      101,
+      1,
+      102,
+      0,
+      0,
+      7,
+      5,
+      // export section
+      // (export "f" (func 0 (type 0)))
+      1,
+      1,
+      102,
+      0,
+      0
+    );
+    var module2 = new WebAssembly.Module(bytes);
+    var instance2 = new WebAssembly.Instance(module2, {
+      "e": {
+        "f": func2
+      }
+    });
+    var wrappedFunc = instance2.exports["f"];
+    return wrappedFunc;
+  }, "convertJsFunctionToWasm");
+  var wasmTableMirror = [];
+  var wasmTable = new WebAssembly.Table({
+    "initial": 31,
+    "element": "anyfunc"
+  });
+  var getWasmTableEntry = /* @__PURE__ */ __name((funcPtr) => {
+    var func2 = wasmTableMirror[funcPtr];
+    if (!func2) {
+      wasmTableMirror[funcPtr] = func2 = wasmTable.get(funcPtr);
+    }
+    return func2;
+  }, "getWasmTableEntry");
+  var updateTableMap = /* @__PURE__ */ __name((offset, count) => {
+    if (functionsInTableMap) {
+      for (var i2 = offset; i2 < offset + count; i2++) {
+        var item = getWasmTableEntry(i2);
+        if (item) {
+          functionsInTableMap.set(item, i2);
+        }
+      }
+    }
+  }, "updateTableMap");
+  var functionsInTableMap;
+  var getFunctionAddress = /* @__PURE__ */ __name((func2) => {
+    if (!functionsInTableMap) {
+      functionsInTableMap = /* @__PURE__ */ new WeakMap();
+      updateTableMap(0, wasmTable.length);
+    }
+    return functionsInTableMap.get(func2) || 0;
+  }, "getFunctionAddress");
+  var freeTableIndexes = [];
+  var getEmptyTableSlot = /* @__PURE__ */ __name(() => {
+    if (freeTableIndexes.length) {
+      return freeTableIndexes.pop();
+    }
+    return wasmTable["grow"](1);
+  }, "getEmptyTableSlot");
+  var setWasmTableEntry = /* @__PURE__ */ __name((idx, func2) => {
+    wasmTable.set(idx, func2);
+    wasmTableMirror[idx] = wasmTable.get(idx);
+  }, "setWasmTableEntry");
+  var addFunction = /* @__PURE__ */ __name((func2, sig) => {
+    var rtn = getFunctionAddress(func2);
+    if (rtn) {
+      return rtn;
+    }
+    var ret = getEmptyTableSlot();
+    try {
+      setWasmTableEntry(ret, func2);
+    } catch (err2) {
+      if (!(err2 instanceof TypeError)) {
+        throw err2;
+      }
+      var wrapped = convertJsFunctionToWasm(func2, sig);
+      setWasmTableEntry(ret, wrapped);
+    }
+    functionsInTableMap.set(func2, ret);
+    return ret;
+  }, "addFunction");
+  var updateGOT = /* @__PURE__ */ __name((exports, replace) => {
+    for (var symName in exports) {
+      if (isInternalSym(symName)) {
+        continue;
+      }
+      var value = exports[symName];
+      GOT[symName] ||= new WebAssembly.Global({
+        "value": "i32",
+        "mutable": true
+      });
+      if (replace || GOT[symName].value == 0) {
+        if (typeof value == "function") {
+          GOT[symName].value = addFunction(value);
+        } else if (typeof value == "number") {
+          GOT[symName].value = value;
+        } else {
+          err(`unhandled export type for '${symName}': ${typeof value}`);
+        }
+      }
+    }
+  }, "updateGOT");
+  var relocateExports = /* @__PURE__ */ __name((exports, memoryBase2, replace) => {
+    var relocated = {};
+    for (var e in exports) {
+      var value = exports[e];
+      if (typeof value == "object") {
+        value = value.value;
+      }
+      if (typeof value == "number") {
+        value += memoryBase2;
+      }
+      relocated[e] = value;
+    }
+    updateGOT(relocated, replace);
+    return relocated;
+  }, "relocateExports");
+  var isSymbolDefined = /* @__PURE__ */ __name((symName) => {
+    var existing = wasmImports[symName];
+    if (!existing || existing.stub) {
+      return false;
+    }
+    return true;
+  }, "isSymbolDefined");
+  var dynCall = /* @__PURE__ */ __name((sig, ptr, args2 = [], promising = false) => {
+    var func2 = getWasmTableEntry(ptr);
+    var rtn = func2(...args2);
+    function convert(rtn2) {
+      return rtn2;
+    }
+    __name(convert, "convert");
+    return convert(rtn);
+  }, "dynCall");
+  var stackSave = /* @__PURE__ */ __name(() => _emscripten_stack_get_current(), "stackSave");
+  var stackRestore = /* @__PURE__ */ __name((val) => __emscripten_stack_restore(val), "stackRestore");
+  var createInvokeFunction = /* @__PURE__ */ __name((sig) => (ptr, ...args2) => {
+    var sp = stackSave();
+    try {
+      return dynCall(sig, ptr, args2);
+    } catch (e) {
+      stackRestore(sp);
+      if (e !== e + 0) throw e;
+      _setThrew(1, 0);
+      if (sig[0] == "j") return 0n;
+    }
+  }, "createInvokeFunction");
+  var resolveGlobalSymbol = /* @__PURE__ */ __name((symName, direct = false) => {
+    var sym;
+    if (isSymbolDefined(symName)) {
+      sym = wasmImports[symName];
+    } else if (symName.startsWith("invoke_")) {
+      sym = wasmImports[symName] = createInvokeFunction(symName.split("_")[1]);
+    }
+    return {
+      sym,
+      name: symName
+    };
+  }, "resolveGlobalSymbol");
+  var onPostCtors = [];
+  var addOnPostCtor = /* @__PURE__ */ __name((cb) => onPostCtors.push(cb), "addOnPostCtor");
+  var UTF8ToString = /* @__PURE__ */ __name((ptr, maxBytesToRead, ignoreNul) => ptr ? UTF8ArrayToString(HEAPU8, ptr, maxBytesToRead, ignoreNul) : "", "UTF8ToString");
+  var loadWebAssemblyModule = /* @__PURE__ */ __name((binary, flags, libName, localScope, handle) => {
+    var metadata = getDylinkMetadata(binary);
+    function loadModule() {
+      var memAlign = Math.pow(2, metadata.memoryAlign);
+      var memoryBase = metadata.memorySize ? alignMemory(getMemory(metadata.memorySize + memAlign), memAlign) : 0;
+      var tableBase = metadata.tableSize ? wasmTable.length : 0;
+      if (handle) {
+        HEAP8[handle + 8] = 1;
+        LE_HEAP_STORE_U32((handle + 12 >> 2) * 4, memoryBase);
+        LE_HEAP_STORE_I32((handle + 16 >> 2) * 4, metadata.memorySize);
+        LE_HEAP_STORE_U32((handle + 20 >> 2) * 4, tableBase);
+        LE_HEAP_STORE_I32((handle + 24 >> 2) * 4, metadata.tableSize);
+      }
+      if (metadata.tableSize) {
+        wasmTable.grow(metadata.tableSize);
+      }
+      var moduleExports;
+      function resolveSymbol(sym) {
+        var resolved = resolveGlobalSymbol(sym).sym;
+        if (!resolved && localScope) {
+          resolved = localScope[sym];
+        }
+        if (!resolved) {
+          resolved = moduleExports[sym];
+        }
+        return resolved;
+      }
+      __name(resolveSymbol, "resolveSymbol");
+      var proxyHandler = {
+        get(stubs, prop) {
+          switch (prop) {
+            case "__memory_base":
+              return memoryBase;
+            case "__table_base":
+              return tableBase;
+          }
+          if (prop in wasmImports && !wasmImports[prop].stub) {
+            var res = wasmImports[prop];
+            return res;
+          }
+          if (!(prop in stubs)) {
+            var resolved;
+            stubs[prop] = (...args2) => {
+              resolved ||= resolveSymbol(prop);
+              return resolved(...args2);
+            };
+          }
+          return stubs[prop];
+        }
+      };
+      var proxy = new Proxy({}, proxyHandler);
+      currentModuleWeakSymbols = metadata.weakImports;
+      var info = {
+        "GOT.mem": new Proxy({}, GOTHandler),
+        "GOT.func": new Proxy({}, GOTHandler),
+        "env": proxy,
+        "wasi_snapshot_preview1": proxy
+      };
+      function postInstantiation(module, instance) {
+        updateTableMap(tableBase, metadata.tableSize);
+        moduleExports = relocateExports(instance.exports, memoryBase);
+        if (!flags.allowUndefined) {
+          reportUndefinedSymbols();
+        }
+        function addEmAsm(addr, body) {
+          var args = [];
+          var arity = 0;
+          for (; arity < 16; arity++) {
+            if (body.indexOf("$" + arity) != -1) {
+              args.push("$" + arity);
+            } else {
+              break;
+            }
+          }
+          args = args.join(",");
+          var func = `(${args}) => { ${body} };`;
+          ASM_CONSTS[start] = eval(func);
+        }
+        __name(addEmAsm, "addEmAsm");
+        if ("__start_em_asm" in moduleExports) {
+          var start = moduleExports["__start_em_asm"];
+          var stop = moduleExports["__stop_em_asm"];
+          while (start < stop) {
+            var jsString = UTF8ToString(start);
+            addEmAsm(start, jsString);
+            start = HEAPU8.indexOf(0, start) + 1;
+          }
+        }
+        function addEmJs(name, cSig, body) {
+          var jsArgs = [];
+          cSig = cSig.slice(1, -1);
+          if (cSig != "void") {
+            cSig = cSig.split(",");
+            for (var i in cSig) {
+              var jsArg = cSig[i].split(" ").pop();
+              jsArgs.push(jsArg.replace("*", ""));
+            }
+          }
+          var func = `(${jsArgs}) => ${body};`;
+          moduleExports[name] = eval(func);
+        }
+        __name(addEmJs, "addEmJs");
+        for (var name in moduleExports) {
+          if (name.startsWith("__em_js__")) {
+            var start = moduleExports[name];
+            var jsString = UTF8ToString(start);
+            var parts = jsString.split("<::>");
+            addEmJs(name.replace("__em_js__", ""), parts[0], parts[1]);
+            delete moduleExports[name];
+          }
+        }
+        var applyRelocs = moduleExports["__wasm_apply_data_relocs"];
+        if (applyRelocs) {
+          if (runtimeInitialized) {
+            applyRelocs();
+          } else {
+            __RELOC_FUNCS__.push(applyRelocs);
+          }
+        }
+        var init = moduleExports["__wasm_call_ctors"];
+        if (init) {
+          if (runtimeInitialized) {
+            init();
+          } else {
+            addOnPostCtor(init);
+          }
+        }
+        return moduleExports;
+      }
+      __name(postInstantiation, "postInstantiation");
+      if (flags.loadAsync) {
+        return (async () => {
+          var instance2;
+          if (binary instanceof WebAssembly.Module) {
+            instance2 = new WebAssembly.Instance(binary, info);
+          } else {
+            ({ module: binary, instance: instance2 } = await WebAssembly.instantiate(binary, info));
+          }
+          return postInstantiation(binary, instance2);
+        })();
+      }
+      var module = binary instanceof WebAssembly.Module ? binary : new WebAssembly.Module(binary);
+      var instance = new WebAssembly.Instance(module, info);
+      return postInstantiation(module, instance);
+    }
+    __name(loadModule, "loadModule");
+    flags = {
+      ...flags,
+      rpath: {
+        parentLibPath: libName,
+        paths: metadata.runtimePaths
+      }
+    };
+    if (flags.loadAsync) {
+      return metadata.neededDynlibs.reduce((chain, dynNeeded) => chain.then(() => loadDynamicLibrary(dynNeeded, flags, localScope)), Promise.resolve()).then(loadModule);
+    }
+    metadata.neededDynlibs.forEach((needed) => loadDynamicLibrary(needed, flags, localScope));
+    return loadModule();
+  }, "loadWebAssemblyModule");
+  var mergeLibSymbols = /* @__PURE__ */ __name((exports, libName2) => {
+    for (var [sym, exp] of Object.entries(exports)) {
+      const setImport = /* @__PURE__ */ __name((target) => {
+        if (!isSymbolDefined(target)) {
+          wasmImports[target] = exp;
+        }
+      }, "setImport");
+      setImport(sym);
+      const main_alias = "__main_argc_argv";
+      if (sym == "main") {
+        setImport(main_alias);
+      }
+      if (sym == main_alias) {
+        setImport("main");
+      }
+    }
+  }, "mergeLibSymbols");
+  var asyncLoad = /* @__PURE__ */ __name(async (url) => {
+    var arrayBuffer = await readAsync(url);
+    return new Uint8Array(arrayBuffer);
+  }, "asyncLoad");
+  function loadDynamicLibrary(libName2, flags2 = {
+    global: true,
+    nodelete: true
+  }, localScope2, handle2) {
+    var dso = LDSO.loadedLibsByName[libName2];
+    if (dso) {
+      if (!flags2.global) {
+        if (localScope2) {
+          Object.assign(localScope2, dso.exports);
+        }
+      } else if (!dso.global) {
+        dso.global = true;
+        mergeLibSymbols(dso.exports, libName2);
+      }
+      if (flags2.nodelete && dso.refcount !== Infinity) {
+        dso.refcount = Infinity;
+      }
+      dso.refcount++;
+      if (handle2) {
+        LDSO.loadedLibsByHandle[handle2] = dso;
+      }
+      return flags2.loadAsync ? Promise.resolve(true) : true;
+    }
+    dso = newDSO(libName2, handle2, "loading");
+    dso.refcount = flags2.nodelete ? Infinity : 1;
+    dso.global = flags2.global;
+    function loadLibData() {
+      if (handle2) {
+        var data = LE_HEAP_LOAD_U32((handle2 + 28 >> 2) * 4);
+        var dataSize = LE_HEAP_LOAD_U32((handle2 + 32 >> 2) * 4);
+        if (data && dataSize) {
+          var libData = HEAP8.slice(data, data + dataSize);
+          return flags2.loadAsync ? Promise.resolve(libData) : libData;
+        }
+      }
+      var libFile = locateFile(libName2);
+      if (flags2.loadAsync) {
+        return asyncLoad(libFile);
+      }
+      if (!readBinary) {
+        throw new Error(`${libFile}: file not found, and synchronous loading of external files is not available`);
+      }
+      return readBinary(libFile);
+    }
+    __name(loadLibData, "loadLibData");
+    function getExports() {
+      if (flags2.loadAsync) {
+        return loadLibData().then((libData) => loadWebAssemblyModule(libData, flags2, libName2, localScope2, handle2));
+      }
+      return loadWebAssemblyModule(loadLibData(), flags2, libName2, localScope2, handle2);
+    }
+    __name(getExports, "getExports");
+    function moduleLoaded(exports) {
+      if (dso.global) {
+        mergeLibSymbols(exports, libName2);
+      } else if (localScope2) {
+        Object.assign(localScope2, exports);
+      }
+      dso.exports = exports;
+    }
+    __name(moduleLoaded, "moduleLoaded");
+    if (flags2.loadAsync) {
+      return getExports().then((exports) => {
+        moduleLoaded(exports);
+        return true;
+      });
+    }
+    moduleLoaded(getExports());
+    return true;
+  }
+  __name(loadDynamicLibrary, "loadDynamicLibrary");
+  var reportUndefinedSymbols = /* @__PURE__ */ __name(() => {
+    for (var [symName, entry] of Object.entries(GOT)) {
+      if (entry.value == 0) {
+        var value = resolveGlobalSymbol(symName, true).sym;
+        if (!value && !entry.required) {
+          continue;
+        }
+        if (typeof value == "function") {
+          entry.value = addFunction(value, value.sig);
+        } else if (typeof value == "number") {
+          entry.value = value;
+        } else {
+          throw new Error(`bad export type for '${symName}': ${typeof value}`);
+        }
+      }
+    }
+  }, "reportUndefinedSymbols");
+  var runDependencies = 0;
+  var dependenciesFulfilled = null;
+  var removeRunDependency = /* @__PURE__ */ __name((id) => {
+    runDependencies--;
+    Module["monitorRunDependencies"]?.(runDependencies);
+    if (runDependencies == 0) {
+      if (dependenciesFulfilled) {
+        var callback = dependenciesFulfilled;
+        dependenciesFulfilled = null;
+        callback();
+      }
+    }
+  }, "removeRunDependency");
+  var addRunDependency = /* @__PURE__ */ __name((id) => {
+    runDependencies++;
+    Module["monitorRunDependencies"]?.(runDependencies);
+  }, "addRunDependency");
+  var loadDylibs = /* @__PURE__ */ __name(async () => {
+    if (!dynamicLibraries.length) {
+      reportUndefinedSymbols();
+      return;
+    }
+    addRunDependency("loadDylibs");
+    for (var lib of dynamicLibraries) {
+      await loadDynamicLibrary(lib, {
+        loadAsync: true,
+        global: true,
+        nodelete: true,
+        allowUndefined: true
+      });
+    }
+    reportUndefinedSymbols();
+    removeRunDependency("loadDylibs");
+  }, "loadDylibs");
+  var noExitRuntime = true;
+  function setValue(ptr, value, type = "i8") {
+    if (type.endsWith("*")) type = "*";
+    switch (type) {
+      case "i1":
+        HEAP8[ptr] = value;
+        break;
+      case "i8":
+        HEAP8[ptr] = value;
+        break;
+      case "i16":
+        LE_HEAP_STORE_I16((ptr >> 1) * 2, value);
+        break;
+      case "i32":
+        LE_HEAP_STORE_I32((ptr >> 2) * 4, value);
+        break;
+      case "i64":
+        LE_HEAP_STORE_I64((ptr >> 3) * 8, BigInt(value));
+        break;
+      case "float":
+        LE_HEAP_STORE_F32((ptr >> 2) * 4, value);
+        break;
+      case "double":
+        LE_HEAP_STORE_F64((ptr >> 3) * 8, value);
+        break;
+      case "*":
+        LE_HEAP_STORE_U32((ptr >> 2) * 4, value);
+        break;
+      default:
+        abort(`invalid type for setValue: ${type}`);
+    }
+  }
+  __name(setValue, "setValue");
+  var ___memory_base = new WebAssembly.Global({
+    "value": "i32",
+    "mutable": false
+  }, 1024);
+  var ___stack_high = 78240;
+  var ___stack_low = 12704;
+  var ___stack_pointer = new WebAssembly.Global({
+    "value": "i32",
+    "mutable": true
+  }, 78240);
+  var ___table_base = new WebAssembly.Global({
+    "value": "i32",
+    "mutable": false
+  }, 1);
+  var __abort_js = /* @__PURE__ */ __name(() => abort(""), "__abort_js");
+  __abort_js.sig = "v";
+  var getHeapMax = /* @__PURE__ */ __name(() => (
+    // Stay one Wasm page short of 4GB: while e.g. Chrome is able to allocate
+    // full 4GB Wasm memories, the size will wrap back to 0 bytes in Wasm side
+    // for any code that deals with heap sizes, which would require special
+    // casing all heap size related code to treat 0 specially.
+    2147483648
+  ), "getHeapMax");
+  var growMemory = /* @__PURE__ */ __name((size) => {
+    var oldHeapSize = wasmMemory.buffer.byteLength;
+    var pages = (size - oldHeapSize + 65535) / 65536 | 0;
+    try {
+      wasmMemory.grow(pages);
+      updateMemoryViews();
+      return 1;
+    } catch (e) {
+    }
+  }, "growMemory");
+  var _emscripten_resize_heap = /* @__PURE__ */ __name((requestedSize) => {
+    var oldSize = HEAPU8.length;
+    requestedSize >>>= 0;
+    var maxHeapSize = getHeapMax();
+    if (requestedSize > maxHeapSize) {
+      return false;
+    }
+    for (var cutDown = 1; cutDown <= 4; cutDown *= 2) {
+      var overGrownHeapSize = oldSize * (1 + 0.2 / cutDown);
+      overGrownHeapSize = Math.min(overGrownHeapSize, requestedSize + 100663296);
+      var newSize = Math.min(maxHeapSize, alignMemory(Math.max(requestedSize, overGrownHeapSize), 65536));
+      var replacement = growMemory(newSize);
+      if (replacement) {
+        return true;
+      }
+    }
+    return false;
+  }, "_emscripten_resize_heap");
+  _emscripten_resize_heap.sig = "ip";
+  var _fd_close = /* @__PURE__ */ __name((fd) => 52, "_fd_close");
+  _fd_close.sig = "ii";
+  var INT53_MAX = 9007199254740992;
+  var INT53_MIN = -9007199254740992;
+  var bigintToI53Checked = /* @__PURE__ */ __name((num) => num < INT53_MIN || num > INT53_MAX ? NaN : Number(num), "bigintToI53Checked");
+  function _fd_seek(fd, offset, whence, newOffset) {
+    offset = bigintToI53Checked(offset);
+    return 70;
+  }
+  __name(_fd_seek, "_fd_seek");
+  _fd_seek.sig = "iijip";
+  var printCharBuffers = [null, [], []];
+  var printChar = /* @__PURE__ */ __name((stream, curr) => {
+    var buffer = printCharBuffers[stream];
+    if (curr === 0 || curr === 10) {
+      (stream === 1 ? out : err)(UTF8ArrayToString(buffer));
+      buffer.length = 0;
+    } else {
+      buffer.push(curr);
+    }
+  }, "printChar");
+  var _fd_write = /* @__PURE__ */ __name((fd, iov, iovcnt, pnum) => {
+    var num = 0;
+    for (var i2 = 0; i2 < iovcnt; i2++) {
+      var ptr = LE_HEAP_LOAD_U32((iov >> 2) * 4);
+      var len = LE_HEAP_LOAD_U32((iov + 4 >> 2) * 4);
+      iov += 8;
+      for (var j = 0; j < len; j++) {
+        printChar(fd, HEAPU8[ptr + j]);
+      }
+      num += len;
+    }
+    LE_HEAP_STORE_U32((pnum >> 2) * 4, num);
+    return 0;
+  }, "_fd_write");
+  _fd_write.sig = "iippp";
+  function _tree_sitter_log_callback(isLexMessage, messageAddress) {
+    if (Module.currentLogCallback) {
+      const message = UTF8ToString(messageAddress);
+      Module.currentLogCallback(message, isLexMessage !== 0);
+    }
+  }
+  __name(_tree_sitter_log_callback, "_tree_sitter_log_callback");
+  function _tree_sitter_parse_callback(inputBufferAddress, index, row2, column, lengthAddress) {
+    const INPUT_BUFFER_SIZE = 10 * 1024;
+    const string = Module.currentParseCallback(index, {
+      row: row2,
+      column
+    });
+    if (typeof string === "string") {
+      setValue(lengthAddress, string.length, "i32");
+      stringToUTF16(string, inputBufferAddress, INPUT_BUFFER_SIZE);
+    } else {
+      setValue(lengthAddress, 0, "i32");
+    }
+  }
+  __name(_tree_sitter_parse_callback, "_tree_sitter_parse_callback");
+  function _tree_sitter_progress_callback(currentOffset, hasError) {
+    if (Module.currentProgressCallback) {
+      return Module.currentProgressCallback({
+        currentOffset,
+        hasError
+      });
+    }
+    return false;
+  }
+  __name(_tree_sitter_progress_callback, "_tree_sitter_progress_callback");
+  function _tree_sitter_query_progress_callback(currentOffset) {
+    if (Module.currentQueryProgressCallback) {
+      return Module.currentQueryProgressCallback({
+        currentOffset
+      });
+    }
+    return false;
+  }
+  __name(_tree_sitter_query_progress_callback, "_tree_sitter_query_progress_callback");
+  var runtimeKeepaliveCounter = 0;
+  var keepRuntimeAlive = /* @__PURE__ */ __name(() => noExitRuntime || runtimeKeepaliveCounter > 0, "keepRuntimeAlive");
+  var _proc_exit = /* @__PURE__ */ __name((code) => {
+    EXITSTATUS = code;
+    if (!keepRuntimeAlive()) {
+      Module["onExit"]?.(code);
+      ABORT = true;
+    }
+    quit_(code, new ExitStatus(code));
+  }, "_proc_exit");
+  _proc_exit.sig = "vi";
+  var exitJS = /* @__PURE__ */ __name((status, implicit) => {
+    EXITSTATUS = status;
+    _proc_exit(status);
+  }, "exitJS");
+  var handleException = /* @__PURE__ */ __name((e) => {
+    if (e instanceof ExitStatus || e == "unwind") {
+      return EXITSTATUS;
+    }
+    quit_(1, e);
+  }, "handleException");
+  var lengthBytesUTF8 = /* @__PURE__ */ __name((str) => {
+    var len = 0;
+    for (var i2 = 0; i2 < str.length; ++i2) {
+      var c2 = str.charCodeAt(i2);
+      if (c2 <= 127) {
+        len++;
+      } else if (c2 <= 2047) {
+        len += 2;
+      } else if (c2 >= 55296 && c2 <= 57343) {
+        len += 4;
+        ++i2;
+      } else {
+        len += 3;
+      }
+    }
+    return len;
+  }, "lengthBytesUTF8");
+  var stringToUTF8Array = /* @__PURE__ */ __name((str, heap, outIdx, maxBytesToWrite) => {
+    if (!(maxBytesToWrite > 0)) return 0;
+    var startIdx = outIdx;
+    var endIdx = outIdx + maxBytesToWrite - 1;
+    for (var i2 = 0; i2 < str.length; ++i2) {
+      var u = str.codePointAt(i2);
+      if (u <= 127) {
+        if (outIdx >= endIdx) break;
+        heap[outIdx++] = u;
+      } else if (u <= 2047) {
+        if (outIdx + 1 >= endIdx) break;
+        heap[outIdx++] = 192 | u >> 6;
+        heap[outIdx++] = 128 | u & 63;
+      } else if (u <= 65535) {
+        if (outIdx + 2 >= endIdx) break;
+        heap[outIdx++] = 224 | u >> 12;
+        heap[outIdx++] = 128 | u >> 6 & 63;
+        heap[outIdx++] = 128 | u & 63;
+      } else {
+        if (outIdx + 3 >= endIdx) break;
+        heap[outIdx++] = 240 | u >> 18;
+        heap[outIdx++] = 128 | u >> 12 & 63;
+        heap[outIdx++] = 128 | u >> 6 & 63;
+        heap[outIdx++] = 128 | u & 63;
+        i2++;
+      }
+    }
+    heap[outIdx] = 0;
+    return outIdx - startIdx;
+  }, "stringToUTF8Array");
+  var stringToUTF8 = /* @__PURE__ */ __name((str, outPtr, maxBytesToWrite) => stringToUTF8Array(str, HEAPU8, outPtr, maxBytesToWrite), "stringToUTF8");
+  var stackAlloc = /* @__PURE__ */ __name((sz) => __emscripten_stack_alloc(sz), "stackAlloc");
+  var stringToUTF8OnStack = /* @__PURE__ */ __name((str) => {
+    var size = lengthBytesUTF8(str) + 1;
+    var ret = stackAlloc(size);
+    stringToUTF8(str, ret, size);
+    return ret;
+  }, "stringToUTF8OnStack");
+  var AsciiToString = /* @__PURE__ */ __name((ptr) => {
+    var str = "";
+    while (1) {
+      var ch = HEAPU8[ptr++];
+      if (!ch) return str;
+      str += String.fromCharCode(ch);
+    }
+  }, "AsciiToString");
+  var stringToUTF16 = /* @__PURE__ */ __name((str, outPtr, maxBytesToWrite) => {
+    maxBytesToWrite ??= 2147483647;
+    if (maxBytesToWrite < 2) return 0;
+    maxBytesToWrite -= 2;
+    var startPtr = outPtr;
+    var numCharsToWrite = maxBytesToWrite < str.length * 2 ? maxBytesToWrite / 2 : str.length;
+    for (var i2 = 0; i2 < numCharsToWrite; ++i2) {
+      var codeUnit = str.charCodeAt(i2);
+      LE_HEAP_STORE_I16((outPtr >> 1) * 2, codeUnit);
+      outPtr += 2;
+    }
+    LE_HEAP_STORE_I16((outPtr >> 1) * 2, 0);
+    return outPtr - startPtr;
+  }, "stringToUTF16");
+  LE_ATOMICS_NATIVE_BYTE_ORDER = new Int8Array(new Int16Array([1]).buffer)[0] === 1 ? [
+    /* little endian */
+    ((x) => x),
+    ((x) => x),
+    void 0,
+    ((x) => x)
+  ] : [
+    /* big endian */
+    ((x) => x),
+    ((x) => ((x & 65280) << 8 | (x & 255) << 24) >> 16),
+    void 0,
+    ((x) => x >> 24 & 255 | x >> 8 & 65280 | (x & 65280) << 8 | (x & 255) << 24)
+  ];
+  function LE_HEAP_UPDATE() {
+    HEAPU16.unsigned = ((x) => x & 65535);
+    HEAPU32.unsigned = ((x) => x >>> 0);
+  }
+  __name(LE_HEAP_UPDATE, "LE_HEAP_UPDATE");
+  {
+    initMemory();
+    if (Module["noExitRuntime"]) noExitRuntime = Module["noExitRuntime"];
+    if (Module["print"]) out = Module["print"];
+    if (Module["printErr"]) err = Module["printErr"];
+    if (Module["dynamicLibraries"]) dynamicLibraries = Module["dynamicLibraries"];
+    if (Module["wasmBinary"]) wasmBinary = Module["wasmBinary"];
+    if (Module["arguments"]) arguments_ = Module["arguments"];
+    if (Module["thisProgram"]) thisProgram = Module["thisProgram"];
+    if (Module["preInit"]) {
+      if (typeof Module["preInit"] == "function") Module["preInit"] = [Module["preInit"]];
+      while (Module["preInit"].length > 0) {
+        Module["preInit"].shift()();
+      }
+    }
+  }
+  Module["setValue"] = setValue;
+  Module["getValue"] = getValue;
+  Module["UTF8ToString"] = UTF8ToString;
+  Module["stringToUTF8"] = stringToUTF8;
+  Module["lengthBytesUTF8"] = lengthBytesUTF8;
+  Module["AsciiToString"] = AsciiToString;
+  Module["stringToUTF16"] = stringToUTF16;
+  Module["loadWebAssemblyModule"] = loadWebAssemblyModule;
+  Module["LE_HEAP_STORE_I64"] = LE_HEAP_STORE_I64;
+  var ASM_CONSTS = {};
+  var _malloc, _calloc, _realloc, _free, _ts_range_edit, _memcmp, _ts_language_symbol_count, _ts_language_state_count, _ts_language_abi_version, _ts_language_name, _ts_language_field_count, _ts_language_next_state, _ts_language_symbol_name, _ts_language_symbol_for_name, _strncmp, _ts_language_symbol_type, _ts_language_field_name_for_id, _ts_lookahead_iterator_new, _ts_lookahead_iterator_delete, _ts_lookahead_iterator_reset_state, _ts_lookahead_iterator_reset, _ts_lookahead_iterator_next, _ts_lookahead_iterator_current_symbol, _ts_point_edit, _ts_parser_delete, _ts_parser_reset, _ts_parser_set_language, _ts_parser_set_included_ranges, _ts_query_new, _ts_query_delete, _iswspace, _iswalnum, _ts_query_pattern_count, _ts_query_capture_count, _ts_query_string_count, _ts_query_capture_name_for_id, _ts_query_capture_quantifier_for_id, _ts_query_string_value_for_id, _ts_query_predicates_for_pattern, _ts_query_start_byte_for_pattern, _ts_query_end_byte_for_pattern, _ts_query_is_pattern_rooted, _ts_query_is_pattern_non_local, _ts_query_is_pattern_guaranteed_at_step, _ts_query_disable_capture, _ts_query_disable_pattern, _ts_tree_copy, _ts_tree_delete, _ts_init, _ts_parser_new_wasm, _ts_parser_enable_logger_wasm, _ts_parser_parse_wasm, _ts_parser_included_ranges_wasm, _ts_language_type_is_named_wasm, _ts_language_type_is_visible_wasm, _ts_language_metadata_wasm, _ts_language_supertypes_wasm, _ts_language_subtypes_wasm, _ts_tree_root_node_wasm, _ts_tree_root_node_with_offset_wasm, _ts_tree_edit_wasm, _ts_tree_included_ranges_wasm, _ts_tree_get_changed_ranges_wasm, _ts_tree_cursor_new_wasm, _ts_tree_cursor_copy_wasm, _ts_tree_cursor_delete_wasm, _ts_tree_cursor_reset_wasm, _ts_tree_cursor_reset_to_wasm, _ts_tree_cursor_goto_first_child_wasm, _ts_tree_cursor_goto_last_child_wasm, _ts_tree_cursor_goto_first_child_for_index_wasm, _ts_tree_cursor_goto_first_child_for_position_wasm, _ts_tree_cursor_goto_next_sibling_wasm, _ts_tree_cursor_goto_previous_sibling_wasm, _ts_tree_cursor_goto_descendant_wasm, _ts_tree_cursor_goto_parent_wasm, _ts_tree_cursor_current_node_type_id_wasm, _ts_tree_cursor_current_node_state_id_wasm, _ts_tree_cursor_current_node_is_named_wasm, _ts_tree_cursor_current_node_is_missing_wasm, _ts_tree_cursor_current_node_id_wasm, _ts_tree_cursor_start_position_wasm, _ts_tree_cursor_end_position_wasm, _ts_tree_cursor_start_index_wasm, _ts_tree_cursor_end_index_wasm, _ts_tree_cursor_current_field_id_wasm, _ts_tree_cursor_current_depth_wasm, _ts_tree_cursor_current_descendant_index_wasm, _ts_tree_cursor_current_node_wasm, _ts_node_symbol_wasm, _ts_node_field_name_for_child_wasm, _ts_node_field_name_for_named_child_wasm, _ts_node_children_by_field_id_wasm, _ts_node_first_child_for_byte_wasm, _ts_node_first_named_child_for_byte_wasm, _ts_node_grammar_symbol_wasm, _ts_node_child_count_wasm, _ts_node_named_child_count_wasm, _ts_node_child_wasm, _ts_node_named_child_wasm, _ts_node_child_by_field_id_wasm, _ts_node_next_sibling_wasm, _ts_node_prev_sibling_wasm, _ts_node_next_named_sibling_wasm, _ts_node_prev_named_sibling_wasm, _ts_node_descendant_count_wasm, _ts_node_parent_wasm, _ts_node_child_with_descendant_wasm, _ts_node_descendant_for_index_wasm, _ts_node_named_descendant_for_index_wasm, _ts_node_descendant_for_position_wasm, _ts_node_named_descendant_for_position_wasm, _ts_node_start_point_wasm, _ts_node_end_point_wasm, _ts_node_start_index_wasm, _ts_node_end_index_wasm, _ts_node_to_string_wasm, _ts_node_children_wasm, _ts_node_named_children_wasm, _ts_node_descendants_of_type_wasm, _ts_node_is_named_wasm, _ts_node_has_changes_wasm, _ts_node_has_error_wasm, _ts_node_is_error_wasm, _ts_node_is_missing_wasm, _ts_node_is_extra_wasm, _ts_node_parse_state_wasm, _ts_node_next_parse_state_wasm, _ts_query_matches_wasm, _ts_query_captures_wasm, _memset, _memcpy, _memmove, _iswalpha, _iswblank, _iswdigit, _iswlower, _iswupper, _iswxdigit, _memchr, _strlen, _strcmp, _strncat, _strncpy, _towlower, _towupper, _setThrew, __emscripten_stack_restore, __emscripten_stack_alloc, _emscripten_stack_get_current, ___wasm_apply_data_relocs;
+  function assignWasmExports(wasmExports2) {
+    Module["_malloc"] = _malloc = wasmExports2["malloc"];
+    Module["_calloc"] = _calloc = wasmExports2["calloc"];
+    Module["_realloc"] = _realloc = wasmExports2["realloc"];
+    Module["_free"] = _free = wasmExports2["free"];
+    Module["_ts_range_edit"] = _ts_range_edit = wasmExports2["ts_range_edit"];
+    Module["_memcmp"] = _memcmp = wasmExports2["memcmp"];
+    Module["_ts_language_symbol_count"] = _ts_language_symbol_count = wasmExports2["ts_language_symbol_count"];
+    Module["_ts_language_state_count"] = _ts_language_state_count = wasmExports2["ts_language_state_count"];
+    Module["_ts_language_abi_version"] = _ts_language_abi_version = wasmExports2["ts_language_abi_version"];
+    Module["_ts_language_name"] = _ts_language_name = wasmExports2["ts_language_name"];
+    Module["_ts_language_field_count"] = _ts_language_field_count = wasmExports2["ts_language_field_count"];
+    Module["_ts_language_next_state"] = _ts_language_next_state = wasmExports2["ts_language_next_state"];
+    Module["_ts_language_symbol_name"] = _ts_language_symbol_name = wasmExports2["ts_language_symbol_name"];
+    Module["_ts_language_symbol_for_name"] = _ts_language_symbol_for_name = wasmExports2["ts_language_symbol_for_name"];
+    Module["_strncmp"] = _strncmp = wasmExports2["strncmp"];
+    Module["_ts_language_symbol_type"] = _ts_language_symbol_type = wasmExports2["ts_language_symbol_type"];
+    Module["_ts_language_field_name_for_id"] = _ts_language_field_name_for_id = wasmExports2["ts_language_field_name_for_id"];
+    Module["_ts_lookahead_iterator_new"] = _ts_lookahead_iterator_new = wasmExports2["ts_lookahead_iterator_new"];
+    Module["_ts_lookahead_iterator_delete"] = _ts_lookahead_iterator_delete = wasmExports2["ts_lookahead_iterator_delete"];
+    Module["_ts_lookahead_iterator_reset_state"] = _ts_lookahead_iterator_reset_state = wasmExports2["ts_lookahead_iterator_reset_state"];
+    Module["_ts_lookahead_iterator_reset"] = _ts_lookahead_iterator_reset = wasmExports2["ts_lookahead_iterator_reset"];
+    Module["_ts_lookahead_iterator_next"] = _ts_lookahead_iterator_next = wasmExports2["ts_lookahead_iterator_next"];
+    Module["_ts_lookahead_iterator_current_symbol"] = _ts_lookahead_iterator_current_symbol = wasmExports2["ts_lookahead_iterator_current_symbol"];
+    Module["_ts_point_edit"] = _ts_point_edit = wasmExports2["ts_point_edit"];
+    Module["_ts_parser_delete"] = _ts_parser_delete = wasmExports2["ts_parser_delete"];
+    Module["_ts_parser_reset"] = _ts_parser_reset = wasmExports2["ts_parser_reset"];
+    Module["_ts_parser_set_language"] = _ts_parser_set_language = wasmExports2["ts_parser_set_language"];
+    Module["_ts_parser_set_included_ranges"] = _ts_parser_set_included_ranges = wasmExports2["ts_parser_set_included_ranges"];
+    Module["_ts_query_new"] = _ts_query_new = wasmExports2["ts_query_new"];
+    Module["_ts_query_delete"] = _ts_query_delete = wasmExports2["ts_query_delete"];
+    Module["_iswspace"] = _iswspace = wasmExports2["iswspace"];
+    Module["_iswalnum"] = _iswalnum = wasmExports2["iswalnum"];
+    Module["_ts_query_pattern_count"] = _ts_query_pattern_count = wasmExports2["ts_query_pattern_count"];
+    Module["_ts_query_capture_count"] = _ts_query_capture_count = wasmExports2["ts_query_capture_count"];
+    Module["_ts_query_string_count"] = _ts_query_string_count = wasmExports2["ts_query_string_count"];
+    Module["_ts_query_capture_name_for_id"] = _ts_query_capture_name_for_id = wasmExports2["ts_query_capture_name_for_id"];
+    Module["_ts_query_capture_quantifier_for_id"] = _ts_query_capture_quantifier_for_id = wasmExports2["ts_query_capture_quantifier_for_id"];
+    Module["_ts_query_string_value_for_id"] = _ts_query_string_value_for_id = wasmExports2["ts_query_string_value_for_id"];
+    Module["_ts_query_predicates_for_pattern"] = _ts_query_predicates_for_pattern = wasmExports2["ts_query_predicates_for_pattern"];
+    Module["_ts_query_start_byte_for_pattern"] = _ts_query_start_byte_for_pattern = wasmExports2["ts_query_start_byte_for_pattern"];
+    Module["_ts_query_end_byte_for_pattern"] = _ts_query_end_byte_for_pattern = wasmExports2["ts_query_end_byte_for_pattern"];
+    Module["_ts_query_is_pattern_rooted"] = _ts_query_is_pattern_rooted = wasmExports2["ts_query_is_pattern_rooted"];
+    Module["_ts_query_is_pattern_non_local"] = _ts_query_is_pattern_non_local = wasmExports2["ts_query_is_pattern_non_local"];
+    Module["_ts_query_is_pattern_guaranteed_at_step"] = _ts_query_is_pattern_guaranteed_at_step = wasmExports2["ts_query_is_pattern_guaranteed_at_step"];
+    Module["_ts_query_disable_capture"] = _ts_query_disable_capture = wasmExports2["ts_query_disable_capture"];
+    Module["_ts_query_disable_pattern"] = _ts_query_disable_pattern = wasmExports2["ts_query_disable_pattern"];
+    Module["_ts_tree_copy"] = _ts_tree_copy = wasmExports2["ts_tree_copy"];
+    Module["_ts_tree_delete"] = _ts_tree_delete = wasmExports2["ts_tree_delete"];
+    Module["_ts_init"] = _ts_init = wasmExports2["ts_init"];
+    Module["_ts_parser_new_wasm"] = _ts_parser_new_wasm = wasmExports2["ts_parser_new_wasm"];
+    Module["_ts_parser_enable_logger_wasm"] = _ts_parser_enable_logger_wasm = wasmExports2["ts_parser_enable_logger_wasm"];
+    Module["_ts_parser_parse_wasm"] = _ts_parser_parse_wasm = wasmExports2["ts_parser_parse_wasm"];
+    Module["_ts_parser_included_ranges_wasm"] = _ts_parser_included_ranges_wasm = wasmExports2["ts_parser_included_ranges_wasm"];
+    Module["_ts_language_type_is_named_wasm"] = _ts_language_type_is_named_wasm = wasmExports2["ts_language_type_is_named_wasm"];
+    Module["_ts_language_type_is_visible_wasm"] = _ts_language_type_is_visible_wasm = wasmExports2["ts_language_type_is_visible_wasm"];
+    Module["_ts_language_metadata_wasm"] = _ts_language_metadata_wasm = wasmExports2["ts_language_metadata_wasm"];
+    Module["_ts_language_supertypes_wasm"] = _ts_language_supertypes_wasm = wasmExports2["ts_language_supertypes_wasm"];
+    Module["_ts_language_subtypes_wasm"] = _ts_language_subtypes_wasm = wasmExports2["ts_language_subtypes_wasm"];
+    Module["_ts_tree_root_node_wasm"] = _ts_tree_root_node_wasm = wasmExports2["ts_tree_root_node_wasm"];
+    Module["_ts_tree_root_node_with_offset_wasm"] = _ts_tree_root_node_with_offset_wasm = wasmExports2["ts_tree_root_node_with_offset_wasm"];
+    Module["_ts_tree_edit_wasm"] = _ts_tree_edit_wasm = wasmExports2["ts_tree_edit_wasm"];
+    Module["_ts_tree_included_ranges_wasm"] = _ts_tree_included_ranges_wasm = wasmExports2["ts_tree_included_ranges_wasm"];
+    Module["_ts_tree_get_changed_ranges_wasm"] = _ts_tree_get_changed_ranges_wasm = wasmExports2["ts_tree_get_changed_ranges_wasm"];
+    Module["_ts_tree_cursor_new_wasm"] = _ts_tree_cursor_new_wasm = wasmExports2["ts_tree_cursor_new_wasm"];
+    Module["_ts_tree_cursor_copy_wasm"] = _ts_tree_cursor_copy_wasm = wasmExports2["ts_tree_cursor_copy_wasm"];
+    Module["_ts_tree_cursor_delete_wasm"] = _ts_tree_cursor_delete_wasm = wasmExports2["ts_tree_cursor_delete_wasm"];
+    Module["_ts_tree_cursor_reset_wasm"] = _ts_tree_cursor_reset_wasm = wasmExports2["ts_tree_cursor_reset_wasm"];
+    Module["_ts_tree_cursor_reset_to_wasm"] = _ts_tree_cursor_reset_to_wasm = wasmExports2["ts_tree_cursor_reset_to_wasm"];
+    Module["_ts_tree_cursor_goto_first_child_wasm"] = _ts_tree_cursor_goto_first_child_wasm = wasmExports2["ts_tree_cursor_goto_first_child_wasm"];
+    Module["_ts_tree_cursor_goto_last_child_wasm"] = _ts_tree_cursor_goto_last_child_wasm = wasmExports2["ts_tree_cursor_goto_last_child_wasm"];
+    Module["_ts_tree_cursor_goto_first_child_for_index_wasm"] = _ts_tree_cursor_goto_first_child_for_index_wasm = wasmExports2["ts_tree_cursor_goto_first_child_for_index_wasm"];
+    Module["_ts_tree_cursor_goto_first_child_for_position_wasm"] = _ts_tree_cursor_goto_first_child_for_position_wasm = wasmExports2["ts_tree_cursor_goto_first_child_for_position_wasm"];
+    Module["_ts_tree_cursor_goto_next_sibling_wasm"] = _ts_tree_cursor_goto_next_sibling_wasm = wasmExports2["ts_tree_cursor_goto_next_sibling_wasm"];
+    Module["_ts_tree_cursor_goto_previous_sibling_wasm"] = _ts_tree_cursor_goto_previous_sibling_wasm = wasmExports2["ts_tree_cursor_goto_previous_sibling_wasm"];
+    Module["_ts_tree_cursor_goto_descendant_wasm"] = _ts_tree_cursor_goto_descendant_wasm = wasmExports2["ts_tree_cursor_goto_descendant_wasm"];
+    Module["_ts_tree_cursor_goto_parent_wasm"] = _ts_tree_cursor_goto_parent_wasm = wasmExports2["ts_tree_cursor_goto_parent_wasm"];
+    Module["_ts_tree_cursor_current_node_type_id_wasm"] = _ts_tree_cursor_current_node_type_id_wasm = wasmExports2["ts_tree_cursor_current_node_type_id_wasm"];
+    Module["_ts_tree_cursor_current_node_state_id_wasm"] = _ts_tree_cursor_current_node_state_id_wasm = wasmExports2["ts_tree_cursor_current_node_state_id_wasm"];
+    Module["_ts_tree_cursor_current_node_is_named_wasm"] = _ts_tree_cursor_current_node_is_named_wasm = wasmExports2["ts_tree_cursor_current_node_is_named_wasm"];
+    Module["_ts_tree_cursor_current_node_is_missing_wasm"] = _ts_tree_cursor_current_node_is_missing_wasm = wasmExports2["ts_tree_cursor_current_node_is_missing_wasm"];
+    Module["_ts_tree_cursor_current_node_id_wasm"] = _ts_tree_cursor_current_node_id_wasm = wasmExports2["ts_tree_cursor_current_node_id_wasm"];
+    Module["_ts_tree_cursor_start_position_wasm"] = _ts_tree_cursor_start_position_wasm = wasmExports2["ts_tree_cursor_start_position_wasm"];
+    Module["_ts_tree_cursor_end_position_wasm"] = _ts_tree_cursor_end_position_wasm = wasmExports2["ts_tree_cursor_end_position_wasm"];
+    Module["_ts_tree_cursor_start_index_wasm"] = _ts_tree_cursor_start_index_wasm = wasmExports2["ts_tree_cursor_start_index_wasm"];
+    Module["_ts_tree_cursor_end_index_wasm"] = _ts_tree_cursor_end_index_wasm = wasmExports2["ts_tree_cursor_end_index_wasm"];
+    Module["_ts_tree_cursor_current_field_id_wasm"] = _ts_tree_cursor_current_field_id_wasm = wasmExports2["ts_tree_cursor_current_field_id_wasm"];
+    Module["_ts_tree_cursor_current_depth_wasm"] = _ts_tree_cursor_current_depth_wasm = wasmExports2["ts_tree_cursor_current_depth_wasm"];
+    Module["_ts_tree_cursor_current_descendant_index_wasm"] = _ts_tree_cursor_current_descendant_index_wasm = wasmExports2["ts_tree_cursor_current_descendant_index_wasm"];
+    Module["_ts_tree_cursor_current_node_wasm"] = _ts_tree_cursor_current_node_wasm = wasmExports2["ts_tree_cursor_current_node_wasm"];
+    Module["_ts_node_symbol_wasm"] = _ts_node_symbol_wasm = wasmExports2["ts_node_symbol_wasm"];
+    Module["_ts_node_field_name_for_child_wasm"] = _ts_node_field_name_for_child_wasm = wasmExports2["ts_node_field_name_for_child_wasm"];
+    Module["_ts_node_field_name_for_named_child_wasm"] = _ts_node_field_name_for_named_child_wasm = wasmExports2["ts_node_field_name_for_named_child_wasm"];
+    Module["_ts_node_children_by_field_id_wasm"] = _ts_node_children_by_field_id_wasm = wasmExports2["ts_node_children_by_field_id_wasm"];
+    Module["_ts_node_first_child_for_byte_wasm"] = _ts_node_first_child_for_byte_wasm = wasmExports2["ts_node_first_child_for_byte_wasm"];
+    Module["_ts_node_first_named_child_for_byte_wasm"] = _ts_node_first_named_child_for_byte_wasm = wasmExports2["ts_node_first_named_child_for_byte_wasm"];
+    Module["_ts_node_grammar_symbol_wasm"] = _ts_node_grammar_symbol_wasm = wasmExports2["ts_node_grammar_symbol_wasm"];
+    Module["_ts_node_child_count_wasm"] = _ts_node_child_count_wasm = wasmExports2["ts_node_child_count_wasm"];
+    Module["_ts_node_named_child_count_wasm"] = _ts_node_named_child_count_wasm = wasmExports2["ts_node_named_child_count_wasm"];
+    Module["_ts_node_child_wasm"] = _ts_node_child_wasm = wasmExports2["ts_node_child_wasm"];
+    Module["_ts_node_named_child_wasm"] = _ts_node_named_child_wasm = wasmExports2["ts_node_named_child_wasm"];
+    Module["_ts_node_child_by_field_id_wasm"] = _ts_node_child_by_field_id_wasm = wasmExports2["ts_node_child_by_field_id_wasm"];
+    Module["_ts_node_next_sibling_wasm"] = _ts_node_next_sibling_wasm = wasmExports2["ts_node_next_sibling_wasm"];
+    Module["_ts_node_prev_sibling_wasm"] = _ts_node_prev_sibling_wasm = wasmExports2["ts_node_prev_sibling_wasm"];
+    Module["_ts_node_next_named_sibling_wasm"] = _ts_node_next_named_sibling_wasm = wasmExports2["ts_node_next_named_sibling_wasm"];
+    Module["_ts_node_prev_named_sibling_wasm"] = _ts_node_prev_named_sibling_wasm = wasmExports2["ts_node_prev_named_sibling_wasm"];
+    Module["_ts_node_descendant_count_wasm"] = _ts_node_descendant_count_wasm = wasmExports2["ts_node_descendant_count_wasm"];
+    Module["_ts_node_parent_wasm"] = _ts_node_parent_wasm = wasmExports2["ts_node_parent_wasm"];
+    Module["_ts_node_child_with_descendant_wasm"] = _ts_node_child_with_descendant_wasm = wasmExports2["ts_node_child_with_descendant_wasm"];
+    Module["_ts_node_descendant_for_index_wasm"] = _ts_node_descendant_for_index_wasm = wasmExports2["ts_node_descendant_for_index_wasm"];
+    Module["_ts_node_named_descendant_for_index_wasm"] = _ts_node_named_descendant_for_index_wasm = wasmExports2["ts_node_named_descendant_for_index_wasm"];
+    Module["_ts_node_descendant_for_position_wasm"] = _ts_node_descendant_for_position_wasm = wasmExports2["ts_node_descendant_for_position_wasm"];
+    Module["_ts_node_named_descendant_for_position_wasm"] = _ts_node_named_descendant_for_position_wasm = wasmExports2["ts_node_named_descendant_for_position_wasm"];
+    Module["_ts_node_start_point_wasm"] = _ts_node_start_point_wasm = wasmExports2["ts_node_start_point_wasm"];
+    Module["_ts_node_end_point_wasm"] = _ts_node_end_point_wasm = wasmExports2["ts_node_end_point_wasm"];
+    Module["_ts_node_start_index_wasm"] = _ts_node_start_index_wasm = wasmExports2["ts_node_start_index_wasm"];
+    Module["_ts_node_end_index_wasm"] = _ts_node_end_index_wasm = wasmExports2["ts_node_end_index_wasm"];
+    Module["_ts_node_to_string_wasm"] = _ts_node_to_string_wasm = wasmExports2["ts_node_to_string_wasm"];
+    Module["_ts_node_children_wasm"] = _ts_node_children_wasm = wasmExports2["ts_node_children_wasm"];
+    Module["_ts_node_named_children_wasm"] = _ts_node_named_children_wasm = wasmExports2["ts_node_named_children_wasm"];
+    Module["_ts_node_descendants_of_type_wasm"] = _ts_node_descendants_of_type_wasm = wasmExports2["ts_node_descendants_of_type_wasm"];
+    Module["_ts_node_is_named_wasm"] = _ts_node_is_named_wasm = wasmExports2["ts_node_is_named_wasm"];
+    Module["_ts_node_has_changes_wasm"] = _ts_node_has_changes_wasm = wasmExports2["ts_node_has_changes_wasm"];
+    Module["_ts_node_has_error_wasm"] = _ts_node_has_error_wasm = wasmExports2["ts_node_has_error_wasm"];
+    Module["_ts_node_is_error_wasm"] = _ts_node_is_error_wasm = wasmExports2["ts_node_is_error_wasm"];
+    Module["_ts_node_is_missing_wasm"] = _ts_node_is_missing_wasm = wasmExports2["ts_node_is_missing_wasm"];
+    Module["_ts_node_is_extra_wasm"] = _ts_node_is_extra_wasm = wasmExports2["ts_node_is_extra_wasm"];
+    Module["_ts_node_parse_state_wasm"] = _ts_node_parse_state_wasm = wasmExports2["ts_node_parse_state_wasm"];
+    Module["_ts_node_next_parse_state_wasm"] = _ts_node_next_parse_state_wasm = wasmExports2["ts_node_next_parse_state_wasm"];
+    Module["_ts_query_matches_wasm"] = _ts_query_matches_wasm = wasmExports2["ts_query_matches_wasm"];
+    Module["_ts_query_captures_wasm"] = _ts_query_captures_wasm = wasmExports2["ts_query_captures_wasm"];
+    Module["_memset"] = _memset = wasmExports2["memset"];
+    Module["_memcpy"] = _memcpy = wasmExports2["memcpy"];
+    Module["_memmove"] = _memmove = wasmExports2["memmove"];
+    Module["_iswalpha"] = _iswalpha = wasmExports2["iswalpha"];
+    Module["_iswblank"] = _iswblank = wasmExports2["iswblank"];
+    Module["_iswdigit"] = _iswdigit = wasmExports2["iswdigit"];
+    Module["_iswlower"] = _iswlower = wasmExports2["iswlower"];
+    Module["_iswupper"] = _iswupper = wasmExports2["iswupper"];
+    Module["_iswxdigit"] = _iswxdigit = wasmExports2["iswxdigit"];
+    Module["_memchr"] = _memchr = wasmExports2["memchr"];
+    Module["_strlen"] = _strlen = wasmExports2["strlen"];
+    Module["_strcmp"] = _strcmp = wasmExports2["strcmp"];
+    Module["_strncat"] = _strncat = wasmExports2["strncat"];
+    Module["_strncpy"] = _strncpy = wasmExports2["strncpy"];
+    Module["_towlower"] = _towlower = wasmExports2["towlower"];
+    Module["_towupper"] = _towupper = wasmExports2["towupper"];
+    _setThrew = wasmExports2["setThrew"];
+    __emscripten_stack_restore = wasmExports2["_emscripten_stack_restore"];
+    __emscripten_stack_alloc = wasmExports2["_emscripten_stack_alloc"];
+    _emscripten_stack_get_current = wasmExports2["emscripten_stack_get_current"];
+    ___wasm_apply_data_relocs = wasmExports2["__wasm_apply_data_relocs"];
+  }
+  __name(assignWasmExports, "assignWasmExports");
+  var wasmImports = {
+    /** @export */
+    __heap_base: ___heap_base,
+    /** @export */
+    __indirect_function_table: wasmTable,
+    /** @export */
+    __memory_base: ___memory_base,
+    /** @export */
+    __stack_high: ___stack_high,
+    /** @export */
+    __stack_low: ___stack_low,
+    /** @export */
+    __stack_pointer: ___stack_pointer,
+    /** @export */
+    __table_base: ___table_base,
+    /** @export */
+    _abort_js: __abort_js,
+    /** @export */
+    emscripten_resize_heap: _emscripten_resize_heap,
+    /** @export */
+    fd_close: _fd_close,
+    /** @export */
+    fd_seek: _fd_seek,
+    /** @export */
+    fd_write: _fd_write,
+    /** @export */
+    memory: wasmMemory,
+    /** @export */
+    tree_sitter_log_callback: _tree_sitter_log_callback,
+    /** @export */
+    tree_sitter_parse_callback: _tree_sitter_parse_callback,
+    /** @export */
+    tree_sitter_progress_callback: _tree_sitter_progress_callback,
+    /** @export */
+    tree_sitter_query_progress_callback: _tree_sitter_query_progress_callback
+  };
+  function callMain(args2 = []) {
+    var entryFunction = resolveGlobalSymbol("main").sym;
+    if (!entryFunction) return;
+    args2.unshift(thisProgram);
+    var argc = args2.length;
+    var argv = stackAlloc((argc + 1) * 4);
+    var argv_ptr = argv;
+    args2.forEach((arg) => {
+      LE_HEAP_STORE_U32((argv_ptr >> 2) * 4, stringToUTF8OnStack(arg));
+      argv_ptr += 4;
+    });
+    LE_HEAP_STORE_U32((argv_ptr >> 2) * 4, 0);
+    try {
+      var ret = entryFunction(argc, argv);
+      exitJS(
+        ret,
+        /* implicit = */
+        true
+      );
+      return ret;
+    } catch (e) {
+      return handleException(e);
+    }
+  }
+  __name(callMain, "callMain");
+  function run(args2 = arguments_) {
+    if (runDependencies > 0) {
+      dependenciesFulfilled = run;
+      return;
+    }
+    preRun();
+    if (runDependencies > 0) {
+      dependenciesFulfilled = run;
+      return;
+    }
+    function doRun() {
+      Module["calledRun"] = true;
+      if (ABORT) return;
+      initRuntime();
+      preMain();
+      readyPromiseResolve?.(Module);
+      Module["onRuntimeInitialized"]?.();
+      var noInitialRun = Module["noInitialRun"] || false;
+      if (!noInitialRun) callMain(args2);
+      postRun();
+    }
+    __name(doRun, "doRun");
+    if (Module["setStatus"]) {
+      Module["setStatus"]("Running...");
+      setTimeout(() => {
+        setTimeout(() => Module["setStatus"](""), 1);
+        doRun();
+      }, 1);
+    } else {
+      doRun();
+    }
+  }
+  __name(run, "run");
+  var wasmExports;
+  wasmExports = await createWasm();
+  run();
+  if (runtimeInitialized) {
+    moduleRtn = Module;
+  } else {
+    moduleRtn = new Promise((resolve2, reject) => {
+      readyPromiseResolve = resolve2;
+      readyPromiseReject = reject;
+    });
+  }
+  return moduleRtn;
+}
+__name(Module2, "Module");
+var web_tree_sitter_default = Module2;
+var Module3 = null;
+async function initializeBinding(moduleOptions) {
+  return Module3 ??= await web_tree_sitter_default(moduleOptions);
+}
+__name(initializeBinding, "initializeBinding");
+function checkModule() {
+  return !!Module3;
+}
+__name(checkModule, "checkModule");
+var TRANSFER_BUFFER;
+var LANGUAGE_VERSION;
+var MIN_COMPATIBLE_VERSION;
+var Parser = class {
+  static {
+    __name(this, "Parser");
+  }
+  /** @internal */
+  [0] = 0;
+  // Internal handle for Wasm
+  /** @internal */
+  [1] = 0;
+  // Internal handle for Wasm
+  /** @internal */
+  logCallback = null;
+  /** The parser's current language. */
+  language = null;
+  /**
+   * This must always be called before creating a Parser.
+   *
+   * You can optionally pass in options to configure the Wasm module, the most common
+   * one being `locateFile` to help the module find the `.wasm` file.
+   */
+  static async init(moduleOptions) {
+    setModule(await initializeBinding(moduleOptions));
+    TRANSFER_BUFFER = C._ts_init();
+    LANGUAGE_VERSION = C.getValue(TRANSFER_BUFFER, "i32");
+    MIN_COMPATIBLE_VERSION = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+  }
+  /**
+   * Create a new parser.
+   */
+  constructor() {
+    this.initialize();
+  }
+  /** @internal */
+  initialize() {
+    if (!checkModule()) {
+      throw new Error("cannot construct a Parser before calling `init()`");
+    }
+    C._ts_parser_new_wasm();
+    this[0] = C.getValue(TRANSFER_BUFFER, "i32");
+    this[1] = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+  }
+  /** Delete the parser, freeing its resources. */
+  delete() {
+    C._ts_parser_delete(this[0]);
+    C._free(this[1]);
+    this[0] = 0;
+    this[1] = 0;
+  }
+  /**
+   * Set the language that the parser should use for parsing.
+   *
+   * If the language was not successfully assigned, an error will be thrown.
+   * This happens if the language was generated with an incompatible
+   * version of the Tree-sitter CLI. Check the language's version using
+   * {@link Language#version} and compare it to this library's
+   * {@link LANGUAGE_VERSION} and {@link MIN_COMPATIBLE_VERSION} constants.
+   */
+  setLanguage(language) {
+    let address;
+    if (!language) {
+      address = 0;
+      this.language = null;
+    } else if (language.constructor === Language) {
+      address = language[0];
+      const version = C._ts_language_abi_version(address);
+      if (version < MIN_COMPATIBLE_VERSION || LANGUAGE_VERSION < version) {
+        throw new Error(
+          `Incompatible language version ${version}. Compatibility range ${MIN_COMPATIBLE_VERSION} through ${LANGUAGE_VERSION}.`
+        );
+      }
+      this.language = language;
+    } else {
+      throw new Error("Argument must be a Language");
+    }
+    C._ts_parser_set_language(this[0], address);
+    return this;
+  }
+  /**
+   * Parse a slice of UTF8 text.
+   *
+   * @param {string | ParseCallback} callback - The UTF8-encoded text to parse or a callback function.
+   *
+   * @param {Tree | null} [oldTree] - A previous syntax tree parsed from the same document. If the text of the
+   *   document has changed since `oldTree` was created, then you must edit `oldTree` to match
+   *   the new text using {@link Tree#edit}.
+   *
+   * @param {ParseOptions} [options] - Options for parsing the text.
+   *  This can be used to set the included ranges, or a progress callback.
+   *
+   * @returns {Tree | null} A {@link Tree} if parsing succeeded, or `null` if:
+   *  - The parser has not yet had a language assigned with {@link Parser#setLanguage}.
+   *  - The progress callback returned true.
+   */
+  parse(callback, oldTree, options) {
+    if (typeof callback === "string") {
+      C.currentParseCallback = (index) => callback.slice(index);
+    } else if (typeof callback === "function") {
+      C.currentParseCallback = callback;
+    } else {
+      throw new Error("Argument must be a string or a function");
+    }
+    if (options?.progressCallback) {
+      C.currentProgressCallback = options.progressCallback;
+    } else {
+      C.currentProgressCallback = null;
+    }
+    if (this.logCallback) {
+      C.currentLogCallback = this.logCallback;
+      C._ts_parser_enable_logger_wasm(this[0], 1);
+    } else {
+      C.currentLogCallback = null;
+      C._ts_parser_enable_logger_wasm(this[0], 0);
+    }
+    let rangeCount = 0;
+    let rangeAddress = 0;
+    if (options?.includedRanges) {
+      rangeCount = options.includedRanges.length;
+      rangeAddress = C._calloc(rangeCount, SIZE_OF_RANGE);
+      let address = rangeAddress;
+      for (let i2 = 0; i2 < rangeCount; i2++) {
+        marshalRange(address, options.includedRanges[i2]);
+        address += SIZE_OF_RANGE;
+      }
+    }
+    const treeAddress = C._ts_parser_parse_wasm(
+      this[0],
+      this[1],
+      oldTree ? oldTree[0] : 0,
+      rangeAddress,
+      rangeCount
+    );
+    if (!treeAddress) {
+      C.currentParseCallback = null;
+      C.currentLogCallback = null;
+      C.currentProgressCallback = null;
+      return null;
+    }
+    if (!this.language) {
+      throw new Error("Parser must have a language to parse");
+    }
+    const result = new Tree(INTERNAL, treeAddress, this.language, C.currentParseCallback);
+    C.currentParseCallback = null;
+    C.currentLogCallback = null;
+    C.currentProgressCallback = null;
+    return result;
+  }
+  /**
+   * Instruct the parser to start the next parse from the beginning.
+   *
+   * If the parser previously failed because of a callback, 
+   * then by default, it will resume where it left off on the
+   * next call to {@link Parser#parse} or other parsing functions.
+   * If you don't want to resume, and instead intend to use this parser to
+   * parse some other document, you must call `reset` first.
+   */
+  reset() {
+    C._ts_parser_reset(this[0]);
+  }
+  /** Get the ranges of text that the parser will include when parsing. */
+  getIncludedRanges() {
+    C._ts_parser_included_ranges_wasm(this[0]);
+    const count = C.getValue(TRANSFER_BUFFER, "i32");
+    const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+    const result = new Array(count);
+    if (count > 0) {
+      let address = buffer;
+      for (let i2 = 0; i2 < count; i2++) {
+        result[i2] = unmarshalRange(address);
+        address += SIZE_OF_RANGE;
+      }
+      C._free(buffer);
+    }
+    return result;
+  }
+  /** Set the logging callback that a parser should use during parsing. */
+  setLogger(callback) {
+    if (!callback) {
+      this.logCallback = null;
+    } else if (typeof callback !== "function") {
+      throw new Error("Logger callback must be a function");
+    } else {
+      this.logCallback = callback;
+    }
+    return this;
+  }
+  /** Get the parser's current logger. */
+  getLogger() {
+    return this.logCallback;
+  }
+};
+var PREDICATE_STEP_TYPE_CAPTURE = 1;
+var PREDICATE_STEP_TYPE_STRING = 2;
+var QUERY_WORD_REGEX = /[\w-]+/g;
+var CaptureQuantifier = {
+  Zero: 0,
+  ZeroOrOne: 1,
+  ZeroOrMore: 2,
+  One: 3,
+  OneOrMore: 4
+};
+var isCaptureStep = /* @__PURE__ */ __name((step) => step.type === "capture", "isCaptureStep");
+var isStringStep = /* @__PURE__ */ __name((step) => step.type === "string", "isStringStep");
+var QueryErrorKind = {
+  Syntax: 1,
+  NodeName: 2,
+  FieldName: 3,
+  CaptureName: 4,
+  PatternStructure: 5
+};
+var QueryError = class _QueryError extends Error {
+  constructor(kind, info2, index, length) {
+    super(_QueryError.formatMessage(kind, info2));
+    this.kind = kind;
+    this.info = info2;
+    this.index = index;
+    this.length = length;
+    this.name = "QueryError";
+  }
+  static {
+    __name(this, "QueryError");
+  }
+  /** Formats an error message based on the error kind and info */
+  static formatMessage(kind, info2) {
+    switch (kind) {
+      case QueryErrorKind.NodeName:
+        return `Bad node name '${info2.word}'`;
+      case QueryErrorKind.FieldName:
+        return `Bad field name '${info2.word}'`;
+      case QueryErrorKind.CaptureName:
+        return `Bad capture name @${info2.word}`;
+      case QueryErrorKind.PatternStructure:
+        return `Bad pattern structure at offset ${info2.suffix}`;
+      case QueryErrorKind.Syntax:
+        return `Bad syntax at offset ${info2.suffix}`;
+    }
+  }
+};
+function parseAnyPredicate(steps, index, operator, textPredicates) {
+  if (steps.length !== 3) {
+    throw new Error(
+      `Wrong number of arguments to \`#${operator}\` predicate. Expected 2, got ${steps.length - 1}`
+    );
+  }
+  if (!isCaptureStep(steps[1])) {
+    throw new Error(
+      `First argument of \`#${operator}\` predicate must be a capture. Got "${steps[1].value}"`
+    );
+  }
+  const isPositive = operator === "eq?" || operator === "any-eq?";
+  const matchAll = !operator.startsWith("any-");
+  if (isCaptureStep(steps[2])) {
+    const captureName1 = steps[1].name;
+    const captureName2 = steps[2].name;
+    textPredicates[index].push((captures) => {
+      const nodes1 = [];
+      const nodes2 = [];
+      for (const c2 of captures) {
+        if (c2.name === captureName1) nodes1.push(c2.node);
+        if (c2.name === captureName2) nodes2.push(c2.node);
+      }
+      const compare = /* @__PURE__ */ __name((n1, n2, positive) => {
+        return positive ? n1.text === n2.text : n1.text !== n2.text;
+      }, "compare");
+      return matchAll ? nodes1.every((n1) => nodes2.some((n2) => compare(n1, n2, isPositive))) : nodes1.some((n1) => nodes2.some((n2) => compare(n1, n2, isPositive)));
+    });
+  } else {
+    const captureName = steps[1].name;
+    const stringValue = steps[2].value;
+    const matches = /* @__PURE__ */ __name((n) => n.text === stringValue, "matches");
+    const doesNotMatch = /* @__PURE__ */ __name((n) => n.text !== stringValue, "doesNotMatch");
+    textPredicates[index].push((captures) => {
+      const nodes = [];
+      for (const c2 of captures) {
+        if (c2.name === captureName) nodes.push(c2.node);
+      }
+      const test = isPositive ? matches : doesNotMatch;
+      return matchAll ? nodes.every(test) : nodes.some(test);
+    });
+  }
+}
+__name(parseAnyPredicate, "parseAnyPredicate");
+function parseMatchPredicate(steps, index, operator, textPredicates) {
+  if (steps.length !== 3) {
+    throw new Error(
+      `Wrong number of arguments to \`#${operator}\` predicate. Expected 2, got ${steps.length - 1}.`
+    );
+  }
+  if (steps[1].type !== "capture") {
+    throw new Error(
+      `First argument of \`#${operator}\` predicate must be a capture. Got "${steps[1].value}".`
+    );
+  }
+  if (steps[2].type !== "string") {
+    throw new Error(
+      `Second argument of \`#${operator}\` predicate must be a string. Got @${steps[2].name}.`
+    );
+  }
+  const isPositive = operator === "match?" || operator === "any-match?";
+  const matchAll = !operator.startsWith("any-");
+  const captureName = steps[1].name;
+  const regex = new RegExp(steps[2].value);
+  textPredicates[index].push((captures) => {
+    const nodes = [];
+    for (const c2 of captures) {
+      if (c2.name === captureName) nodes.push(c2.node.text);
+    }
+    const test = /* @__PURE__ */ __name((text, positive) => {
+      return positive ? regex.test(text) : !regex.test(text);
+    }, "test");
+    if (nodes.length === 0) return !isPositive;
+    return matchAll ? nodes.every((text) => test(text, isPositive)) : nodes.some((text) => test(text, isPositive));
+  });
+}
+__name(parseMatchPredicate, "parseMatchPredicate");
+function parseAnyOfPredicate(steps, index, operator, textPredicates) {
+  if (steps.length < 2) {
+    throw new Error(
+      `Wrong number of arguments to \`#${operator}\` predicate. Expected at least 1. Got ${steps.length - 1}.`
+    );
+  }
+  if (steps[1].type !== "capture") {
+    throw new Error(
+      `First argument of \`#${operator}\` predicate must be a capture. Got "${steps[1].value}".`
+    );
+  }
+  const isPositive = operator === "any-of?";
+  const captureName = steps[1].name;
+  const stringSteps = steps.slice(2);
+  if (!stringSteps.every(isStringStep)) {
+    throw new Error(
+      `Arguments to \`#${operator}\` predicate must be strings.".`
+    );
+  }
+  const values = stringSteps.map((s) => s.value);
+  textPredicates[index].push((captures) => {
+    const nodes = [];
+    for (const c2 of captures) {
+      if (c2.name === captureName) nodes.push(c2.node.text);
+    }
+    if (nodes.length === 0) return !isPositive;
+    return nodes.every((text) => values.includes(text)) === isPositive;
+  });
+}
+__name(parseAnyOfPredicate, "parseAnyOfPredicate");
+function parseIsPredicate(steps, index, operator, assertedProperties, refutedProperties) {
+  if (steps.length < 2 || steps.length > 3) {
+    throw new Error(
+      `Wrong number of arguments to \`#${operator}\` predicate. Expected 1 or 2. Got ${steps.length - 1}.`
+    );
+  }
+  if (!steps.every(isStringStep)) {
+    throw new Error(
+      `Arguments to \`#${operator}\` predicate must be strings.".`
+    );
+  }
+  const properties = operator === "is?" ? assertedProperties : refutedProperties;
+  if (!properties[index]) properties[index] = {};
+  properties[index][steps[1].value] = steps[2]?.value ?? null;
+}
+__name(parseIsPredicate, "parseIsPredicate");
+function parseSetDirective(steps, index, setProperties) {
+  if (steps.length < 2 || steps.length > 3) {
+    throw new Error(`Wrong number of arguments to \`#set!\` predicate. Expected 1 or 2. Got ${steps.length - 1}.`);
+  }
+  if (!steps.every(isStringStep)) {
+    throw new Error(`Arguments to \`#set!\` predicate must be strings.".`);
+  }
+  if (!setProperties[index]) setProperties[index] = {};
+  setProperties[index][steps[1].value] = steps[2]?.value ?? null;
+}
+__name(parseSetDirective, "parseSetDirective");
+function parsePattern(index, stepType, stepValueId, captureNames, stringValues, steps, textPredicates, predicates, setProperties, assertedProperties, refutedProperties) {
+  if (stepType === PREDICATE_STEP_TYPE_CAPTURE) {
+    const name2 = captureNames[stepValueId];
+    steps.push({ type: "capture", name: name2 });
+  } else if (stepType === PREDICATE_STEP_TYPE_STRING) {
+    steps.push({ type: "string", value: stringValues[stepValueId] });
+  } else if (steps.length > 0) {
+    if (steps[0].type !== "string") {
+      throw new Error("Predicates must begin with a literal value");
+    }
+    const operator = steps[0].value;
+    switch (operator) {
+      case "any-not-eq?":
+      case "not-eq?":
+      case "any-eq?":
+      case "eq?":
+        parseAnyPredicate(steps, index, operator, textPredicates);
+        break;
+      case "any-not-match?":
+      case "not-match?":
+      case "any-match?":
+      case "match?":
+        parseMatchPredicate(steps, index, operator, textPredicates);
+        break;
+      case "not-any-of?":
+      case "any-of?":
+        parseAnyOfPredicate(steps, index, operator, textPredicates);
+        break;
+      case "is?":
+      case "is-not?":
+        parseIsPredicate(steps, index, operator, assertedProperties, refutedProperties);
+        break;
+      case "set!":
+        parseSetDirective(steps, index, setProperties);
+        break;
+      default:
+        predicates[index].push({ operator, operands: steps.slice(1) });
+    }
+    steps.length = 0;
+  }
+}
+__name(parsePattern, "parsePattern");
+var Query = class {
+  static {
+    __name(this, "Query");
+  }
+  /** @internal */
+  [0] = 0;
+  // Internal handle for Wasm
+  /** @internal */
+  exceededMatchLimit;
+  /** @internal */
+  textPredicates;
+  /** The names of the captures used in the query. */
+  captureNames;
+  /** The quantifiers of the captures used in the query. */
+  captureQuantifiers;
+  /**
+   * The other user-defined predicates associated with the given index.
+   *
+   * This includes predicates with operators other than:
+   * - `match?`
+   * - `eq?` and `not-eq?`
+   * - `any-of?` and `not-any-of?`
+   * - `is?` and `is-not?`
+   * - `set!`
+   */
+  predicates;
+  /** The properties for predicates with the operator `set!`. */
+  setProperties;
+  /** The properties for predicates with the operator `is?`. */
+  assertedProperties;
+  /** The properties for predicates with the operator `is-not?`. */
+  refutedProperties;
+  /** The maximum number of in-progress matches for this cursor. */
+  matchLimit;
+  /**
+   * Create a new query from a string containing one or more S-expression
+   * patterns.
+   *
+   * The query is associated with a particular language, and can only be run
+   * on syntax nodes parsed with that language. References to Queries can be
+   * shared between multiple threads.
+   *
+   * @link {@see https://tree-sitter.github.io/tree-sitter/using-parsers/queries}
+   */
+  constructor(language, source) {
+    const sourceLength = C.lengthBytesUTF8(source);
+    const sourceAddress = C._malloc(sourceLength + 1);
+    C.stringToUTF8(source, sourceAddress, sourceLength + 1);
+    const address = C._ts_query_new(
+      language[0],
+      sourceAddress,
+      sourceLength,
+      TRANSFER_BUFFER,
+      TRANSFER_BUFFER + SIZE_OF_INT
+    );
+    if (!address) {
+      const errorId = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+      const errorByte = C.getValue(TRANSFER_BUFFER, "i32");
+      const errorIndex = C.UTF8ToString(sourceAddress, errorByte).length;
+      const suffix = source.slice(errorIndex, errorIndex + 100).split("\n")[0];
+      const word = suffix.match(QUERY_WORD_REGEX)?.[0] ?? "";
+      C._free(sourceAddress);
+      switch (errorId) {
+        case QueryErrorKind.Syntax:
+          throw new QueryError(QueryErrorKind.Syntax, { suffix: `${errorIndex}: '${suffix}'...` }, errorIndex, 0);
+        case QueryErrorKind.NodeName:
+          throw new QueryError(errorId, { word }, errorIndex, word.length);
+        case QueryErrorKind.FieldName:
+          throw new QueryError(errorId, { word }, errorIndex, word.length);
+        case QueryErrorKind.CaptureName:
+          throw new QueryError(errorId, { word }, errorIndex, word.length);
+        case QueryErrorKind.PatternStructure:
+          throw new QueryError(errorId, { suffix: `${errorIndex}: '${suffix}'...` }, errorIndex, 0);
+      }
+    }
+    const stringCount = C._ts_query_string_count(address);
+    const captureCount = C._ts_query_capture_count(address);
+    const patternCount = C._ts_query_pattern_count(address);
+    const captureNames = new Array(captureCount);
+    const captureQuantifiers = new Array(patternCount);
+    const stringValues = new Array(stringCount);
+    for (let i2 = 0; i2 < captureCount; i2++) {
+      const nameAddress = C._ts_query_capture_name_for_id(
+        address,
+        i2,
+        TRANSFER_BUFFER
+      );
+      const nameLength = C.getValue(TRANSFER_BUFFER, "i32");
+      captureNames[i2] = C.UTF8ToString(nameAddress, nameLength);
+    }
+    for (let i2 = 0; i2 < patternCount; i2++) {
+      const captureQuantifiersArray = new Array(captureCount);
+      for (let j = 0; j < captureCount; j++) {
+        const quantifier = C._ts_query_capture_quantifier_for_id(address, i2, j);
+        captureQuantifiersArray[j] = quantifier;
+      }
+      captureQuantifiers[i2] = captureQuantifiersArray;
+    }
+    for (let i2 = 0; i2 < stringCount; i2++) {
+      const valueAddress = C._ts_query_string_value_for_id(
+        address,
+        i2,
+        TRANSFER_BUFFER
+      );
+      const nameLength = C.getValue(TRANSFER_BUFFER, "i32");
+      stringValues[i2] = C.UTF8ToString(valueAddress, nameLength);
+    }
+    const setProperties = new Array(patternCount);
+    const assertedProperties = new Array(patternCount);
+    const refutedProperties = new Array(patternCount);
+    const predicates = new Array(patternCount);
+    const textPredicates = new Array(patternCount);
+    for (let i2 = 0; i2 < patternCount; i2++) {
+      const predicatesAddress = C._ts_query_predicates_for_pattern(address, i2, TRANSFER_BUFFER);
+      const stepCount = C.getValue(TRANSFER_BUFFER, "i32");
+      predicates[i2] = [];
+      textPredicates[i2] = [];
+      const steps = new Array();
+      let stepAddress = predicatesAddress;
+      for (let j = 0; j < stepCount; j++) {
+        const stepType = C.getValue(stepAddress, "i32");
+        stepAddress += SIZE_OF_INT;
+        const stepValueId = C.getValue(stepAddress, "i32");
+        stepAddress += SIZE_OF_INT;
+        parsePattern(
+          i2,
+          stepType,
+          stepValueId,
+          captureNames,
+          stringValues,
+          steps,
+          textPredicates,
+          predicates,
+          setProperties,
+          assertedProperties,
+          refutedProperties
+        );
+      }
+      Object.freeze(textPredicates[i2]);
+      Object.freeze(predicates[i2]);
+      Object.freeze(setProperties[i2]);
+      Object.freeze(assertedProperties[i2]);
+      Object.freeze(refutedProperties[i2]);
+    }
+    C._free(sourceAddress);
+    this[0] = address;
+    this.captureNames = captureNames;
+    this.captureQuantifiers = captureQuantifiers;
+    this.textPredicates = textPredicates;
+    this.predicates = predicates;
+    this.setProperties = setProperties;
+    this.assertedProperties = assertedProperties;
+    this.refutedProperties = refutedProperties;
+    this.exceededMatchLimit = false;
+  }
+  /** Delete the query, freeing its resources. */
+  delete() {
+    C._ts_query_delete(this[0]);
+    this[0] = 0;
+  }
+  /**
+   * Iterate over all of the matches in the order that they were found.
+   *
+   * Each match contains the index of the pattern that matched, and a list of
+   * captures. Because multiple patterns can match the same set of nodes,
+   * one match may contain captures that appear *before* some of the
+   * captures from a previous match.
+   *
+   * @param {Node} node - The node to execute the query on.
+   *
+   * @param {QueryOptions} options - Options for query execution.
+   */
+  matches(node, options = {}) {
+    const startPosition = options.startPosition ?? ZERO_POINT;
+    const endPosition = options.endPosition ?? ZERO_POINT;
+    const startIndex = options.startIndex ?? 0;
+    const endIndex = options.endIndex ?? 0;
+    const startContainingPosition = options.startContainingPosition ?? ZERO_POINT;
+    const endContainingPosition = options.endContainingPosition ?? ZERO_POINT;
+    const startContainingIndex = options.startContainingIndex ?? 0;
+    const endContainingIndex = options.endContainingIndex ?? 0;
+    const matchLimit = options.matchLimit ?? 4294967295;
+    const maxStartDepth = options.maxStartDepth ?? 4294967295;
+    const progressCallback = options.progressCallback;
+    if (typeof matchLimit !== "number") {
+      throw new Error("Arguments must be numbers");
+    }
+    this.matchLimit = matchLimit;
+    if (endIndex !== 0 && startIndex > endIndex) {
+      throw new Error("`startIndex` cannot be greater than `endIndex`");
+    }
+    if (endPosition !== ZERO_POINT && (startPosition.row > endPosition.row || startPosition.row === endPosition.row && startPosition.column > endPosition.column)) {
+      throw new Error("`startPosition` cannot be greater than `endPosition`");
+    }
+    if (endContainingIndex !== 0 && startContainingIndex > endContainingIndex) {
+      throw new Error("`startContainingIndex` cannot be greater than `endContainingIndex`");
+    }
+    if (endContainingPosition !== ZERO_POINT && (startContainingPosition.row > endContainingPosition.row || startContainingPosition.row === endContainingPosition.row && startContainingPosition.column > endContainingPosition.column)) {
+      throw new Error("`startContainingPosition` cannot be greater than `endContainingPosition`");
+    }
+    if (progressCallback) {
+      C.currentQueryProgressCallback = progressCallback;
+    }
+    marshalNode(node);
+    C._ts_query_matches_wasm(
+      this[0],
+      node.tree[0],
+      startPosition.row,
+      startPosition.column,
+      endPosition.row,
+      endPosition.column,
+      startIndex,
+      endIndex,
+      startContainingPosition.row,
+      startContainingPosition.column,
+      endContainingPosition.row,
+      endContainingPosition.column,
+      startContainingIndex,
+      endContainingIndex,
+      matchLimit,
+      maxStartDepth
+    );
+    const rawCount = C.getValue(TRANSFER_BUFFER, "i32");
+    const startAddress = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+    const didExceedMatchLimit = C.getValue(TRANSFER_BUFFER + 2 * SIZE_OF_INT, "i32");
+    const result = new Array(rawCount);
+    this.exceededMatchLimit = Boolean(didExceedMatchLimit);
+    let filteredCount = 0;
+    let address = startAddress;
+    for (let i2 = 0; i2 < rawCount; i2++) {
+      const patternIndex = C.getValue(address, "i32");
+      address += SIZE_OF_INT;
+      const captureCount = C.getValue(address, "i32");
+      address += SIZE_OF_INT;
+      const captures = new Array(captureCount);
+      address = unmarshalCaptures(this, node.tree, address, patternIndex, captures);
+      if (this.textPredicates[patternIndex].every((p) => p(captures))) {
+        result[filteredCount] = { patternIndex, captures };
+        const setProperties = this.setProperties[patternIndex];
+        result[filteredCount].setProperties = setProperties;
+        const assertedProperties = this.assertedProperties[patternIndex];
+        result[filteredCount].assertedProperties = assertedProperties;
+        const refutedProperties = this.refutedProperties[patternIndex];
+        result[filteredCount].refutedProperties = refutedProperties;
+        filteredCount++;
+      }
+    }
+    result.length = filteredCount;
+    C._free(startAddress);
+    C.currentQueryProgressCallback = null;
+    return result;
+  }
+  /**
+   * Iterate over all of the individual captures in the order that they
+   * appear.
+   *
+   * This is useful if you don't care about which pattern matched, and just
+   * want a single, ordered sequence of captures.
+   *
+   * @param {Node} node - The node to execute the query on.
+   *
+   * @param {QueryOptions} options - Options for query execution.
+   */
+  captures(node, options = {}) {
+    const startPosition = options.startPosition ?? ZERO_POINT;
+    const endPosition = options.endPosition ?? ZERO_POINT;
+    const startIndex = options.startIndex ?? 0;
+    const endIndex = options.endIndex ?? 0;
+    const startContainingPosition = options.startContainingPosition ?? ZERO_POINT;
+    const endContainingPosition = options.endContainingPosition ?? ZERO_POINT;
+    const startContainingIndex = options.startContainingIndex ?? 0;
+    const endContainingIndex = options.endContainingIndex ?? 0;
+    const matchLimit = options.matchLimit ?? 4294967295;
+    const maxStartDepth = options.maxStartDepth ?? 4294967295;
+    const progressCallback = options.progressCallback;
+    if (typeof matchLimit !== "number") {
+      throw new Error("Arguments must be numbers");
+    }
+    this.matchLimit = matchLimit;
+    if (endIndex !== 0 && startIndex > endIndex) {
+      throw new Error("`startIndex` cannot be greater than `endIndex`");
+    }
+    if (endPosition !== ZERO_POINT && (startPosition.row > endPosition.row || startPosition.row === endPosition.row && startPosition.column > endPosition.column)) {
+      throw new Error("`startPosition` cannot be greater than `endPosition`");
+    }
+    if (endContainingIndex !== 0 && startContainingIndex > endContainingIndex) {
+      throw new Error("`startContainingIndex` cannot be greater than `endContainingIndex`");
+    }
+    if (endContainingPosition !== ZERO_POINT && (startContainingPosition.row > endContainingPosition.row || startContainingPosition.row === endContainingPosition.row && startContainingPosition.column > endContainingPosition.column)) {
+      throw new Error("`startContainingPosition` cannot be greater than `endContainingPosition`");
+    }
+    if (progressCallback) {
+      C.currentQueryProgressCallback = progressCallback;
+    }
+    marshalNode(node);
+    C._ts_query_captures_wasm(
+      this[0],
+      node.tree[0],
+      startPosition.row,
+      startPosition.column,
+      endPosition.row,
+      endPosition.column,
+      startIndex,
+      endIndex,
+      startContainingPosition.row,
+      startContainingPosition.column,
+      endContainingPosition.row,
+      endContainingPosition.column,
+      startContainingIndex,
+      endContainingIndex,
+      matchLimit,
+      maxStartDepth
+    );
+    const count = C.getValue(TRANSFER_BUFFER, "i32");
+    const startAddress = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+    const didExceedMatchLimit = C.getValue(TRANSFER_BUFFER + 2 * SIZE_OF_INT, "i32");
+    const result = new Array();
+    this.exceededMatchLimit = Boolean(didExceedMatchLimit);
+    const captures = new Array();
+    let address = startAddress;
+    for (let i2 = 0; i2 < count; i2++) {
+      const patternIndex = C.getValue(address, "i32");
+      address += SIZE_OF_INT;
+      const captureCount = C.getValue(address, "i32");
+      address += SIZE_OF_INT;
+      const captureIndex = C.getValue(address, "i32");
+      address += SIZE_OF_INT;
+      captures.length = captureCount;
+      address = unmarshalCaptures(this, node.tree, address, patternIndex, captures);
+      if (this.textPredicates[patternIndex].every((p) => p(captures))) {
+        const capture = captures[captureIndex];
+        const setProperties = this.setProperties[patternIndex];
+        capture.setProperties = setProperties;
+        const assertedProperties = this.assertedProperties[patternIndex];
+        capture.assertedProperties = assertedProperties;
+        const refutedProperties = this.refutedProperties[patternIndex];
+        capture.refutedProperties = refutedProperties;
+        result.push(capture);
+      }
+    }
+    C._free(startAddress);
+    C.currentQueryProgressCallback = null;
+    return result;
+  }
+  /** Get the predicates for a given pattern. */
+  predicatesForPattern(patternIndex) {
+    return this.predicates[patternIndex];
+  }
+  /**
+   * Disable a certain capture within a query.
+   *
+   * This prevents the capture from being returned in matches, and also
+   * avoids any resource usage associated with recording the capture.
+   */
+  disableCapture(captureName) {
+    const captureNameLength = C.lengthBytesUTF8(captureName);
+    const captureNameAddress = C._malloc(captureNameLength + 1);
+    C.stringToUTF8(captureName, captureNameAddress, captureNameLength + 1);
+    C._ts_query_disable_capture(this[0], captureNameAddress, captureNameLength);
+    C._free(captureNameAddress);
+  }
+  /**
+   * Disable a certain pattern within a query.
+   *
+   * This prevents the pattern from matching, and also avoids any resource
+   * usage associated with the pattern. This throws an error if the pattern
+   * index is out of bounds.
+   */
+  disablePattern(patternIndex) {
+    if (patternIndex >= this.predicates.length) {
+      throw new Error(
+        `Pattern index is ${patternIndex} but the pattern count is ${this.predicates.length}`
+      );
+    }
+    C._ts_query_disable_pattern(this[0], patternIndex);
+  }
+  /**
+   * Check if, on its last execution, this cursor exceeded its maximum number
+   * of in-progress matches.
+   */
+  didExceedMatchLimit() {
+    return this.exceededMatchLimit;
+  }
+  /** Get the byte offset where the given pattern starts in the query's source. */
+  startIndexForPattern(patternIndex) {
+    if (patternIndex >= this.predicates.length) {
+      throw new Error(
+        `Pattern index is ${patternIndex} but the pattern count is ${this.predicates.length}`
+      );
+    }
+    return C._ts_query_start_byte_for_pattern(this[0], patternIndex);
+  }
+  /** Get the byte offset where the given pattern ends in the query's source. */
+  endIndexForPattern(patternIndex) {
+    if (patternIndex >= this.predicates.length) {
+      throw new Error(
+        `Pattern index is ${patternIndex} but the pattern count is ${this.predicates.length}`
+      );
+    }
+    return C._ts_query_end_byte_for_pattern(this[0], patternIndex);
+  }
+  /** Get the number of patterns in the query. */
+  patternCount() {
+    return C._ts_query_pattern_count(this[0]);
+  }
+  /** Get the index for a given capture name. */
+  captureIndexForName(captureName) {
+    return this.captureNames.indexOf(captureName);
+  }
+  /** Check if a given pattern within a query has a single root node. */
+  isPatternRooted(patternIndex) {
+    return C._ts_query_is_pattern_rooted(this[0], patternIndex) === 1;
+  }
+  /** Check if a given pattern within a query has a single root node. */
+  isPatternNonLocal(patternIndex) {
+    return C._ts_query_is_pattern_non_local(this[0], patternIndex) === 1;
+  }
+  /**
+   * Check if a given step in a query is 'definite'.
+   *
+   * A query step is 'definite' if its parent pattern will be guaranteed to
+   * match successfully once it reaches the step.
+   */
+  isPatternGuaranteedAtStep(byteIndex) {
+    return C._ts_query_is_pattern_guaranteed_at_step(this[0], byteIndex) === 1;
+  }
+};
+
+// src/ast/loader.ts
+var EXT_GRAMMAR = {
+  ".ts": "typescript",
+  ".mts": "typescript",
+  ".cts": "typescript",
+  ".tsx": "tsx",
+  ".js": "javascript",
+  ".jsx": "javascript",
+  ".mjs": "javascript",
+  ".cjs": "javascript",
+  ".py": "python",
+  ".pyi": "python",
+  ".go": "go",
+  ".rs": "rust",
+  ".java": "java",
+  ".rb": "ruby",
+  ".rake": "ruby",
+  ".c": "c",
+  ".h": "c",
+  ".cc": "cpp",
+  ".cpp": "cpp",
+  ".cxx": "cpp",
+  ".hpp": "cpp",
+  ".hh": "cpp",
+  ".cs": "c_sharp",
+  ".php": "php"
+};
+function grammarKeyForExt(ext) {
+  return EXT_GRAMMAR[ext];
+}
+function resolveGrammarDir() {
+  const env = process.env.ULTRAINDEX_GRAMMAR_DIR;
+  if (env && existsSync(env)) return env;
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    join2(here, "grammars"),
+    // bundle: <...>/scripts/grammars
+    join2(here, "..", "..", "scripts", "grammars"),
+    // dev: src/ast → <repo>/scripts/grammars
+    join2(here, "..", "scripts", "grammars")
+  ];
+  for (const c2 of candidates) if (existsSync(c2)) return c2;
+  return join2(here, "grammars");
+}
+var runtimeReady = false;
+var parser = null;
+var loaded = /* @__PURE__ */ new Map();
+var failed = /* @__PURE__ */ new Set();
+async function ensureGrammars(keys) {
+  const dir = resolveGrammarDir();
+  if (!runtimeReady) {
+    const runtime = join2(dir, "web-tree-sitter.wasm");
+    if (!existsSync(runtime)) return;
+    await Parser.init({ wasmBinary: readFileSync2(runtime) });
+    runtimeReady = true;
+    parser = new Parser();
+  }
+  for (const key of new Set(keys)) {
+    if (loaded.has(key) || failed.has(key)) continue;
+    const wasm = join2(dir, `${key}.wasm`);
+    if (!existsSync(wasm)) {
+      failed.add(key);
+      continue;
+    }
+    try {
+      loaded.set(key, await Language.load(new Uint8Array(readFileSync2(wasm))));
+    } catch {
+      failed.add(key);
+    }
+  }
+}
+function allGrammarKeys() {
+  return [...new Set(Object.values(EXT_GRAMMAR))];
+}
+function grammarReady(key) {
+  return loaded.has(key);
+}
+function parserFor(key) {
+  const lang = loaded.get(key);
+  if (!parser || !lang) return null;
+  parser.setLanguage(lang);
+  return parser;
+}
+
+// src/ast/extract.ts
+var byPublicKeyword = (line) => /\b(public|internal)\b/.test(line);
+var byPub = (line) => /\bpub\b/.test(line);
+var byCapital = (_l, name2) => /^[A-Z]/.test(name2);
+var byPyConvention = (_l, name2) => !name2.startsWith("_") || /^__\w+__$/.test(name2);
+var always = () => true;
+var neverExport = () => false;
+var TS_SPEC = {
+  lang: "typescript",
+  defs: {
+    function_declaration: "function",
+    generator_function_declaration: "function",
+    class_declaration: "class",
+    abstract_class_declaration: "class",
+    interface_declaration: "interface",
+    type_alias_declaration: "type",
+    enum_declaration: "enum",
+    method_definition: "method",
+    variable_declarator: "const"
+  },
+  containers: /* @__PURE__ */ new Set(["class_body", "export_statement", "program", "lexical_declaration", "variable_declaration"]),
+  exported: neverExport,
+  // export is tracked structurally via export_statement; see walk
+  imports: { import_statement: "string" }
+};
+var SPECS = {
+  typescript: TS_SPEC,
+  tsx: { ...TS_SPEC, lang: "typescript" },
+  javascript: {
+    ...TS_SPEC,
+    lang: "javascript",
+    defs: {
+      function_declaration: "function",
+      generator_function_declaration: "function",
+      class_declaration: "class",
+      method_definition: "method",
+      variable_declarator: "const"
+    }
+  },
+  python: {
+    lang: "python",
+    defs: { function_definition: "function", class_definition: "class" },
+    containers: /* @__PURE__ */ new Set(["block", "decorated_definition", "module"]),
+    exported: byPyConvention,
+    imports: { import_statement: "path", import_from_statement: "path" }
+  },
+  go: {
+    lang: "go",
+    defs: {
+      function_declaration: "function",
+      method_declaration: "method",
+      type_spec: "type",
+      const_spec: "const",
+      var_spec: "var"
+    },
+    containers: /* @__PURE__ */ new Set(["type_declaration", "const_declaration", "var_declaration", "source_file"]),
+    exported: byCapital,
+    imports: { import_declaration: "string" }
+  },
+  ruby: {
+    lang: "ruby",
+    defs: { method: "def", singleton_method: "def", class: "class", module: "module" },
+    containers: /* @__PURE__ */ new Set(["class", "module", "body_statement", "program"]),
+    exported: always
+  },
+  java: {
+    lang: "java",
+    defs: {
+      class_declaration: "class",
+      interface_declaration: "interface",
+      enum_declaration: "enum",
+      record_declaration: "record",
+      method_declaration: "method",
+      constructor_declaration: "constructor"
+    },
+    containers: /* @__PURE__ */ new Set(["class_body", "interface_body", "enum_body", "program"]),
+    exported: byPublicKeyword,
+    imports: { import_declaration: "path" }
+  },
+  rust: {
+    lang: "rust",
+    defs: {
+      function_item: "function",
+      struct_item: "struct",
+      enum_item: "enum",
+      trait_item: "trait",
+      type_item: "type",
+      mod_item: "mod",
+      const_item: "const",
+      static_item: "static",
+      union_item: "union",
+      macro_definition: "macro"
+    },
+    containers: /* @__PURE__ */ new Set(["impl_item", "declaration_list", "source_file"]),
+    exported: byPub
+  },
+  c_sharp: {
+    lang: "csharp",
+    defs: {
+      class_declaration: "class",
+      interface_declaration: "interface",
+      struct_declaration: "struct",
+      enum_declaration: "enum",
+      record_declaration: "record",
+      method_declaration: "method",
+      constructor_declaration: "constructor",
+      property_declaration: "property"
+    },
+    containers: /* @__PURE__ */ new Set(["namespace_declaration", "declaration_list", "compilation_unit", "file_scoped_namespace_declaration"]),
+    exported: byPublicKeyword
+  },
+  php: {
+    lang: "php",
+    defs: {
+      function_definition: "function",
+      class_declaration: "class",
+      interface_declaration: "interface",
+      trait_declaration: "trait",
+      enum_declaration: "enum",
+      method_declaration: "method"
+    },
+    containers: /* @__PURE__ */ new Set(["declaration_list", "program"]),
+    exported: always
+  }
+};
+function firstLine(node) {
+  const nl = node.text.indexOf("\n");
+  return (nl === -1 ? node.text : node.text.slice(0, nl)).trim().slice(0, 200);
+}
+function nameOf(node) {
+  const named = node.childForFieldName("name");
+  if (named?.text) return named.text;
+  for (let i2 = 0; i2 < node.namedChildCount; i2++) {
+    const c2 = node.namedChild(i2);
+    if (/(^|_)(identifier|name|constant)$/.test(c2.type)) return c2.text;
+  }
+  return void 0;
+}
+function collectImports(root, spec) {
+  if (!spec.imports) return [];
+  const out2 = [];
+  const seen = /* @__PURE__ */ new Set();
+  const add = (s) => {
+    const v = s.trim();
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      out2.push({ kind: "import", spec: v });
+    }
+  };
+  const visit = (node) => {
+    const how = spec.imports[node.type];
+    if (how === "string") {
+      const str = findFirst(node, (n) => /string/.test(n.type));
+      if (str) add(str.text.replace(/^['"]|['"]$/g, ""));
+    } else if (how === "path") {
+      const name2 = node.childForFieldName("name") ?? node.childForFieldName("module_name");
+      add((name2 ?? node).text.replace(/^(import|from)\s+/, "").split(/\s+/)[0]);
+    }
+    for (let i2 = 0; i2 < node.namedChildCount; i2++) visit(node.namedChild(i2));
+  };
+  visit(root);
+  return out2;
+}
+function findFirst(node, pred) {
+  for (let i2 = 0; i2 < node.namedChildCount; i2++) {
+    const c2 = node.namedChild(i2);
+    if (pred(c2)) return c2;
+    const deep = findFirst(c2, pred);
+    if (deep) return deep;
+  }
+  return void 0;
+}
+function extractAst(rel, ext, content) {
+  const key = grammarKeyForExt(ext);
+  if (!key || !grammarReady(key)) return void 0;
+  const spec = SPECS[key];
+  if (!spec) return void 0;
+  const parser2 = parserFor(key);
+  if (!parser2) return void 0;
+  let tree = null;
+  try {
+    tree = parser2.parse(content);
+    if (!tree) return void 0;
+    const symbols = [];
+    const root = tree.rootNode;
+    const exportedNames = /* @__PURE__ */ new Set();
+    const walk2 = (node, parent, exported) => {
+      const nowExported = exported || node.type === "export_statement";
+      if (node.type === "export_statement") {
+        for (let i2 = 0; i2 < node.namedChildCount; i2++) {
+          const c2 = node.namedChild(i2);
+          if (c2.type === "identifier") exportedNames.add(c2.text);
+          else if (c2.type === "export_clause") {
+            for (let j = 0; j < c2.namedChildCount; j++) {
+              const spec2 = c2.namedChild(j);
+              const nm = spec2.childForFieldName("name") ?? spec2.namedChild(0);
+              if (nm?.text) exportedNames.add(nm.text);
+            }
+          }
+        }
+      }
+      const kind = spec.defs[node.type];
+      if (kind) {
+        const name2 = nameOf(node);
+        if (name2) {
+          const line = firstLine(node);
+          symbols.push({
+            name: name2,
+            kind,
+            file: rel,
+            line: node.startPosition.row + 1,
+            endLine: node.endPosition.row + 1,
+            ...parent ? { parent } : {},
+            signature: line,
+            exported: nowExported || spec.exported(line, name2),
+            lang: spec.lang
+          });
+          for (let i2 = 0; i2 < node.namedChildCount; i2++) {
+            walkBody(node.namedChild(i2), name2, nowExported);
+          }
+          return;
+        }
+      }
+      if (spec.containers.has(node.type)) {
+        for (let i2 = 0; i2 < node.namedChildCount; i2++) walk2(node.namedChild(i2), parent, nowExported);
+      }
+    };
+    const walkBody = (node, parent, exported) => {
+      if (spec.containers.has(node.type)) {
+        for (let i2 = 0; i2 < node.namedChildCount; i2++) walk2(node.namedChild(i2), parent, exported);
+      }
+    };
+    walk2(root, void 0, false);
+    if (exportedNames.size) {
+      for (const s of symbols) if (!s.exported && exportedNames.has(s.name)) s.exported = true;
+    }
+    const refs = collectImports(root, spec);
+    let pkg;
+    if (spec.lang === "java") {
+      const p = findFirst(root, (n) => n.type === "package_declaration");
+      if (p) pkg = p.text.replace(/^package\s+/, "").replace(/;.*$/, "").trim();
+    }
+    return { symbols, refs, pkg };
+  } catch {
+    return void 0;
+  } finally {
+    tree?.delete();
+  }
+}
+
 // src/extract/code.ts
 var JS_TS = /* @__PURE__ */ new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 var PY = /* @__PURE__ */ new Set([".py", ".pyi"]);
@@ -953,8 +5263,8 @@ function topDocComment(content) {
   const lines = content.split(/\r?\n/);
   const collected = [];
   let inBlock = null;
-  for (let i = 0; i < Math.min(lines.length, 40); i++) {
-    const raw = lines[i];
+  for (let i2 = 0; i2 < Math.min(lines.length, 40); i2++) {
+    const raw = lines[i2];
     const line = raw.trim();
     if (inBlock === "c") {
       collected.push(line.replace(/^\*+/, "").replace(/\*+\/\s*$/, "").trim());
@@ -1000,44 +5310,44 @@ function topDocComment(content) {
   return (sentence ? sentence[1] : text).slice(0, 200);
 }
 var MAX_USE_EXPANSION = 16;
-function expandUseGroups(path, out = []) {
-  if (out.length >= MAX_USE_EXPANSION) return out;
+function expandUseGroups(path, out2 = []) {
+  if (out2.length >= MAX_USE_EXPANSION) return out2;
   const brace = path.indexOf("{");
   if (brace === -1) {
     const cleaned = path.replace(/\s+as\s+\w+\s*$/, "").replace(/::\s*\*\s*$/, "").replace(/^::/, "").trim();
-    if (cleaned) out.push(cleaned);
-    return out;
+    if (cleaned) out2.push(cleaned);
+    return out2;
   }
   const prefix = path.slice(0, brace);
   let depth = 0;
   let end = -1;
-  for (let i = brace; i < path.length; i++) {
-    if (path[i] === "{") depth++;
-    else if (path[i] === "}" && --depth === 0) {
-      end = i;
+  for (let i2 = brace; i2 < path.length; i2++) {
+    if (path[i2] === "{") depth++;
+    else if (path[i2] === "}" && --depth === 0) {
+      end = i2;
       break;
     }
   }
-  if (end === -1) return out;
-  const parts = [];
+  if (end === -1) return out2;
+  const parts2 = [];
   let cur = "";
   depth = 0;
   for (const ch of path.slice(brace + 1, end)) {
     if (ch === "{") depth++;
     if (ch === "}") depth--;
     if (ch === "," && depth === 0) {
-      parts.push(cur);
+      parts2.push(cur);
       cur = "";
     } else cur += ch;
   }
-  parts.push(cur);
-  for (const part of parts) {
+  parts2.push(cur);
+  for (const part of parts2) {
     const t = part.trim();
     if (!t) continue;
-    if (t === "self") expandUseGroups(prefix.replace(/::\s*$/, ""), out);
-    else expandUseGroups(prefix + t, out);
+    if (t === "self") expandUseGroups(prefix.replace(/::\s*$/, ""), out2);
+    else expandUseGroups(prefix + t, out2);
   }
-  return out;
+  return out2;
 }
 function extractImports(ext, content) {
   const specs = /* @__PURE__ */ new Set();
@@ -1062,8 +5372,8 @@ function extractImports(ext, content) {
       const imp = /^\s*import\s+(.+)$/.exec(line);
       if (imp) {
         for (const part of imp[1].split(",")) {
-          const name = part.trim().split(/\s+as\s+/)[0].trim();
-          if (name && /^[\w.]+$/.test(name)) specs.add(name);
+          const name2 = part.trim().split(/\s+as\s+/)[0].trim();
+          if (name2 && /^[\w.]+$/.test(name2)) specs.add(name2);
         }
       }
     }
@@ -1105,38 +5415,38 @@ function extractImports(ext, content) {
 function extractReexports(rel, content) {
   if (!JS_TS.has(rel.slice(rel.lastIndexOf(".")))) return [];
   const lang = /\.(ts|tsx|mts|cts)$/.test(rel) ? "typescript" : "javascript";
-  const out = [];
+  const out2 = [];
   const seen = /* @__PURE__ */ new Set();
   const lineAt = (idx) => content.slice(0, idx).split(/\r?\n/).length;
   const named = /export\s*\{([\s\S]*?)\}\s*(?:from\s*['"]([^'"]+)['"])?\s*;?/g;
   let m;
-  while ((m = named.exec(content)) && out.length < 60) {
+  while ((m = named.exec(content)) && out2.length < 60) {
     const from = m[2];
     for (const part of m[1].split(",")) {
       const p = part.trim().replace(/^type\s+/, "");
       const as = /^(\S+)\s+as\s+([A-Za-z_$][\w$]*)$/.exec(p);
-      const name = as ? as[2] : p;
-      if (!/^[A-Za-z_$][\w$]*$/.test(name) || name === "default" || seen.has(name)) continue;
-      seen.add(name);
-      out.push({
-        name,
+      const name2 = as ? as[2] : p;
+      if (!/^[A-Za-z_$][\w$]*$/.test(name2) || name2 === "default" || seen.has(name2)) continue;
+      seen.add(name2);
+      out2.push({
+        name: name2,
         kind: "reexport",
         file: rel,
         line: lineAt(m.index),
-        signature: from ? `export { ${name} } from "${from}"` : `export { ${name} }`,
+        signature: from ? `export { ${name2} } from "${from}"` : `export { ${name2} }`,
         exported: true,
         lang
       });
     }
   }
   const star = /export\s*\*\s*(?:as\s+([A-Za-z_$][\w$]*)\s+)?from\s*['"]([^'"]+)['"]/g;
-  while ((m = star.exec(content)) && out.length < 60) {
+  while ((m = star.exec(content)) && out2.length < 60) {
     const ns = m[1];
     const from = m[2];
     const key = "*" + (ns ?? from);
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({
+    out2.push({
       name: ns ?? `* (${from})`,
       kind: ns ? "reexport" : "reexport-all",
       file: rel,
@@ -1146,10 +5456,11 @@ function extractReexports(rel, content) {
       lang
     });
   }
-  return out;
+  return out2;
 }
 function extractCode(rel, ext, content) {
-  const symbols = extractSymbols(rel, ext, content).slice(0, 400);
+  const ast = extractAst(rel, ext, content);
+  const symbols = (ast ? ast.symbols : extractSymbols(rel, ext, content)).slice(0, 400);
   const known = new Set(symbols.map((s) => s.name));
   const reexports = extractReexports(rel, content).filter((s) => !known.has(s.name));
   return {
@@ -1164,7 +5475,7 @@ function extractCode(rel, ext, content) {
 function countLines(s) {
   if (!s) return 0;
   let n = 1;
-  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) n++;
+  for (let i2 = 0; i2 < s.length; i2++) if (s.charCodeAt(i2) === 10) n++;
   return n;
 }
 function scanRepo(root, opts = {}) {
@@ -1226,7 +5537,7 @@ function scanRepo(root, opts = {}) {
 
 // src/resolve.ts
 import { posix } from "path";
-import { join as join2 } from "path";
+import { join as join3 } from "path";
 var ASSET_EXT = /* @__PURE__ */ new Set([
   ".svg",
   ".png",
@@ -1260,14 +5571,14 @@ var PY2 = /* @__PURE__ */ new Set([".py", ".pyi"]);
 var BUILD_DIRS = /* @__PURE__ */ new Set(["dist", "build", "lib", "out", "output", "esm", "cjs", "umd"]);
 function distToSrcCandidates(target) {
   const segs = norm(target).split("/").filter((s) => s !== ".");
-  const out = [];
-  let i = 0;
-  while (i < segs.length - 1 && BUILD_DIRS.has(segs[i])) {
-    i++;
-    const rest = segs.slice(i).join("/");
-    out.push("src/" + rest, rest);
+  const out2 = [];
+  let i2 = 0;
+  while (i2 < segs.length - 1 && BUILD_DIRS.has(segs[i2])) {
+    i2++;
+    const rest = segs.slice(i2).join("/");
+    out2.push("src/" + rest, rest);
   }
-  return out;
+  return out2;
 }
 function norm(p) {
   return posix.normalize(p).replace(/\/$/, "");
@@ -1285,52 +5596,52 @@ function byLen(a, b) {
 function tolerantJsonParse(text) {
   let stripped = "";
   let inStr = false;
-  for (let i = 0; i < text.length; i++) {
-    const c2 = text[i];
+  for (let i2 = 0; i2 < text.length; i2++) {
+    const c2 = text[i2];
     if (inStr) {
       stripped += c2;
-      if (c2 === "\\") stripped += text[++i] ?? "";
+      if (c2 === "\\") stripped += text[++i2] ?? "";
       else if (c2 === '"') inStr = false;
       continue;
     }
     if (c2 === '"') {
       inStr = true;
       stripped += c2;
-    } else if (c2 === "/" && text[i + 1] === "/") {
-      while (i < text.length && text[i] !== "\n") i++;
+    } else if (c2 === "/" && text[i2 + 1] === "/") {
+      while (i2 < text.length && text[i2] !== "\n") i2++;
       stripped += "\n";
-    } else if (c2 === "/" && text[i + 1] === "*") {
-      i += 2;
-      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
-      i++;
+    } else if (c2 === "/" && text[i2 + 1] === "*") {
+      i2 += 2;
+      while (i2 < text.length && !(text[i2] === "*" && text[i2 + 1] === "/")) i2++;
+      i2++;
     } else {
       stripped += c2;
     }
   }
-  let out = "";
+  let out2 = "";
   inStr = false;
-  for (let i = 0; i < stripped.length; i++) {
-    const c2 = stripped[i];
+  for (let i2 = 0; i2 < stripped.length; i2++) {
+    const c2 = stripped[i2];
     if (inStr) {
-      out += c2;
-      if (c2 === "\\") out += stripped[++i] ?? "";
+      out2 += c2;
+      if (c2 === "\\") out2 += stripped[++i2] ?? "";
       else if (c2 === '"') inStr = false;
       continue;
     }
     if (c2 === '"') {
       inStr = true;
-      out += c2;
+      out2 += c2;
       continue;
     }
     if (c2 === ",") {
-      let j = i + 1;
+      let j = i2 + 1;
       while (j < stripped.length && (stripped[j] === " " || stripped[j] === "	" || stripped[j] === "\n" || stripped[j] === "\r")) j++;
       if (stripped[j] === "}" || stripped[j] === "]") continue;
     }
-    out += c2;
+    out2 += c2;
   }
   try {
-    return JSON.parse(out);
+    return JSON.parse(out2);
   } catch {
     return void 0;
   }
@@ -1345,7 +5656,7 @@ function resolveExtends(fileSet, fromDir, ext) {
 function readTsConfig(root, fileSet, rel, warnings, seen) {
   if (seen.has(rel)) return void 0;
   seen.add(rel);
-  const cfg = tolerantJsonParse(readText(join2(root, rel)));
+  const cfg = tolerantJsonParse(readText(join3(root, rel)));
   if (cfg === void 0) {
     warnings.push(`unparseable ${rel} \u2014 its path aliases were ignored`);
     return void 0;
@@ -1384,19 +5695,19 @@ function readTsConfig(root, fileSet, rel, warnings, seen) {
 var CONDITION_PRIORITY = ["source", "ts", "import", "module", "require", "node", "default"];
 var MAX_EXPORT_TARGETS = 8;
 function conditionRank(key) {
-  const i = CONDITION_PRIORITY.indexOf(key);
-  if (i !== -1) return i;
+  const i2 = CONDITION_PRIORITY.indexOf(key);
+  if (i2 !== -1) return i2;
   return key === "types" ? CONDITION_PRIORITY.length + 1 : CONDITION_PRIORITY.length;
 }
-function flattenExportTargets(value, out) {
-  if (out.length >= MAX_EXPORT_TARGETS) return;
+function flattenExportTargets(value, out2) {
+  if (out2.length >= MAX_EXPORT_TARGETS) return;
   if (typeof value === "string") {
-    if (!out.includes(value)) out.push(value);
+    if (!out2.includes(value)) out2.push(value);
   } else if (Array.isArray(value)) {
-    for (const v of value) flattenExportTargets(v, out);
+    for (const v of value) flattenExportTargets(v, out2);
   } else if (value !== null && typeof value === "object") {
     const keys = Object.keys(value).sort((a, b) => conditionRank(a) - conditionRank(b) || (a < b ? -1 : a > b ? 1 : 0));
-    for (const k of keys) flattenExportTargets(value[k], out);
+    for (const k of keys) flattenExportTargets(value[k], out2);
   }
 }
 function parseExportEntries(exportsField) {
@@ -1421,7 +5732,7 @@ function parseExportEntries(exportsField) {
   return entries;
 }
 function parseGoReplaces(text, modDir) {
-  const out = [];
+  const out2 = [];
   const addLine = (line) => {
     const m = /^\s*([^\s=]+)(?:\s+v\S+)?\s*=>\s*(\S+)(?:\s+v\S+)?\s*$/.exec(line);
     if (!m) return;
@@ -1429,13 +5740,13 @@ function parseGoReplaces(text, modDir) {
     if (!/^\.\.?\//.test(target)) return;
     const toDir = norm(posix.join(modDir, target));
     if (toDir.startsWith("..")) return;
-    out.push({ from: m[1], toDir });
+    out2.push({ from: m[1], toDir });
   };
   for (const m of text.matchAll(/^[ \t]*replace[ \t]+([^(\r\n][^\r\n]*)$/gm)) addLine(m[1]);
   for (const b of text.matchAll(/^[ \t]*replace[ \t]*\(([\s\S]*?)\)/gm)) {
     for (const line of b[1].split(/\r?\n/)) addLine(line);
   }
-  return out;
+  return out2;
 }
 function buildResolveContext(scan2) {
   const fileSet = new Set(scan2.files.map((f) => f.rel));
@@ -1476,7 +5787,7 @@ function buildResolveContext(scan2) {
   const goModules = [];
   for (const rel of fileSet) {
     if (rel !== "go.mod" && !rel.endsWith("/go.mod")) continue;
-    const text = readText(join2(scan2.root, rel));
+    const text = readText(join3(scan2.root, rel));
     const m = /^\s*module\s+(\S+)/m.exec(text);
     if (!m) continue;
     const dir = rel.includes("/") ? posix.dirname(rel) : "";
@@ -1486,7 +5797,7 @@ function buildResolveContext(scan2) {
   const rustCrates = [];
   for (const rel of fileSet) {
     if (rel !== "Cargo.toml" && !rel.endsWith("/Cargo.toml")) continue;
-    const text = readText(join2(scan2.root, rel));
+    const text = readText(join3(scan2.root, rel));
     const m = /\[package\][^[]*?^\s*name\s*=\s*"([^"]+)"/ms.exec(text);
     if (!m) continue;
     const dir = rel.includes("/") ? posix.dirname(rel) : "";
@@ -1513,7 +5824,7 @@ function buildResolveContext(scan2) {
   const workspacePackages = [];
   for (const rel of fileSet) {
     if (rel !== "package.json" && !rel.endsWith("/package.json")) continue;
-    const pkg = tolerantJsonParse(readText(join2(scan2.root, rel)));
+    const pkg = tolerantJsonParse(readText(join3(scan2.root, rel)));
     if (pkg === void 0) {
       warnings.push(`unparseable ${rel} \u2014 skipped for workspace resolution`);
       continue;
@@ -1571,7 +5882,7 @@ function resolveDocLink(fromRel, spec, ctx) {
   return { kind: "dangling", reason: "missing-target" };
 }
 function resolveJs(fromRel, spec, ctx) {
-  const probe = (p) => firstExisting(ctx, [...JS_EXT_PROBES.map((e) => p + e), ...JS_INDEX.map((i) => posix.join(p, i))]);
+  const probe = (p) => firstExisting(ctx, [...JS_EXT_PROBES.map((e) => p + e), ...JS_INDEX.map((i2) => posix.join(p, i2))]);
   const tryResolve = (p) => {
     const hit = probe(p);
     if (hit) return hit;
@@ -1659,7 +5970,7 @@ function resolvePython(fromRel, spec, ctx) {
     const rest = spec.slice(dots);
     const base = fromRel.includes("/") ? posix.dirname(fromRel) : "";
     let dir = base;
-    for (let i = 1; i < dots; i++) dir = dir.includes("/") ? posix.dirname(dir) : "";
+    for (let i2 = 1; i2 < dots; i2++) dir = dir.includes("/") ? posix.dirname(dir) : "";
     const hit = rest ? probeModule(dir, rest) : firstExisting(ctx, [posix.join(norm(dir), "__init__.py")]);
     return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
   }
@@ -1694,7 +6005,7 @@ function resolveGo(fromRel, spec, ctx) {
 }
 function resolveRust(fromRel, spec, ctx) {
   if (!ctx.rustCrates.length) return { kind: "external" };
-  const probeMod = (dir, name) => firstExisting(ctx, [posix.join(dir, name + ".rs"), posix.join(dir, name, "mod.rs")]);
+  const probeMod = (dir, name2) => firstExisting(ctx, [posix.join(dir, name2 + ".rs"), posix.join(dir, name2, "mod.rs")]);
   const walkPath = (baseDir2, segs2) => {
     for (let n = segs2.length; n >= 1; n--) {
       const dir = norm(posix.join(baseDir2, ...segs2.slice(0, n - 1)));
@@ -1708,8 +6019,8 @@ function resolveRust(fromRel, spec, ctx) {
   const isRootish = stem2 === "mod" || stem2 === "lib" || stem2 === "main";
   const childDir = isRootish ? fromDir : posix.join(fromDir, stem2);
   if (spec.startsWith("mod ")) {
-    const name = spec.slice(4);
-    const hit2 = probeMod(childDir, name) ?? (isRootish ? void 0 : probeMod(fromDir, name));
+    const name2 = spec.slice(4);
+    const hit2 = probeMod(childDir, name2) ?? (isRootish ? void 0 : probeMod(fromDir, name2));
     return hit2 ? { kind: "resolved", target: hit2 } : { kind: "dangling", reason: "missing-module" };
   }
   const segs = spec.split("::").map((s) => s.trim()).filter(Boolean);
@@ -1726,13 +6037,13 @@ function resolveRust(fromRel, spec, ctx) {
     rest = segs.slice(1);
   } else if (head === "super") {
     let dir = isRootish ? fromDir.includes("/") ? posix.dirname(fromDir) : "" : fromDir;
-    let i = 1;
-    while (i < segs.length && segs[i] === "super") {
+    let i2 = 1;
+    while (i2 < segs.length && segs[i2] === "super") {
       dir = dir.includes("/") ? posix.dirname(dir) : "";
-      i++;
+      i2++;
     }
     baseDir = dir;
-    rest = segs.slice(i);
+    rest = segs.slice(i2);
   } else {
     const target = ctx.rustCrates.find((c2) => c2.name === head);
     if (target) {
@@ -1850,7 +6161,7 @@ function buildModules(scan2) {
   for (const dir of dirs) {
     const members = byDir.get(dir).slice().sort((a, b) => byStr(a.rel, b.rel));
     const slug = slugForDir(dir);
-    const info = {
+    const info2 = {
       slug,
       path: dir,
       title: dir,
@@ -1858,7 +6169,7 @@ function buildModules(scan2) {
       members: members.map((m) => m.rel),
       summary: summaryOf(dir, members)
     };
-    modules.push(info);
+    modules.push(info2);
     for (const m of members) moduleOf.set(m.rel, slug);
   }
   modules.sort((a, b) => byStr(a.slug, b.slug));
@@ -1866,11 +6177,11 @@ function buildModules(scan2) {
 }
 
 // src/graph.ts
-import { join as join3 } from "path";
-function isDistinctive(name) {
-  if (name.length < 5) return false;
-  const internalUpper = /[a-z][A-Z]/.test(name) || /[A-Z]{2}/.test(name);
-  return internalUpper || name.includes("_") || /\d/.test(name);
+import { join as join4 } from "path";
+function isDistinctive(name2) {
+  if (name2.length < 5) return false;
+  const internalUpper = /[a-z][A-Z]/.test(name2) || /[A-Z]{2}/.test(name2);
+  return internalUpper || name2.includes("_") || /\d/.test(name2);
 }
 var REFERENCE_KINDS = /* @__PURE__ */ new Set(["reexport", "reexport-all", "default"]);
 function uniqueSymbolDefs(scan2) {
@@ -1884,7 +6195,7 @@ function uniqueSymbolDefs(scan2) {
     }
   }
   const unique = /* @__PURE__ */ new Map();
-  for (const [name, files] of byName) if (files.size === 1) unique.set(name, [...files][0]);
+  for (const [name2, files] of byName) if (files.size === 1) unique.set(name2, [...files][0]);
   return unique;
 }
 var keyOf = (from, to, kind) => `${from}\0${to}\0${kind}`;
@@ -1924,14 +6235,14 @@ function buildGraph(scan2, ctx, modules, moduleOf) {
   if (unique.size) {
     for (const f of scan2.files) {
       if (f.kind !== "doc") continue;
-      const content = scan2.docText.get(f.rel) ?? readText(join3(scan2.root, f.rel));
+      const content = scan2.docText.get(f.rel) ?? readText(join4(scan2.root, f.rel));
       if (!content) continue;
       const tokens = /* @__PURE__ */ new Map();
       for (const tok of content.split(/[^A-Za-z0-9_]+/)) {
         if (unique.has(tok)) tokens.set(tok, (tokens.get(tok) ?? 0) + 1);
       }
-      for (const [name, count] of tokens) {
-        const target = unique.get(name);
+      for (const [name2, count] of tokens) {
+        const target = unique.get(name2);
         if (target === f.rel) continue;
         collect(fileEdgeMap, { from: f.rel, to: target, kind: "mention", weight: Math.min(count, 5) });
       }
@@ -2018,17 +6329,17 @@ function buildGraph(scan2, ctx, modules, moduleOf) {
 
 // src/merge.ts
 var ENRICH_MARKER = "<!-- ui:enrich -->";
-function isEnrichedBody(body) {
-  return body.trim() !== "" && !body.includes(ENRICH_MARKER);
+function isEnrichedBody(body2) {
+  return body2.trim() !== "" && !body2.includes(ENRICH_MARKER);
 }
 var OPEN_RE = /^<!--\s*ui:(gen|human)\s+key=([A-Za-z0-9_-]+)(?:\s+hash=([a-f0-9]+))?\s*-->\s*$/;
 var CLOSE_RE = /^<!--\s*\/ui:(gen|human)\s+key=([A-Za-z0-9_-]+)\s*-->\s*$/;
 function trimBlank(lines) {
-  let start = 0;
+  let start2 = 0;
   let end = lines.length;
-  while (start < end && lines[start].trim() === "") start++;
-  while (end > start && lines[end - 1].trim() === "") end--;
-  return lines.slice(start, end).join("\n");
+  while (start2 < end && lines[start2].trim() === "") start2++;
+  while (end > start2 && lines[end - 1].trim() === "") end--;
+  return lines.slice(start2, end).join("\n");
 }
 function serializeRegions(regions) {
   const blocks = regions.map((r) => {
@@ -2049,9 +6360,9 @@ function parseRegions(text) {
   let orphan = [];
   let open = null;
   const flushOrphan = () => {
-    const body = trimBlank(orphan);
+    const body2 = trimBlank(orphan);
     orphan = [];
-    if (body) regions.push({ type: "human", key: `orphan-${shortHash(body)}`, body });
+    if (body2) regions.push({ type: "human", key: `orphan-${shortHash(body2)}`, body: body2 });
   };
   for (const line of lines) {
     const o = OPEN_RE.exec(line);
@@ -2080,11 +6391,11 @@ function parseRegions(text) {
   return { regions, ok: true };
 }
 function humanBodies(text) {
-  const out = /* @__PURE__ */ new Map();
+  const out2 = /* @__PURE__ */ new Map();
   const { regions, ok } = parseRegions(text);
-  if (!ok) return out;
-  for (const r of regions) if (r.type === "human") out.set(r.key, r.body);
-  return out;
+  if (!ok) return out2;
+  for (const r of regions) if (r.type === "human") out2.set(r.key, r.body);
+  return out2;
 }
 function mergeEntry(spec, existing, migrated) {
   const specKeys = new Set(spec.filter((r) => r.type === "human").map((r) => r.key));
@@ -2111,7 +6422,7 @@ function mergeEntry(spec, existing, migrated) {
     }
   }
   const migratedKeysUsed = [];
-  const out = spec.map((r) => {
+  const out2 = spec.map((r) => {
     if (r.type === "gen") return r;
     const fromExisting = existingHuman.get(r.key);
     if (fromExisting !== void 0) return { ...r, body: fromExisting };
@@ -2123,25 +6434,25 @@ function mergeEntry(spec, existing, migrated) {
     return r;
   });
   const appended = /* @__PURE__ */ new Map();
-  for (const [key, body] of existingHuman) if (!specKeys.has(key)) appended.set(key, body);
+  for (const [key, body2] of existingHuman) if (!specKeys.has(key)) appended.set(key, body2);
   if (migrated) {
-    for (const [key, body] of migrated) {
+    for (const [key, body2] of migrated) {
       if (specKeys.has(key) || appended.has(key)) continue;
       const mk = key.startsWith("migrated-from-") || key.startsWith("orphan-") ? key : `migrated-${key}`;
-      appended.set(mk, body);
+      appended.set(mk, body2);
       migratedKeysUsed.push(mk);
     }
   }
   for (const key of [...appended.keys()].sort(byStr)) {
-    out.push({ type: "human", key, body: appended.get(key) });
+    out2.push({ type: "human", key, body: appended.get(key) });
   }
-  const humanKeys = out.filter((r) => r.type === "human").map((r) => r.key);
-  return { content: serializeRegions(out), humanKeys, migratedKeys: migratedKeysUsed, conflict: dupConflict };
+  const humanKeys = out2.filter((r) => r.type === "human").map((r) => r.key);
+  return { content: serializeRegions(out2), humanKeys, migratedKeys: migratedKeysUsed, conflict: dupConflict };
 }
 
 // src/render/encyclopedia.ts
 function buildEntryEdgeIndex(graph, moduleOf) {
-  const out = /* @__PURE__ */ new Map();
+  const out2 = /* @__PURE__ */ new Map();
   const inc = /* @__PURE__ */ new Map();
   const dangling = /* @__PURE__ */ new Map();
   const push = (m, key, e) => {
@@ -2150,7 +6461,7 @@ function buildEntryEdgeIndex(graph, moduleOf) {
     else m.set(key, [e]);
   };
   for (const e of graph.moduleEdges) {
-    push(out, e.from, e);
+    push(out2, e.from, e);
     push(inc, e.to, e);
   }
   for (const e of graph.fileEdges) {
@@ -2158,7 +6469,7 @@ function buildEntryEdgeIndex(graph, moduleOf) {
     const slug = moduleOf.get(e.from);
     if (slug) push(dangling, slug, e);
   }
-  return { out, inc, dangling };
+  return { out: out2, inc, dangling };
 }
 var TIER_LABEL = { 0: "Foundations", 1: "Features", 2: "Tail" };
 var MAX_SYMBOLS_PER_FILE = 15;
@@ -2166,14 +6477,14 @@ var MAX_DANGLING = 12;
 var MAX_LINKS = 30;
 function headerRegion(m) {
   const where = m.path === "(root)" ? "Repository root" : m.path;
-  const body = [
+  const body2 = [
     `# ${where}`,
     "",
     m.summary,
     "",
     `*Module \`${m.slug}\` \xB7 tier ${m.tier} (${TIER_LABEL[m.tier]}) \xB7 ${m.members.length} files \xB7 ${m.symbols} symbols*`
   ].join("\n");
-  return { type: "gen", key: "header", body };
+  return { type: "gen", key: "header", body: body2 };
 }
 function businessStub() {
   return {
@@ -2231,14 +6542,14 @@ function linksRegion(m, edgeIndex) {
     if (sorted.length > MAX_LINKS) shown.push(`\u2026and ${sorted.length - MAX_LINKS} more`);
     return shown;
   };
-  const out = render(edgeIndex.out.get(m.slug) ?? [], (e) => e.to);
+  const out2 = render(edgeIndex.out.get(m.slug) ?? [], (e) => e.to);
   const inc = render(edgeIndex.inc.get(m.slug) ?? [], (e) => e.from);
   const dangling = (edgeIndex.dangling.get(m.slug) ?? []).slice().sort((a, b) => byStr(a.from, b.from) || byStr(a.to, b.to)).slice(0, MAX_DANGLING).map((e) => `\`${e.to}\` (${e.kind}, ${e.reason}) \u2014 from \`${e.from}\``);
-  const bulletList = (items) => items.length ? items.map((i) => `- ${i}`) : ["_none_"];
+  const bulletList = (items) => items.length ? items.map((i2) => `- ${i2}`) : ["_none_"];
   const lines = ["## Links"];
   lines.push("");
   lines.push("**Depends on / links out:**");
-  lines.push(...bulletList(out));
+  lines.push(...bulletList(out2));
   lines.push("");
   lines.push("**Used by / linked from:**");
   lines.push(...bulletList(inc));
@@ -2385,9 +6696,9 @@ function renderMermaid(graph, opts = {}) {
 
 // src/render/graph-json.ts
 function sortObject(obj) {
-  const out = {};
-  for (const k of Object.keys(obj).sort(byStr)) out[k] = obj[k];
-  return out;
+  const out2 = {};
+  for (const k of Object.keys(obj).sort(byStr)) out2[k] = obj[k];
+  return out2;
 }
 function renderGraphJson(graph) {
   const ordered = { ...graph, languages: sortObject(graph.languages) };
@@ -2396,9 +6707,9 @@ function renderGraphJson(graph) {
 
 // src/render/manifest.ts
 function sortedRecord(obj) {
-  const out = {};
-  for (const k of Object.keys(obj).sort(byStr)) out[k] = obj[k];
-  return out;
+  const out2 = {};
+  for (const k of Object.keys(obj).sort(byStr)) out2[k] = obj[k];
+  return out2;
 }
 function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = [], filters = {}) {
   const fileHashes = {};
@@ -2431,14 +6742,14 @@ function renderManifestJson(manifest) {
 }
 
 // src/entries.ts
-import { join as join5 } from "path";
+import { join as join6 } from "path";
 
 // src/output.ts
-import { existsSync, mkdirSync, readFileSync as readFileSync2, writeFileSync, renameSync, rmSync, readdirSync as readdirSync2 } from "fs";
-import { dirname, join as join4 } from "path";
+import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync3, writeFileSync, renameSync, rmSync, readdirSync as readdirSync2 } from "fs";
+import { dirname as dirname2, join as join5 } from "path";
 function readIfExists(path) {
   try {
-    return existsSync(path) ? readFileSync2(path, "utf8") : void 0;
+    return existsSync2(path) ? readFileSync3(path, "utf8") : void 0;
   } catch {
     return void 0;
   }
@@ -2446,15 +6757,15 @@ function readIfExists(path) {
 function writeFileIfChanged(path, content) {
   const current = readIfExists(path);
   if (current === content) return false;
-  mkdirSync(dirname(path), { recursive: true });
+  mkdirSync(dirname2(path), { recursive: true });
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, content);
   renameSync(tmp, path);
   return true;
 }
 function moveFile(from, to) {
-  if (!existsSync(from)) return;
-  mkdirSync(dirname(to), { recursive: true });
+  if (!existsSync2(from)) return;
+  mkdirSync(dirname2(to), { recursive: true });
   renameSync(from, to);
 }
 function removeFile(path) {
@@ -2478,9 +6789,9 @@ function jaccard(a, b) {
   return union === 0 ? 0 : inter / union;
 }
 function syncEntries(outDir, entries, prevModules) {
-  const encDir = join5(outDir, "encyclopedia");
-  const orphanDir = join5(encDir, "_orphaned");
-  const entryPath = (slug) => join5(encDir, `${slug}.md`);
+  const encDir = join6(outDir, "encyclopedia");
+  const orphanDir = join6(encDir, "_orphaned");
+  const entryPath = (slug) => join6(encDir, `${slug}.md`);
   const currentSlugs = new Set(entries.map((e) => e.slug));
   const consumed = /* @__PURE__ */ new Set();
   const notes = [];
@@ -2523,7 +6834,7 @@ function syncEntries(outDir, entries, prevModules) {
     const human = humanBodies(text);
     const hasProse2 = [...human.values()].some((b) => b.trim().length > 0);
     if (hasProse2) {
-      moveFile(path, join5(orphanDir, `${old}.md`));
+      moveFile(path, join6(orphanDir, `${old}.md`));
       orphaned.push(old);
       notes.push(`orphaned prose for removed module "${old}" \u2192 encyclopedia/_orphaned/${old}.md`);
     } else {
@@ -2535,16 +6846,16 @@ function syncEntries(outDir, entries, prevModules) {
 }
 
 // src/store.ts
-import { join as join6 } from "path";
+import { join as join7 } from "path";
 function indexPaths(outDir) {
   return {
-    index: join6(outDir, "INDEX.md"),
-    graph: join6(outDir, "graph.json"),
-    manifest: join6(outDir, "manifest.json"),
-    mermaid: join6(outDir, "graph.mmd"),
-    encyclopedia: join6(outDir, "encyclopedia"),
-    vectors: join6(outDir, "vectors.json"),
-    semantic: join6(outDir, "semantic.json")
+    index: join7(outDir, "INDEX.md"),
+    graph: join7(outDir, "graph.json"),
+    manifest: join7(outDir, "manifest.json"),
+    mermaid: join7(outDir, "graph.mmd"),
+    encyclopedia: join7(outDir, "encyclopedia"),
+    vectors: join7(outDir, "vectors.json"),
+    semantic: join7(outDir, "semantic.json")
   };
 }
 function indexExists(outDir) {
@@ -2617,21 +6928,21 @@ function runBuild(opts, builtAt) {
 }
 
 // src/find.ts
-import { join as join7 } from "path";
+import { join as join8 } from "path";
 
 // src/lex.ts
 function splitIdentifier(token) {
   const spaced = token.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/([A-Za-z])(\d)/g, "$1 $2").replace(/(\d)([A-Za-z])/g, "$1 $2");
   const seen = /* @__PURE__ */ new Set();
-  const out = [];
+  const out2 = [];
   for (const part of spaced.split(/[^A-Za-z0-9]+| /)) {
     if (!part) continue;
     const lower = part.toLowerCase();
     if (seen.has(lower)) continue;
     seen.add(lower);
-    out.push(lower);
+    out2.push(lower);
   }
-  return out;
+  return out2;
 }
 function stem(token) {
   if (token.length < 4 || /\d/.test(token)) return token;
@@ -2677,13 +6988,13 @@ function synonymGroup(token) {
 function queryTerms(question) {
   return keywords(question).map((raw) => {
     const exact = raw.toLowerCase();
-    const parts = splitIdentifier(raw).filter((p) => p !== exact && keywords(p).length > 0);
+    const parts2 = splitIdentifier(raw).filter((p) => p !== exact && keywords(p).length > 0);
     const forms = /* @__PURE__ */ new Set();
-    for (const f of [stem(exact), ...parts, ...parts.map(stem)]) {
+    for (const f of [stem(exact), ...parts2, ...parts2.map(stem)]) {
       if (f !== exact) forms.add(f);
     }
     const groups = /* @__PURE__ */ new Set();
-    for (const f of [exact, ...parts]) {
+    for (const f of [exact, ...parts2]) {
       const g = synonymGroup(f);
       if (g !== void 0) groups.add(g);
     }
@@ -2784,9 +7095,9 @@ var BATCH_SIZE = 32;
 var TIMEOUT_MS = 3e4;
 async function embedTexts(cfg, texts) {
   const url = embeddingsUrl(cfg.baseUrl);
-  const out = [];
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
+  const out2 = [];
+  for (let i2 = 0; i2 < texts.length; i2 += BATCH_SIZE) {
+    const batch = texts.slice(i2, i2 + BATCH_SIZE);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     let res;
@@ -2806,8 +7117,8 @@ async function embedTexts(cfg, texts) {
       clearTimeout(timer);
     }
     if (!res.ok) {
-      const body = clip(await res.text().catch(() => ""), 200);
-      throw new Error(`embeddings provider returned ${res.status} for ${url}${body ? `: ${body}` : ""}`);
+      const body2 = clip(await res.text().catch(() => ""), 200);
+      throw new Error(`embeddings provider returned ${res.status} for ${url}${body2 ? `: ${body2}` : ""}`);
     }
     const json = await res.json();
     const data = json.data;
@@ -2820,25 +7131,25 @@ async function embedTexts(cfg, texts) {
       if (!Array.isArray(d.embedding)) throw new Error("embeddings provider returned a row without an embedding");
       rows[idx] = d.embedding;
     });
-    out.push(...rows);
+    out2.push(...rows);
   }
-  return out;
+  return out2;
 }
 var EMBED_TEXT_MAX = 4e3;
 function moduleEmbedText(m, files, prose) {
   const members = files.slice().sort((a, b) => byStr(a.rel, b.rel)).map((f) => [f.rel, f.title, f.summary].filter(Boolean).join(" \u2014 "));
-  const parts = [m.title, m.path, m.slug, m.summary, ...members, prose ?? ""];
-  return clip(parts.filter(Boolean).join("\n"), EMBED_TEXT_MAX);
+  const parts2 = [m.title, m.path, m.slug, m.summary, ...members, prose ?? ""];
+  return clip(parts2.filter(Boolean).join("\n"), EMBED_TEXT_MAX);
 }
 function cosine(a, b) {
   if (a.length !== b.length || a.length === 0) return -1;
   let dot = 0;
   let na = 0;
   let nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
+  for (let i2 = 0; i2 < a.length; i2++) {
+    dot += a[i2] * b[i2];
+    na += a[i2] * a[i2];
+    nb += b[i2] * b[i2];
   }
   if (na === 0 || nb === 0) return -1;
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
@@ -2918,8 +7229,8 @@ async function runEmbed(outDir, cfg, force = false) {
       return runEmbed(outDir, cfg, true);
     }
     next.dim = dim;
-    toEmbed.forEach((t, i) => {
-      next.vectors[t.slug] = { hash: t.hash, v: round6(vectors[i]) };
+    toEmbed.forEach((t, i2) => {
+      next.vectors[t.slug] = { hash: t.hash, v: round6(vectors[i2]) };
     });
   }
   const removed = prior ? Object.keys(prior.vectors).filter((slug) => !(slug in next.vectors)).length : 0;
@@ -2944,21 +7255,21 @@ function moduleNeighbors(graph, slug) {
   ];
   return [...new Set(ns)].sort(byStr).slice(0, 8);
 }
-function textOf(parts) {
-  return parts.filter(Boolean).join(" ").toLowerCase();
+function textOf(parts2) {
+  return parts2.filter(Boolean).join(" ").toLowerCase();
 }
 var PROSE_WEIGHT = 1.5;
 function loadEnrichedProse(outDir, graph) {
   const enc = indexPaths(outDir).encyclopedia;
-  const out = /* @__PURE__ */ new Map();
+  const out2 = /* @__PURE__ */ new Map();
   for (const m of graph.modules) {
-    const text = readIfExists(join7(enc, `${m.slug}.md`));
+    const text = readIfExists(join8(enc, `${m.slug}.md`));
     if (!text) continue;
     const bodies = [...humanBodies(text).values()].filter(isEnrichedBody);
     if (!bodies.length) continue;
-    out.set(m.slug, bodies.join(" ").replace(/\[[^\]]*\]/g, " ").toLowerCase());
+    out2.set(m.slug, bodies.join(" ").replace(/\[[^\]]*\]/g, " ").toLowerCase());
   }
-  return out;
+  return out2;
 }
 function findModules(graph, query, k = DEFAULT_K, prose) {
   const terms = queryTerms(query);
@@ -3057,8 +7368,8 @@ async function runFindHybrid(outDir, query, k = DEFAULT_K) {
   const semanticSlugs = Object.entries(store.vectors).filter(([slug]) => moduleBySlug.has(slug)).map(([slug, rec]) => ({ slug, cos: cosine(queryVector, rec.v) })).sort((a, b) => b.cos - a.cos || byStr(a.slug, b.slug)).slice(0, pool).map((s) => s.slug);
   const lexicalSlugs = lexical.map((r) => r.slug);
   const fused = rrf([lexicalSlugs, semanticSlugs], (s) => s);
-  const lexRank = new Map(lexicalSlugs.map((s, i) => [s, i]));
-  const semRank = new Map(semanticSlugs.map((s, i) => [s, i + 1]));
+  const lexRank = new Map(lexicalSlugs.map((s, i2) => [s, i2]));
+  const semRank = new Map(semanticSlugs.map((s, i2) => [s, i2 + 1]));
   const ordered = [...fused.entries()].sort((a, b) => b[1] - a[1] || (lexRank.get(a[0]) ?? 1e9) - (lexRank.get(b[0]) ?? 1e9) || byStr(a[0], b[0])).slice(0, k).map(([slug]) => slug);
   const lexRow = new Map(lexical.map((r) => [r.slug, r]));
   const filesByModule = /* @__PURE__ */ new Map();
@@ -3076,21 +7387,21 @@ async function runFindHybrid(outDir, query, k = DEFAULT_K) {
 }
 
 // src/neighbors.ts
-function bfs(edges, start, depth) {
-  const out = /* @__PURE__ */ new Map();
+function bfs(edges, start2, depth) {
+  const out2 = /* @__PURE__ */ new Map();
   const inn = /* @__PURE__ */ new Map();
   for (const e of edges) {
     if (e.dangling) continue;
-    (out.get(e.from) ?? out.set(e.from, []).get(e.from)).push(e);
+    (out2.get(e.from) ?? out2.set(e.from, []).get(e.from)).push(e);
     (inn.get(e.to) ?? inn.set(e.to, []).get(e.to)).push(e);
   }
-  const seen = /* @__PURE__ */ new Set([start]);
+  const seen = /* @__PURE__ */ new Set([start2]);
   const links = [];
-  let frontier = [start];
+  let frontier = [start2];
   for (let d = 1; d <= depth; d++) {
     const next = [];
     for (const node of frontier) {
-      for (const e of (out.get(node) ?? []).slice().sort((a, b) => byStr(a.to, b.to))) {
+      for (const e of (out2.get(node) ?? []).slice().sort((a, b) => byStr(a.to, b.to))) {
         if (seen.has(e.to)) continue;
         links.push({ node: e.to, direction: "out", kind: e.kind, weight: e.weight, depth: d });
         seen.add(e.to);
@@ -3125,17 +7436,17 @@ function runNeighbors(outDir, target, depth = 1) {
 }
 
 // src/mapcmd.ts
-import { join as join8 } from "path";
+import { join as join9 } from "path";
 function runMap(outDir, moduleSlug) {
   const paths = indexPaths(outDir);
   if (moduleSlug) {
-    return readIfExists(join8(paths.encyclopedia, `${moduleSlug}.md`));
+    return readIfExists(join9(paths.encyclopedia, `${moduleSlug}.md`));
   }
   return readIfExists(paths.index);
 }
 
 // src/status.ts
-import { join as join9 } from "path";
+import { join as join10 } from "path";
 function runStatus(outDir) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
@@ -3143,7 +7454,7 @@ function runStatus(outDir) {
   const modules = graph.modules.map((m) => {
     let total = 0;
     let filled = 0;
-    const text = readIfExists(join9(enc, `${m.slug}.md`));
+    const text = readIfExists(join10(enc, `${m.slug}.md`));
     if (text) {
       const parsed = parseRegions(text);
       if (parsed.ok) {
@@ -3179,11 +7490,11 @@ function runStatus(outDir) {
 }
 
 // src/check.ts
-import { dirname as dirname3, join as join11 } from "path";
+import { dirname as dirname4, join as join12 } from "path";
 
 // src/verify.ts
-import { existsSync as existsSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync2 } from "fs";
-import { dirname as dirname2, join as join10 } from "path";
+import { existsSync as existsSync3, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "fs";
+import { dirname as dirname3, join as join11 } from "path";
 
 // src/cite.ts
 var EXT_TOKEN = /\[((?:[^[\]\n]|\[(?:[^[\]\n]|\[[^\]\n]*\])*\])*?\.[A-Za-z0-9]{1,8}(?::\d+(?:-\d+)?)?)\]/g;
@@ -3197,29 +7508,29 @@ function stripNonProse(text) {
 }
 function parseCitations(text) {
   const prose = stripNonProse(text);
-  const out = [];
+  const out2 = [];
   const seen = /* @__PURE__ */ new Set();
   const add = (rawIn) => {
     const raw = rawIn.trim().replace(/[.,;]+$/, "");
     if (!looksLikePath(raw) || seen.has(raw)) return;
     seen.add(raw);
     let path = raw;
-    let start;
+    let start2;
     let end;
     const ls = LINE_SUFFIX.exec(raw);
     if (ls) {
       path = raw.slice(0, ls.index);
-      start = Number(ls[1]);
+      start2 = Number(ls[1]);
       end = ls[2] ? Number(ls[2]) : void 0;
     }
-    if (path) out.push({ raw, path, start, end });
+    if (path) out2.push({ raw, path, start: start2, end });
   };
   let m;
   EXT_TOKEN.lastIndex = 0;
   while (m = EXT_TOKEN.exec(prose)) add(m[1]);
   SIMPLE_TOKEN.lastIndex = 0;
   while (m = SIMPLE_TOKEN.exec(prose)) add(m[1]);
-  return out;
+  return out2;
 }
 function checkCitations(text, fileLines) {
   const resolved = [];
@@ -3261,13 +7572,13 @@ function stripInlineCodeText(line) {
 function codeMask(lines) {
   const mask = new Array(lines.length).fill(false);
   let inFence = false;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^\s*(```|~~~)/.test(lines[i])) {
-      mask[i] = true;
+  for (let i2 = 0; i2 < lines.length; i2++) {
+    if (/^\s*(```|~~~)/.test(lines[i2])) {
+      mask[i2] = true;
       inFence = !inFence;
       continue;
     }
-    mask[i] = inFence;
+    mask[i2] = inFence;
   }
   return mask;
 }
@@ -3297,25 +7608,25 @@ function extractClaimUnits(text) {
     prose = [];
     proseD = [];
   };
-  let i = 0;
-  while (i < lines.length) {
-    if (code[i]) {
+  let i2 = 0;
+  while (i2 < lines.length) {
+    if (code[i2]) {
       flush();
-      i++;
+      i2++;
       continue;
     }
-    const line = stripInlineCode(lines[i]);
-    const lineD = stripInlineCodeText(lines[i]);
+    const line = stripInlineCode(lines[i2]);
+    const lineD = stripInlineCodeText(lines[i2]);
     const t = line.trim();
     if (t === "" || isHeadingOrRule(t) || isTableSep(line)) {
       flush();
-      i++;
+      i2++;
       continue;
     }
     if (isTableRow(line)) {
       flush();
       units.push({ kind: "text", text: tableCells(line), display: tableCells(lineD) });
-      i++;
+      i2++;
       continue;
     }
     if (/^\s*>/.test(line)) {
@@ -3325,16 +7636,16 @@ function extractClaimUnits(text) {
         prose.push(dq);
         proseD.push(dqD || dq);
       }
-      i++;
+      i2++;
       continue;
     }
     if (isListItem(line)) {
       flush();
       const items = [];
       const itemsD = [];
-      while (i < lines.length && !code[i]) {
-        const l = stripInlineCode(lines[i]);
-        const lD = stripInlineCodeText(lines[i]);
+      while (i2 < lines.length && !code[i2]) {
+        const l = stripInlineCode(lines[i2]);
+        const lD = stripInlineCodeText(lines[i2]);
         const tt = l.trim();
         const ttD = lD.trim();
         if (tt === "" || isHeadingOrRule(tt) || isTableSep(l) || isTableRow(l)) break;
@@ -3348,30 +7659,30 @@ function extractClaimUnits(text) {
           items.push(tt);
           itemsD.push(ttD);
         }
-        i++;
+        i2++;
       }
       units.push({ kind: "list", items, itemsD });
       continue;
     }
     prose.push(line);
     proseD.push(lineD);
-    i++;
+    i2++;
   }
   flush();
   return units;
 }
 function claimPairs(text) {
-  const out = [];
+  const out2 = [];
   for (const u of extractClaimUnits(text)) {
-    if (u.kind === "text") out.push({ parse: u.text, display: u.display });
-    else for (let j = 0; j < u.items.length; j++) out.push({ parse: u.items[j], display: u.itemsD[j] ?? u.items[j] });
+    if (u.kind === "text") out2.push({ parse: u.text, display: u.display });
+    else for (let j = 0; j < u.items.length; j++) out2.push({ parse: u.items[j], display: u.itemsD[j] ?? u.items[j] });
   }
-  return out;
+  return out2;
 }
 function readExcerpt(repo, c2) {
   let full;
   try {
-    full = readFileSync3(join10(repo, c2.path), "utf8");
+    full = readFileSync4(join11(repo, c2.path), "utf8");
   } catch {
     return "";
   }
@@ -3399,40 +7710,40 @@ function buildClaimPairs(answerText, repo) {
   return pairs;
 }
 function runVerify(answerPath, repo, opts = {}) {
-  const answer = readFileSync3(answerPath, "utf8");
+  const answer = readFileSync4(answerPath, "utf8");
   const pairs = buildClaimPairs(answer, repo);
   const max = Math.max(1, Math.floor(opts.maxVerify ?? VERIFY_MAX));
   const kept = pairs.length > max ? pairs.slice(0, max) : pairs;
   const worklist = { answer: answerPath, pairs: kept };
-  const dir = dirname2(answerPath);
+  const dir = dirname3(answerPath);
   const todo = { answer: answerPath, pairs: kept.map((p) => ({ ...p, verdict: null, note: "" })) };
-  writeFileSync2(join10(dir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
-  writeFileSync2(join10(dir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
+  writeFileSync2(join11(dir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
+  writeFileSync2(join11(dir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
   return worklist;
 }
 function renderWorklistMd(wl, total, kept) {
-  const out = [];
-  out.push(`# Verification worklist`);
-  out.push("");
-  out.push(
+  const out2 = [];
+  out2.push(`# Verification worklist`);
+  out2.push("");
+  out2.push(
     `For each pair, open the cited excerpt and judge whether it **supports** the claim. In \`VERIFY.todo.json\`, set each \`verdict\` to one of supported \xB7 partial \xB7 refuted \xB7 unsupported, add a short \`note\`, save it (e.g. as \`verdicts.json\`), then run \`ultraindex verify --apply verdicts.json --answer <file>\`.`
   );
-  if (kept < total) out.push(`
+  if (kept < total) out2.push(`
 _Showing ${kept} of ${total} pair(s) \u2014 capped._`);
-  out.push("");
+  out2.push("");
   for (const p of wl.pairs) {
-    out.push(`## ${p.claimId} \xB7 ${p.citation}`);
-    out.push(`**Claim:** ${p.claim}`);
-    out.push("```");
-    out.push(p.digest);
-    out.push("```");
-    out.push(`**Verdict:** _____ \xB7 **Note:** _____`);
-    out.push("");
+    out2.push(`## ${p.claimId} \xB7 ${p.citation}`);
+    out2.push(`**Claim:** ${p.claim}`);
+    out2.push("```");
+    out2.push(p.digest);
+    out2.push("```");
+    out2.push(`**Verdict:** _____ \xB7 **Note:** _____`);
+    out2.push("");
   }
-  return out.join("\n");
+  return out2.join("\n");
 }
 function applyVerdicts(dir, verdictsPath) {
-  const raw = JSON.parse(readFileSync3(verdictsPath, "utf8"));
+  const raw = JSON.parse(readFileSync4(verdictsPath, "utf8"));
   const list = Array.isArray(raw) ? raw : Array.isArray(raw?.pairs) ? raw.pairs : [];
   const verdicts = [];
   for (const v of list) {
@@ -3449,7 +7760,7 @@ function applyVerdicts(dir, verdictsPath) {
     });
   }
   const result = reduceVerdicts(verdicts);
-  writeFileSync2(join10(dir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
+  writeFileSync2(join11(dir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
   return result;
 }
 function reduceVerdicts(verdicts) {
@@ -3488,10 +7799,10 @@ function reduceVerdicts(verdicts) {
   };
 }
 function loadVerify(dir) {
-  const p = join10(dir, "VERIFY.json");
-  if (!existsSync2(p)) return void 0;
+  const p = join11(dir, "VERIFY.json");
+  if (!existsSync3(p)) return void 0;
   try {
-    return JSON.parse(readFileSync3(p, "utf8"));
+    return JSON.parse(readFileSync4(p, "utf8"));
   } catch {
     return void 0;
   }
@@ -3511,14 +7822,14 @@ function hashRepo(repo, outAbs, filters) {
   const outPrefix = outAbs.replace(/\/+$/, "") + "/";
   const include = compileGlobs(filters?.include);
   const exclude = compileGlobs(filters?.exclude);
-  const out = {};
+  const out2 = {};
   for (const f of walk(repo, { maxFileBytes: filters?.maxBytes, maxFiles: filters?.maxFiles }).files) {
     if (f.abs === outAbs || f.abs.startsWith(outPrefix)) continue;
     if (include && !include(f.rel)) continue;
     if (exclude && exclude(f.rel)) continue;
-    out[f.rel] = sha1(readText(f.abs));
+    out2[f.rel] = sha1(readText(f.abs));
   }
-  return out;
+  return out2;
 }
 function runCheck(outDir, repo) {
   const errors = [];
@@ -3545,7 +7856,7 @@ function runCheck(outDir, repo) {
   removed.sort(byStr);
   const enc = indexPaths(outDir).encyclopedia;
   for (const m of graph.modules) {
-    if (readIfExists(join11(enc, `${m.slug}.md`)) === void 0) {
+    if (readIfExists(join12(enc, `${m.slug}.md`)) === void 0) {
       errors.push(`module "${m.slug}" has no encyclopedia entry`);
     }
   }
@@ -3555,7 +7866,7 @@ function runCheck(outDir, repo) {
   }
   const fileLines = fileLineTable(graph);
   for (const m of graph.modules) {
-    const text = readIfExists(join11(enc, `${m.slug}.md`));
+    const text = readIfExists(join12(enc, `${m.slug}.md`));
     if (!text) continue;
     const parsed = parseRegions(text);
     if (!parsed.ok) {
@@ -3604,7 +7915,7 @@ function checkAnswer(outDir, answerPath, opts = {}) {
   const result = { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
   if (opts.semantic) {
     const warnings = [];
-    const sem = loadVerify(dirname3(answerPath));
+    const sem = loadVerify(dirname4(answerPath));
     if (!sem) {
       warnings.push("--semantic: no VERIFY.json next to the answer \u2014 run `verify` then `verify --apply <verdicts.json>` first; semantic gate skipped.");
     } else {
@@ -3633,19 +7944,19 @@ function checkAnswer(outDir, answerPath, opts = {}) {
 }
 
 // src/evidence.ts
-import { join as join12, extname as extname2 } from "path";
+import { join as join13, extname as extname2 } from "path";
 var HEAD_LINES = 120;
 var MAX_SYMS = 25;
 var ASK_FILE_CAP = 20;
 function gatherEvidence(repo, rels, headLines = HEAD_LINES) {
-  const out = [];
+  const out2 = [];
   for (const rel of rels) {
-    const content = readText(join12(repo, rel));
+    const content = readText(join13(repo, rel));
     if (!content) continue;
     const lines = content.split(/\r?\n/);
     const code = extractCode(rel, extname2(rel).toLowerCase(), content);
     const exported = code.symbols.filter((s) => s.exported).slice(0, MAX_SYMS).map((s) => ({ kind: s.kind, name: s.name, line: s.line, signature: s.signature }));
-    out.push({
+    out2.push({
       rel,
       lines: lines.length,
       exported,
@@ -3653,7 +7964,7 @@ function gatherEvidence(repo, rels, headLines = HEAD_LINES) {
       headTo: Math.min(lines.length, headLines)
     });
   }
-  return out;
+  return out2;
 }
 function fence(rel) {
   const lang = extToLang(extname2(rel).toLowerCase());
@@ -3661,20 +7972,20 @@ function fence(rel) {
   return map[lang] ?? (lang === "other" ? "" : lang);
 }
 function renderFile(e) {
-  const parts = [`### \`${e.rel}\` (${e.lines} lines)`];
+  const parts2 = [`### \`${e.rel}\` (${e.lines} lines)`];
   if (e.exported.length) {
-    parts.push("", "Exported:");
+    parts2.push("", "Exported:");
     for (const s of e.exported) {
       const sig = s.signature ? ` \u2014 \`${clip(s.signature, 100).split("\n")[0]}\`` : "";
-      parts.push(`- \`${s.kind} ${s.name}\` @ line ${s.line}${sig}`);
+      parts2.push(`- \`${s.kind} ${s.name}\` @ line ${s.line}${sig}`);
     }
   }
-  parts.push("", `Source (lines 1-${e.headTo}${e.headTo < e.lines ? ", file continues\u2026" : ""}):`, "```" + fence(e.rel), e.head, "```");
-  return parts.join("\n");
+  parts2.push("", `Source (lines 1-${e.headTo}${e.headTo < e.lines ? ", file continues\u2026" : ""}):`, "```" + fence(e.rel), e.head, "```");
+  return parts2.join("\n");
 }
-function keyFiles(graph, module, cap) {
+function keyFiles(graph, module2, cap) {
   const nodes = new Map(graph.files.map((f) => [f.rel, f]));
-  return module.members.filter((rel) => nodes.get(rel)?.fileKind === "code").sort((a, b) => {
+  return module2.members.filter((rel) => nodes.get(rel)?.fileKind === "code").sort((a, b) => {
     const fa = nodes.get(a);
     const fb = nodes.get(b);
     return fb.symbols - fa.symbols || fb.degIn + fb.degOut - (fa.degIn + fa.degOut) || byStr(a, b);
@@ -3696,17 +8007,17 @@ function neighborLines(graph, slug) {
   ];
 }
 var CITE_HELP = "Cite every factual claim with the file it rests on, in brackets: `[path]`, `[path:line]`, or `[path:start-end]` (e.g. `[src/api/client.ts:42-58]`). `ultraindex check` fails if a citation does not resolve to a real file/line.";
-function renderModuleDossier(repo, graph, module) {
-  const files = keyFiles(graph, module, 6);
+function renderModuleDossier(repo, graph, module2) {
+  const files = keyFiles(graph, module2, 6);
   const evidence = gatherEvidence(repo, files);
-  const neighbors = neighborLines(graph, module.slug);
+  const neighbors = neighborLines(graph, module2.slug);
   const lines = [
-    `# Dossier \u2014 module \`${module.slug}\`  (\`${module.path}\`, tier ${module.tier})`,
+    `# Dossier \u2014 module \`${module2.slug}\`  (\`${module2.path}\`, tier ${module2.tier})`,
     "",
-    `${module.members.length} files \xB7 ${module.symbols} symbols \xB7 entry: encyclopedia/${module.slug}.md`,
+    `${module2.members.length} files \xB7 ${module2.symbols} symbols \xB7 entry: encyclopedia/${module2.slug}.md`,
     "",
     "## Task",
-    `Read the REAL code below and write a grounded business analysis into the \`ui:human\` regions of \`encyclopedia/${module.slug}.md\`: what this module does for the product, how it connects to the rest, and any gotchas. ${CITE_HELP}`
+    `Read the REAL code below and write a grounded business analysis into the \`ui:human\` regions of \`encyclopedia/${module2.slug}.md\`: what this module does for the product, how it connects to the rest, and any gotchas. ${CITE_HELP}`
   ];
   if (neighbors.length) {
     lines.push("", "## Graph neighbours", ...neighbors);
@@ -3745,9 +8056,9 @@ function renderAskDossier(repo, graph, question, modules) {
 function runDossier(outDir, repo, slug) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
-  const module = graph.modules.find((m) => m.slug === slug);
-  if (!module) return void 0;
-  return renderModuleDossier(repo, graph, module);
+  const module2 = graph.modules.find((m) => m.slug === slug);
+  if (!module2) return void 0;
+  return renderModuleDossier(repo, graph, module2);
 }
 function runAsk(outDir, repo, question, k = 5) {
   const graph = loadGraph(outDir);
@@ -3866,8 +8177,8 @@ function parseArgs(argv) {
   const values = {};
   const bools = /* @__PURE__ */ new Set();
   const positional = [];
-  for (let i = 1; i < argv.length; i++) {
-    const arg = argv[i];
+  for (let i2 = 1; i2 < argv.length; i2++) {
+    const arg = argv[i2];
     if (arg === "-h" || arg === "--help") {
       process.stdout.write(HELP);
       process.exit(0);
@@ -3889,10 +8200,10 @@ function parseArgs(argv) {
       if (eq !== -1) {
         value = arg.slice(eq + 1);
       } else {
-        const next = argv[i + 1];
+        const next = argv[i2 + 1];
         if (next === void 0 || next.startsWith("--")) fail(`missing value for --${key}`);
         value = next;
-        i++;
+        i2++;
       }
       values[key] = value;
       continue;
@@ -3903,33 +8214,34 @@ function parseArgs(argv) {
 }
 function splitList(s) {
   if (!s) return void 0;
-  const parts = s.split(",").map((x) => x.trim()).filter(Boolean);
-  return parts.length ? parts : void 0;
+  const parts2 = s.split(",").map((x) => x.trim()).filter(Boolean);
+  return parts2.length ? parts2 : void 0;
 }
 function resolveOut(p, base) {
   if (p.values.out) return resolve(p.values.out);
-  const dotted = join13(base, ".ultraindex");
-  if (existsSync3(dotted)) return dotted;
-  const docs = join13(base, "docs", "ultraindex");
-  if (existsSync3(docs)) return docs;
+  const dotted = join14(base, ".ultraindex");
+  if (existsSync4(dotted)) return dotted;
+  const docs = join14(base, "docs", "ultraindex");
+  if (existsSync4(docs)) return docs;
   return dotted;
 }
-function resolveRepoRoot(p, out) {
+function resolveRepoRoot(p, out2) {
   if (p.values.repo) return resolve(p.values.repo);
-  return loadManifest(out)?.repo ?? resolve(".");
+  return loadManifest(out2)?.repo ?? resolve(".");
 }
-function cmdBuild(p) {
+async function cmdBuild(p) {
   const repo = resolve(p.values.repo ?? ".");
-  if (!existsSync3(repo)) fail(`repo not found: ${repo}`);
-  const out = p.values.out ? resolve(p.values.out) : join13(repo, ".ultraindex");
+  if (!existsSync4(repo)) fail(`repo not found: ${repo}`);
+  const out2 = p.values.out ? resolve(p.values.out) : join14(repo, ".ultraindex");
   const maxBytes = p.values["max-bytes"] ? Number(p.values["max-bytes"]) : void 0;
   if (maxBytes !== void 0 && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
   const maxFiles = p.values["max-files"] ? Number(p.values["max-files"]) : void 0;
   if (maxFiles !== void 0 && (!Number.isInteger(maxFiles) || maxFiles <= 0)) fail("invalid --max-files");
+  await ensureGrammars(allGrammarKeys());
   const { graph, manifest, capped } = runBuild(
     {
       repo,
-      out,
+      out: out2,
       include: splitList(p.values.include),
       exclude: splitList(p.values.exclude),
       maxBytes,
@@ -3954,7 +8266,7 @@ function cmdBuild(p) {
     process.stdout.write(
       JSON.stringify(
         {
-          out,
+          out: out2,
           files: graph.fileCount,
           modules: graph.modules.length,
           edges: graph.fileEdges.length,
@@ -3972,7 +8284,7 @@ function cmdBuild(p) {
   }
   const lines = [
     `ultraindex: built index for ${graph.fileCount} files${capped ? " (PARTIAL \u2014 --max-files cap hit)" : ""}`,
-    `  out:      ${out}${graph.commit ? `  (@ ${graph.commit})` : ""}`,
+    `  out:      ${out2}${graph.commit ? `  (@ ${graph.commit})` : ""}`,
     `  modules:  ${graph.modules.length} \xB7 links: ${graph.fileEdges.length}${dangling ? ` \xB7 dangling: ${dangling}` : ""}`,
     ...capped ? [`  WARNING:  scan hit --max-files \u2014 the index is partial; raise --max-files to index the whole repo`] : [],
     ...manifest.orphaned.length ? [`  orphaned: ${manifest.orphaned.length} (see encyclopedia/_orphaned/)`] : [],
@@ -3983,13 +8295,13 @@ function cmdBuild(p) {
 }
 async function cmdFind(p) {
   const base = resolve(p.values.repo ?? ".");
-  const out = resolveOut(p, base);
+  const out2 = resolveOut(p, base);
   const query = p.positional.join(" ").trim();
   if (!query) fail('missing query \u2014 usage: ultraindex find "<task keywords>"');
   const k = p.values.k ? Number(p.values.k) : 8;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
-  const found = await runFindHybrid(out, query, k);
-  if (found === void 0) fail(`no index at ${out} \u2014 run \`ultraindex build\` first`);
+  const found = await runFindHybrid(out2, query, k);
+  if (found === void 0) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
   if (found.warning) process.stderr.write(`ultraindex: warning: ${found.warning}
 `);
   const results = found.results;
@@ -4015,15 +8327,15 @@ async function cmdFind(p) {
 }
 async function cmdEmbed(p) {
   const base = resolve(p.values.repo ?? ".");
-  const out = resolveOut(p, base);
-  const cfg = loadSemanticConfig(out);
+  const out2 = resolveOut(p, base);
+  const cfg = loadSemanticConfig(out2);
   if (!cfg) {
     fail(
-      `no semantic config \u2014 set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join13(out, "semantic.json")} ({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`
+      `no semantic config \u2014 set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join14(out2, "semantic.json")} ({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`
     );
   }
-  const report = await runEmbed(out, cfg, p.bools.has("force"));
-  if (report === void 0) fail(`no index at ${out} \u2014 run \`ultraindex build\` first`);
+  const report = await runEmbed(out2, cfg, p.bools.has("force"));
+  if (report === void 0) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");
     return;
@@ -4037,13 +8349,13 @@ async function cmdEmbed(p) {
 }
 function cmdNeighbors(p) {
   const base = resolve(p.values.repo ?? ".");
-  const out = resolveOut(p, base);
+  const out2 = resolveOut(p, base);
   const target = p.positional[0];
   if (!target) fail("missing target \u2014 usage: ultraindex neighbors <file|module-slug>");
-  if (!indexExists(out)) fail(`no index at ${out} \u2014 run \`ultraindex build\` first`);
+  if (!indexExists(out2)) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
   const depth = p.values.depth ? Number(p.values.depth) : 1;
   if (!Number.isFinite(depth) || depth <= 0) fail("invalid --depth");
-  const res = runNeighbors(out, target, depth);
+  const res = runNeighbors(out2, target, depth);
   if (!res) fail(`"${target}" is not a module slug or file in the index`);
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
@@ -4060,11 +8372,11 @@ function cmdNeighbors(p) {
 }
 function cmdMap(p) {
   const base = resolve(p.values.repo ?? ".");
-  const out = resolveOut(p, base);
+  const out2 = resolveOut(p, base);
   if (p.bools.has("json")) {
     if (p.values.module) fail("--json applies to the map view, not a single entry (read the markdown)");
-    const graph = loadGraph(out);
-    if (!graph) fail(`no index at ${out} \u2014 run \`ultraindex build\` first`);
+    const graph = loadGraph(out2);
+    if (!graph) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
     const modules = graph.modules.map((m) => ({
       slug: m.slug,
       path: m.path,
@@ -4076,17 +8388,17 @@ function cmdMap(p) {
     process.stdout.write(JSON.stringify(modules, null, 2) + "\n");
     return;
   }
-  const content = runMap(out, p.values.module);
+  const content = runMap(out2, p.values.module);
   if (content === void 0) {
-    fail(p.values.module ? `no entry for module "${p.values.module}" at ${out}` : `no index at ${out} \u2014 run \`ultraindex build\` first`);
+    fail(p.values.module ? `no entry for module "${p.values.module}" at ${out2}` : `no index at ${out2} \u2014 run \`ultraindex build\` first`);
   }
   process.stdout.write(content.endsWith("\n") ? content : content + "\n");
 }
 function cmdStatus(p) {
   const base = resolve(p.values.repo ?? ".");
-  const out = resolveOut(p, base);
-  const res = runStatus(out);
-  if (res === void 0) fail(`no index at ${out} \u2014 run \`ultraindex build\` first`);
+  const out2 = resolveOut(p, base);
+  const res = runStatus(out2);
+  if (res === void 0) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     return;
@@ -4103,25 +8415,25 @@ function cmdStatus(p) {
   process.stdout.write(lines.join("\n") + "\n");
 }
 function cmdDossier(p) {
-  const out = resolveOut(p, resolve(p.values.repo ?? "."));
-  const repo = resolveRepoRoot(p, out);
+  const out2 = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out2);
   const slug = p.positional[0];
   if (!slug) fail("missing module slug \u2014 usage: ultraindex dossier <module-slug>");
-  const content = runDossier(out, repo, slug);
+  const content = runDossier(out2, repo, slug);
   if (content === void 0) {
-    fail(indexExists(out) ? `no module "${slug}" in the index (try \`ultraindex map\`)` : `no index at ${out} \u2014 run \`ultraindex build\` first`);
+    fail(indexExists(out2) ? `no module "${slug}" in the index (try \`ultraindex map\`)` : `no index at ${out2} \u2014 run \`ultraindex build\` first`);
   }
   process.stdout.write(content);
 }
 function cmdAsk(p) {
-  const out = resolveOut(p, resolve(p.values.repo ?? "."));
-  const repo = resolveRepoRoot(p, out);
+  const out2 = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out2);
   const question = (p.positional.join(" ") || p.values.q || p.values.question || "").trim();
   if (!question) fail('missing question \u2014 usage: ultraindex ask "<question>"');
   const k = p.values.k ? Number(p.values.k) : 5;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
-  const res = runAsk(out, repo, question, k);
-  if (res === void 0) fail(`no index at ${out} \u2014 run \`ultraindex build\` first`);
+  const res = runAsk(out2, repo, question, k);
+  if (res === void 0) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     return;
@@ -4129,10 +8441,10 @@ function cmdAsk(p) {
   process.stdout.write(res.content);
 }
 function cmdCheck(p) {
-  const out = resolveOut(p, resolve(p.values.repo ?? "."));
-  const repo = resolveRepoRoot(p, out);
+  const out2 = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out2);
   if (p.values.answer) {
-    const res2 = checkAnswer(out, resolve(p.values.answer), { semantic: p.bools.has("semantic"), repo });
+    const res2 = checkAnswer(out2, resolve(p.values.answer), { semantic: p.bools.has("semantic"), repo });
     if (p.bools.has("json")) {
       process.stdout.write(JSON.stringify(res2, null, 2) + "\n");
     } else if (!p.bools.has("quiet")) {
@@ -4149,7 +8461,7 @@ function cmdCheck(p) {
     if (!res2.ok) process.exit(1);
     return;
   }
-  const res = runCheck(out, repo);
+  const res = runCheck(out2, repo);
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     if (!res.ok) process.exit(1);
@@ -4158,7 +8470,7 @@ function cmdCheck(p) {
   if (!p.bools.has("quiet")) {
     const lines = [];
     const status = res.errors.length ? "BROKEN" : res.stale ? "STALE" : "FRESH";
-    lines.push(`ultraindex: index is ${status} (${out})`);
+    lines.push(`ultraindex: index is ${status} (${out2})`);
     if (res.changed.length) lines.push(`  changed:  ${res.changed.length} \u2014 ${res.changed.slice(0, 8).join(", ")}${res.changed.length > 8 ? " \u2026" : ""}`);
     if (res.added.length) lines.push(`  added:    ${res.added.length} \u2014 ${res.added.slice(0, 8).join(", ")}${res.added.length > 8 ? " \u2026" : ""}`);
     if (res.removed.length) lines.push(`  removed:  ${res.removed.length} \u2014 ${res.removed.slice(0, 8).join(", ")}${res.removed.length > 8 ? " \u2026" : ""}`);
@@ -4173,7 +8485,7 @@ function cmdVerify(p) {
   const answer = p.values.answer;
   if (!answer) fail("missing --answer <file> \u2014 usage: ultraindex verify --answer <file> [--repo <dir>]");
   const answerPath = resolve(answer);
-  const dir = dirname4(answerPath);
+  const dir = dirname5(answerPath);
   if (p.values.apply) {
     const res = applyVerdicts(dir, resolve(p.values.apply));
     if (p.bools.has("json")) process.stdout.write(JSON.stringify(res, null, 2) + "\n");
@@ -4181,9 +8493,9 @@ function cmdVerify(p) {
     if (!res.ok) process.exit(1);
     return;
   }
-  if (!existsSync3(answerPath)) fail(`answer file not found: ${answerPath}`);
-  const out = resolveOut(p, resolve(p.values.repo ?? "."));
-  const repo = resolveRepoRoot(p, out);
+  if (!existsSync4(answerPath)) fail(`answer file not found: ${answerPath}`);
+  const out2 = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out2);
   const maxVerify = p.values["max-verify"] ? Number(p.values["max-verify"]) : VERIFY_MAX;
   if (!Number.isFinite(maxVerify) || maxVerify <= 0) fail("invalid --max-verify");
   const wl = runVerify(answerPath, repo, { maxVerify });
@@ -4225,7 +8537,7 @@ async function main() {
 function isInvokedDirectly() {
   const argv1 = process.argv[1];
   if (argv1 === void 0) return false;
-  const modulePath = fileURLToPath(import.meta.url);
+  const modulePath = fileURLToPath2(import.meta.url);
   try {
     if (realpathSync2(argv1) === realpathSync2(modulePath)) return true;
   } catch {

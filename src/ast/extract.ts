@@ -207,10 +207,27 @@ export function extractAst(rel: string, ext: string, content: string): AstResult
     if (!tree) return undefined;
     const symbols: CodeSymbol[] = [];
     const root = tree.rootNode;
+    // `export default Foo;` / `export { Foo }` re-export a declaration made
+    // earlier in the file; record those names and mark the matching symbols
+    // exported after the walk (the declaration node itself is not wrapped).
+    const exportedNames = new Set<string>();
 
     const walk = (node: TSNode, parent: string | undefined, exported: boolean): void => {
       // `export …` / `export default …` (JS/TS) marks the wrapped declaration.
       const nowExported = exported || node.type === "export_statement";
+      if (node.type === "export_statement") {
+        for (let i = 0; i < node.namedChildCount; i++) {
+          const c = node.namedChild(i)!;
+          if (c.type === "identifier") exportedNames.add(c.text);
+          else if (c.type === "export_clause") {
+            for (let j = 0; j < c.namedChildCount; j++) {
+              const spec = c.namedChild(j)!;
+              const nm = spec.childForFieldName("name") ?? spec.namedChild(0);
+              if (nm?.text) exportedNames.add(nm.text);
+            }
+          }
+        }
+      }
       const kind = spec.defs[node.type];
       if (kind) {
         const name = nameOf(node);
@@ -249,6 +266,9 @@ export function extractAst(rel: string, ext: string, content: string): AstResult
     };
 
     walk(root, undefined, false);
+    if (exportedNames.size) {
+      for (const s of symbols) if (!s.exported && exportedNames.has(s.name)) s.exported = true;
+    }
 
     const refs = collectImports(root, spec);
     let pkg: string | undefined;

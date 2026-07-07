@@ -1,5 +1,6 @@
 import type { CodeSymbol, RawRef } from "../types.js";
 import { extractSymbols } from "../lang/registry.js";
+import { extractAst } from "../ast/extract.js";
 
 export interface CodeInfo {
   symbols: CodeSymbol[];
@@ -246,7 +247,13 @@ function extractReexports(rel: string, content: string): CodeSymbol[] {
 }
 
 export function extractCode(rel: string, ext: string, content: string): CodeInfo {
-  const symbols = extractSymbols(rel, ext, content).slice(0, 400);
+  // Symbols come from tree-sitter when a grammar is loaded for this extension
+  // (AST-exact: real nesting, precise kinds, structural export), else the regex
+  // extractors. Imports/pkg stay on the battle-tested regex path here — their
+  // resolution is covered by resolve tests and the e2e ratchet; the new-language
+  // AST importers land with their resolvers.
+  const ast = extractAst(rel, ext, content);
+  const symbols = (ast ? ast.symbols : extractSymbols(rel, ext, content)).slice(0, 400);
   // Add barrel re-exports the local def didn't already cover.
   const known = new Set(symbols.map((s) => s.name));
   const reexports = extractReexports(rel, content).filter((s) => !known.has(s.name));
