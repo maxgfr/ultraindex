@@ -88,7 +88,7 @@ describe("skill docs stay in sync with the CLI", () => {
 });
 
 describe("SKILL.md routes to the references (progressive disclosure)", () => {
-  it("ships the three workflow references", () => {
+  it("ships the four workflow references", () => {
     expect(refFiles.sort()).toEqual(["generate.md", "navigate.md", "semantic.md", "verify.md"]);
   });
 

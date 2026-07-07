@@ -29,8 +29,8 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Build is reproducible (all three committed bundles up to date)
-        run: pnpm run check:build # tsup && copy-bundle && git diff --exit-code over the 3 bundles
+      - name: Build is reproducible (committed bundle + grammar wasms up to date)
+        run: pnpm run check:build # tsup && copy-bundle && git diff --exit-code over both bundles + both grammar dirs
 
       - name: Test
         run: pnpm test

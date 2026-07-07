@@ -133,4 +133,28 @@ load_plugin() {
     expect(languageOf(".py")).toBe("python");
     expect(languageOf(".zzz")).toBe("other");
   });
+
+  // The regex extractors below are the FALLBACK path (Ruby/C have grammars, so
+  // extractCode uses tree-sitter; Lua/Scala have none). extractSymbols always
+  // runs the regex extractor directly, so this covers the fallback for each.
+  it("extracts Ruby methods, classes and modules (regex fallback)", () => {
+    const names = extractSymbols("a.rb", ".rb", "module Api\n  class Client\n    def fetch; end\n  end\nend\n").map((s) => s.name);
+    expect(names).toEqual(expect.arrayContaining(["Api", "Client", "fetch"]));
+  });
+
+  it("extracts C functions and structs (regex fallback)", () => {
+    const names = extractSymbols("a.c", ".c", "typedef struct Node Node;\nint compute(int x) {\n  return x;\n}\n").map((s) => s.name);
+    expect(names).toContain("compute");
+  });
+
+  it("extracts Lua functions", () => {
+    const names = extractSymbols("a.lua", ".lua", "function M.setup()\nend\nlocal function helper()\nend\n").map((s) => s.name);
+    expect(names.length).toBeGreaterThan(0);
+    expect(languageOf(".lua")).toBe("lua");
+  });
+
+  it("extracts Scala classes/objects/defs", () => {
+    const names = extractSymbols("a.scala", ".scala", "object Main {\n  def run(): Unit = {}\n}\nclass Service {}\n").map((s) => s.name);
+    expect(names).toEqual(expect.arrayContaining(["Main", "Service"]));
+  });
 });
