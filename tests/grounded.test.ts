@@ -66,8 +66,8 @@ describe("dossier + ask (grounding packets carry real source)", () => {
     expect(d).toContain("export class HttpClient"); // real source inlined
     expect(d).toMatch(/\[path:line\]|\[path:start-end\]/); // cite help present
   });
-  it("ask assembles evidence for the relevant module", () => {
-    const a = runAsk(out, REPO, "backoff retry", 3)!;
+  it("ask assembles evidence for the relevant module", async () => {
+    const a = (await runAsk(out, REPO, "backoff retry", 3))!;
     expect(a.modules).toContain("src");
     expect(a.content).toContain("export function backoff");
     expect(a.content).toMatch(/ANSWER\.md/);

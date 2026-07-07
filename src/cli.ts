@@ -417,17 +417,18 @@ function cmdDossier(p: Parsed): void {
   process.stdout.write(content);
 }
 
-function cmdAsk(p: Parsed): void {
+async function cmdAsk(p: Parsed): Promise<void> {
   const out = resolveOut(p, resolve(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out);
   const question = (p.positional.join(" ") || p.values.q || p.values.question || "").trim();
   if (!question) fail('missing question — usage: ultraindex ask "<question>"');
   const k = p.values.k ? Number(p.values.k) : 5;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
-  const res = runAsk(out, repo, question, k);
+  const res = await runAsk(out, repo, question, k);
   if (res === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
+  if (res.warning) process.stderr.write(`ultraindex: warning: ${res.warning}\n`);
   if (p.bools.has("json")) {
-    process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    process.stdout.write(JSON.stringify({ modules: res.modules, content: res.content }, null, 2) + "\n");
     return;
   }
   process.stdout.write(res.content);

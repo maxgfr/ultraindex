@@ -36,6 +36,25 @@ function graph(): Graph {
   };
 }
 
+describe("findModules IDF", () => {
+  it("weights a rare query term above a term common to many modules", () => {
+    // "alpha" appears in 5 modules (common, low IDF); "zeta" in 1 (rare, high
+    // IDF). Each module matches exactly one query term, so only IDF separates
+    // them — the rare-term module must rank first.
+    const mk = (slug: string, summary: string): ModuleNode => ({
+      ...moduleNode(slug, `pkg/${slug}`, 1, [`pkg/${slug}/f.ts`]),
+      summary,
+    });
+    const mods = [mk("m1", "alpha"), mk("m2", "alpha"), mk("m3", "alpha"), mk("m4", "alpha"), mk("m5", "alpha"), mk("m6", "zeta")];
+    const files = mods.flatMap((m) => m.members.map((r) => fileNode(r, m.slug)));
+    const g: Graph = {
+      schemaVersion: SCHEMA_VERSION, version: VERSION, fileCount: files.length,
+      languages: { typescript: files.length }, files, modules: mods, fileEdges: [], moduleEdges: [],
+    };
+    expect(findModules(g, "alpha zeta", 6)[0]?.slug).toBe("m6");
+  });
+});
+
 describe("findModules ranking", () => {
   it("ranks the implementation above its larger __tests__ sibling", () => {
     const results = findModules(graph(), "calc", 5);

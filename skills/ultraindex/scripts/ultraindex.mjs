@@ -7262,7 +7262,7 @@ function buildHaystack(text) {
   }
   return { counts, groups, raw: text.toLowerCase(), length };
 }
-function scoreHaystack(hay, terms, saturate = false) {
+function scoreHaystack(hay, terms, saturate = false, idf) {
   let score = 0;
   const matched = [];
   for (const t of terms) {
@@ -7291,7 +7291,8 @@ function scoreHaystack(hay, terms, saturate = false) {
       }
     }
     if (weight === 0) continue;
-    score += saturate ? weight * Math.min(1.5, 1 + Math.log1p(count - 1) * 0.25) : weight;
+    const rarity = idf?.get(t.raw) ?? 1;
+    score += (saturate ? weight * Math.min(1.5, 1 + Math.log1p(count - 1) * 0.25) : weight) * rarity;
     matched.push(t.raw);
   }
   if (saturate) score /= 1 + Math.log(Math.max(1, hay.length / 200));
@@ -7481,6 +7482,7 @@ async function runEmbed(outDir, cfg, force = false) {
 // src/find.ts
 var DEFAULT_K = 8;
 var MAX_FILES = 8;
+var MIN_COSINE = 0.25;
 function moduleNeighbors(graph, slug) {
   const ns = [
     ...graph.moduleEdges.filter((e) => e.from === slug).map((e) => e.to),
@@ -7513,17 +7515,36 @@ function findModules(graph, query, k = DEFAULT_K, prose) {
     if (!list) filesByModule.set(f.module, list = []);
     list.push(f);
   }
+  const moduleSummary = (m) => (
+    // A structural-fallback summary ("N file(s) in `path/`…") just echoes the
+    // path — never count it as lexical content.
+    /^\d+ file\(s\) in /.test(m.summary) ? void 0 : m.summary
+  );
+  const N = graph.modules.length;
+  const df = /* @__PURE__ */ new Map();
+  for (const m of graph.modules) {
+    const members = filesByModule.get(m.slug) ?? [];
+    const combined = textOf([m.slug, m.path, moduleSummary(m)]) + " " + (prose?.get(m.slug) ?? "") + " " + members.map((f) => textOf([f.rel, f.title, f.summary])).join(" ");
+    for (const raw of new Set(scoreHaystack(buildHaystack(combined), terms).matched)) {
+      df.set(raw, (df.get(raw) ?? 0) + 1);
+    }
+  }
+  const idf = /* @__PURE__ */ new Map();
+  for (const t of terms) {
+    const d = df.get(t.raw) ?? 0;
+    idf.set(t.raw, Math.min(2, Math.max(0.5, 1 + Math.log((N + 1) / (d + 1)))));
+  }
   const scored = [];
   for (const m of graph.modules) {
     const members = filesByModule.get(m.slug) ?? [];
-    const summary = /^\d+ file\(s\) in /.test(m.summary) ? void 0 : m.summary;
+    const summary = moduleSummary(m);
     const moduleHay = textOf([m.slug, m.path, summary]);
-    const mod = scoreHaystack(buildHaystack(moduleHay), terms);
+    const mod = scoreHaystack(buildHaystack(moduleHay), terms, false, idf);
     const enrichedText = prose?.get(m.slug);
-    const pro = enrichedText ? scoreHaystack(buildHaystack(enrichedText), terms, true) : { score: 0, matched: [] };
+    const pro = enrichedText ? scoreHaystack(buildHaystack(enrichedText), terms, true, idf) : { score: 0, matched: [] };
     const scoredFiles = members.map((f) => {
       const hay = textOf([f.rel, f.title, f.summary]);
-      const s = scoreHaystack(buildHaystack(hay), terms);
+      const s = scoreHaystack(buildHaystack(hay), terms, false, idf);
       return { f, score: s.score, matched: s.matched, degree: f.degIn + f.degOut };
     }).sort((a, b) => b.score - a.score || b.degree - a.degree || byStr(a.f.rel, b.f.rel));
     const bestFile = scoredFiles[0]?.score ?? 0;
@@ -7598,7 +7619,7 @@ async function runFindHybrid(outDir, query, k = DEFAULT_K) {
     return lexOnly(`query embedding dim ${queryVector.length} != vectors.json dim ${store.dim} (model changed?) \u2014 re-run \`ultraindex embed\`; lexical-only results`);
   }
   const moduleBySlug = new Map(graph.modules.map((m) => [m.slug, m]));
-  const semanticSlugs = Object.entries(store.vectors).filter(([slug]) => moduleBySlug.has(slug)).map(([slug, rec]) => ({ slug, cos: cosine(queryVector, rec.v) })).sort((a, b) => b.cos - a.cos || byStr(a.slug, b.slug)).slice(0, pool).map((s) => s.slug);
+  const semanticSlugs = Object.entries(store.vectors).filter(([slug]) => moduleBySlug.has(slug)).map(([slug, rec]) => ({ slug, cos: cosine(queryVector, rec.v) })).filter((s) => s.cos >= MIN_COSINE).sort((a, b) => b.cos - a.cos || byStr(a.slug, b.slug)).slice(0, pool).map((s) => s.slug);
   const lexicalSlugs = lexical.map((r) => r.slug);
   const fused = rrf([lexicalSlugs, semanticSlugs], (s) => s);
   const lexRank = new Map(lexicalSlugs.map((s, i2) => [s, i2]));
@@ -8293,12 +8314,17 @@ function runDossier(outDir, repo, slug) {
   if (!module2) return void 0;
   return renderModuleDossier(repo, graph, module2);
 }
-function runAsk(outDir, repo, question, k = 5) {
+async function runAsk(outDir, repo, question, k = 5) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
-  const results = findModules(graph, question, k);
-  const modules = results.map((r) => ({ slug: r.slug, files: r.files }));
-  return { content: renderAskDossier(repo, graph, question, modules), modules: results.map((r) => r.slug) };
+  const found = await runFindHybrid(outDir, question, k);
+  if (!found) return void 0;
+  const modules = found.results.map((r) => ({ slug: r.slug, files: r.files }));
+  return {
+    content: renderAskDossier(repo, graph, question, modules),
+    modules: found.results.map((r) => r.slug),
+    warning: found.warning
+  };
 }
 
 // src/cli.ts
@@ -8661,17 +8687,19 @@ function cmdDossier(p) {
   }
   process.stdout.write(content);
 }
-function cmdAsk(p) {
+async function cmdAsk(p) {
   const out2 = resolveOut(p, resolve(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   const question = (p.positional.join(" ") || p.values.q || p.values.question || "").trim();
   if (!question) fail('missing question \u2014 usage: ultraindex ask "<question>"');
   const k = p.values.k ? Number(p.values.k) : 5;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
-  const res = runAsk(out2, repo, question, k);
+  const res = await runAsk(out2, repo, question, k);
   if (res === void 0) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
+  if (res.warning) process.stderr.write(`ultraindex: warning: ${res.warning}
+`);
   if (p.bools.has("json")) {
-    process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    process.stdout.write(JSON.stringify({ modules: res.modules, content: res.content }, null, 2) + "\n");
     return;
   }
   process.stdout.write(res.content);

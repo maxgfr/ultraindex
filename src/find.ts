@@ -11,6 +11,11 @@ import { loadSemanticConfig, embedTexts, cosine } from "./semantic.js";
 
 const DEFAULT_K = 8;
 const MAX_FILES = 8;
+// Below this cosine, a "semantic match" is noise. bge/nomic-class models put
+// genuinely related text well above it; some hosted models (OpenAI v3) score
+// related pairs in the 0.2–0.4 band, so the floor stays low. Dropping the noise
+// just degrades hybrid toward lexical for that query — it never errors.
+const MIN_COSINE = 0.25;
 
 // Related module slugs, both directions, deduped and capped.
 function moduleNeighbors(graph: Graph, slug: string): string[] {
@@ -60,27 +65,52 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: 
     list.push(f);
   }
 
+  const moduleSummary = (m: ModuleNode): string | undefined =>
+    // A structural-fallback summary ("N file(s) in `path/`…") just echoes the
+    // path — never count it as lexical content.
+    /^\d+ file\(s\) in /.test(m.summary) ? undefined : m.summary;
+
+  // IDF pre-pass: document frequency of each query term across MODULES (the
+  // ranked unit). A term that hits almost every module carries little signal; a
+  // rare one is discriminating. idf = clamp(0.5, 2.0, 1 + ln((N+1)/(df+1))).
+  const N = graph.modules.length;
+  const df = new Map<string, number>();
+  for (const m of graph.modules) {
+    const members = filesByModule.get(m.slug) ?? [];
+    const combined =
+      textOf([m.slug, m.path, moduleSummary(m)]) +
+      " " +
+      (prose?.get(m.slug) ?? "") +
+      " " +
+      members.map((f) => textOf([f.rel, f.title, f.summary])).join(" ");
+    for (const raw of new Set(scoreHaystack(buildHaystack(combined), terms).matched)) {
+      df.set(raw, (df.get(raw) ?? 0) + 1);
+    }
+  }
+  const idf = new Map<string, number>();
+  for (const t of terms) {
+    const d = df.get(t.raw) ?? 0;
+    idf.set(t.raw, Math.min(2, Math.max(0.5, 1 + Math.log((N + 1) / (d + 1)))));
+  }
+
   const scored: { r: FindResult; degree: number }[] = [];
   for (const m of graph.modules) {
     const members = filesByModule.get(m.slug) ?? [];
-    // Don't count a structural-fallback summary ("N file(s) in `path/`…") — it
-    // just echoes the path and would double-count path tokens as if they were
-    // real lexical content.
-    const summary = /^\d+ file\(s\) in /.test(m.summary) ? undefined : m.summary;
+    const summary = moduleSummary(m);
     const moduleHay = textOf([m.slug, m.path, summary]);
-    const mod = scoreHaystack(buildHaystack(moduleHay), terms);
+    const mod = scoreHaystack(buildHaystack(moduleHay), terms, false, idf);
     const enrichedText = prose?.get(m.slug);
     // Enriched prose is the only long haystack — score it with saturation and
     // length normalization so verbose entries can't win on repetition alone.
     const pro = enrichedText
-      ? scoreHaystack(buildHaystack(enrichedText), terms, true)
+      ? scoreHaystack(buildHaystack(enrichedText), terms, true, idf)
       : { score: 0, matched: [] as string[] };
 
     // Per-file scoring drives both the module score and the file ordering.
     const scoredFiles = members
       .map((f) => {
         const hay = textOf([f.rel, f.title, f.summary]);
-        const s = scoreHaystack(buildHaystack(hay), terms);
+        const s = scoreHaystack(buildHaystack(hay), terms, false, idf);
         return { f, score: s.score, matched: s.matched, degree: f.degIn + f.degOut };
       })
       .sort((a, b) => b.score - a.score || b.degree - a.degree || byStr(a.f.rel, b.f.rel));
@@ -211,6 +241,7 @@ export async function runFindHybrid(outDir: string, query: string, k = DEFAULT_K
   const semanticSlugs = Object.entries(store.vectors)
     .filter(([slug]) => moduleBySlug.has(slug)) // a stale store may carry gone modules
     .map(([slug, rec]) => ({ slug, cos: cosine(queryVector, rec.v) }))
+    .filter((s) => s.cos >= MIN_COSINE) // drop noise floor before fusing
     .sort((a, b) => b.cos - a.cos || byStr(a.slug, b.slug))
     .slice(0, pool)
     .map((s) => s.slug);

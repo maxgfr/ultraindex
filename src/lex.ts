@@ -158,6 +158,7 @@ export function scoreHaystack(
   hay: Haystack,
   terms: QueryTerm[],
   saturate = false,
+  idf?: Map<string, number>,
 ): { score: number; matched: string[] } {
   let score = 0;
   const matched: string[] = [];
@@ -187,7 +188,11 @@ export function scoreHaystack(
       }
     }
     if (weight === 0) continue;
-    score += saturate ? weight * Math.min(1.5, 1 + Math.log1p(count - 1) * 0.25) : weight;
+    // A rare query term (low document frequency) counts for more than a common
+    // one — supplied by findModules as a per-term multiplier, clamped so IDF
+    // reweights but never dominates the tier weights. Absent ⇒ neutral (1).
+    const rarity = idf?.get(t.raw) ?? 1;
+    score += (saturate ? weight * Math.min(1.5, 1 + Math.log1p(count - 1) * 0.25) : weight) * rarity;
     matched.push(t.raw);
   }
   if (saturate) score /= 1 + Math.log(Math.max(1, hay.length / 200));
