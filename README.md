@@ -15,8 +15,10 @@ artifact you load piece by piece:
   encyclopedia/
     <module>.md         # per-module entry: business view + code view + links + sources
   graph.json            # the full typed link-graph (file + module level)
+  symbols.json          # symbol → definition sites + referencing files (`symbols` cmd)
   graph.mmd             # a Mermaid module diagram
   manifest.json         # per-file hashes (staleness) + merge bookkeeping
+  cache.json            # incremental-build extraction cache (regenerable; gitignore for committed indexes)
 ```
 
 ## Install
@@ -42,10 +44,12 @@ citation-checked** analysis (`dossier`/`ask` hand the agent the real source;
 ## CLI
 
 ```
-ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--no-mermaid]
+ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--no-mermaid]
 ultraindex find    "<query>" [--out <dir>] [--k <n>]
 ultraindex embed   [--out <dir>] [--force]
 ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
+ultraindex symbols "<name>" [--out <dir>] [--json]
+ultraindex impact  <file|module-slug> [--out <dir>] [--depth <n>] [--json]
 ultraindex map     [--out <dir>] [--module <slug>]
 ultraindex status  [--out <dir>]
 ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
@@ -57,9 +61,18 @@ ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--m
 - **build** — scan + (re)write the index. Idempotent: regenerates the code view
   and graph, **preserves** your enriched prose (matched by region key even across
   module renames; truly-removed modules' prose is kept under `encyclopedia/_orphaned/`).
+  **Incremental**: a rebuild reuses the extraction of files whose content is
+  unchanged (`--no-cache` forces a full re-extract). `--max-files` bounds the
+  scan and the build **warns** (never silently truncates) when the cap is hit.
 - **find** — rank modules for a task and print the **exact files to open**.
   Lexical by default (identifier splitting, light stemming, code-domain
-  synonyms); hybrid lexical + semantic when `vectors.json` exists (below).
+  synonyms, **IDF** term weighting); hybrid lexical + semantic when `vectors.json`
+  exists (below).
+- **symbols** — where a symbol is defined (file:line, kind, owning module) and
+  which files reference it, from `symbols.json` — exact then identifier-sub-token
+  match, no repo re-scan.
+- **impact** — the reverse dependency closure over import/use edges: everything
+  that transitively depends on a file or module ("what breaks if I change this").
 - **embed** — build/refresh `vectors.json` for semantic `find` (optional, needs
   a provider — see below). Incremental: unchanged modules keep their vectors.
 - **neighbors** — walk the graph from a file or module.
@@ -87,15 +100,23 @@ to commit a PR-reviewable index — deterministic, byte-stable rebuilds keep dif
 A **deterministic engine** (no model, no network) does the mechanical work:
 
 - **Scan** — gitignore-aware walk; per-file extraction of markdown (title /
-  headings / links) and code (exported symbols + signatures incl. `export default`
-  and barrel re-exports, top doc-comment, local imports).
+  headings / links) and code. Symbols come from **tree-sitter** (AST-exact: real
+  nesting, precise kinds, structural export) for JS/TS/TSX, Python, Go, Rust,
+  Java, C, C++, C#, Ruby, PHP — the grammar wasms ship **in the bundle** (still no
+  `npm install` at skill-use time; the install is ~17 MiB heavier). Other
+  languages fall back to the regex extractors. Barrel re-exports, top doc-comment
+  and local imports come along too.
 - **Resolve** — markdown relative links, and local imports for **JS/TS** (incl.
   `tsconfig` path aliases — even Nx-style root `tsconfig.base.json` — and
   **workspace packages** with their `exports` maps → in-repo source), **Python**,
   **Go** (multi-module `go.mod` incl. `replace` directives), **Rust**
-  (`mod`/`use`, cross-crate), and **Java** (package → source-root mapping).
-  Unresolved local targets become **dangling** edges (surfaced, never silently
-  dropped); third-party/stdlib and asset imports are external (no edge).
+  (`mod`/`use`, cross-crate), **Java** (package → source-root mapping),
+  **C/C++** (`#include "..."`), **Ruby** (`require_relative`/`require`), **PHP**
+  (composer PSR-4 + relative `require`) and **C#** (`using` → `namespace`). Plus
+  conservative code→code **`use`** edges when a file references another file's
+  unique exported symbol without importing it. Unresolved local targets become
+  **dangling** edges (surfaced, never silently dropped); third-party/stdlib and
+  asset imports are external (no edge).
 - **Graph** — typed edges (`doc-link`, `import`, conservative `mention`),
   file-level and lifted to module level; degree centrality picks the hubs.
 - **Render** — a budgeted `INDEX.md`, per-module entries split into tool-owned

@@ -49,10 +49,12 @@ they don't break anything).
 
 ## 3. Use `find` as usual
 
-When `vectors.json` exists, `find` is hybrid automatically: the header says
-`(hybrid)` and results carry a 1-based `semanticRank`. A module surfaced only
-semantically has `score 0` and `matched: []` — that's the vocabulary-gap case
-working as intended.
+When `vectors.json` exists, `find` **and** `ask` are hybrid automatically: the
+`find` header says `(hybrid)` and results carry a 1-based `semanticRank`. A
+module surfaced only semantically has `score 0` and `matched: []` — that's the
+vocabulary-gap case working as intended. A cosine floor drops weak matches
+before fusion, so a barely-related module never gets rank-boosted into the
+top-k; below the floor the query simply behaves lexically for that term.
 
 Degradation is graceful and explicit:
 

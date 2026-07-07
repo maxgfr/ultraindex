@@ -72,10 +72,12 @@ high-assurance answer adds → 4.
 
 ## Command cheat-sheet
 
-- `build --repo <dir> [--out .ultraindex] [--include/--exclude <glob>] [--max-bytes <n>] [--no-mermaid]` — scan and (re)write the index. Idempotent; keeps enriched prose. `--out docs/ultraindex` for a committed, PR-reviewable index.
+- `build --repo <dir> [--out .ultraindex] [--include/--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--no-mermaid]` — scan and (re)write the index. Idempotent; keeps enriched prose. Incremental (reuses unchanged files' extraction); warns if `--max-files` truncates. `--out docs/ultraindex` for a committed, PR-reviewable index.
 - `map [--module <slug>] [--json]` — print INDEX.md (or one entry, or the module table).
-- `find "<query>" [--k <n>]` — rank modules, print the **exact files to open**. Hybrid (lexical + semantic) when vectors.json exists.
+- `find "<query>" [--k <n>]` — rank modules, print the **exact files to open**. Lexical (with IDF term weighting) by default; hybrid (+ semantic) when vectors.json exists.
 - `neighbors <file|module> [--depth <n>]` — what links to / from it.
+- `symbols "<name>" [--json]` — where a symbol is **defined** (file:line, kind, owning module) and which files reference it. Fuzzy by identifier sub-token.
+- `impact <file|module> [--depth <n>] [--json]` — the **reverse dependency closure**: everything that imports or uses the target. "What breaks if I change this."
 - `status` — the enrichment **work-queue**, in the exact order to enrich.
 - `dossier <slug>` — a module's grounding packet (real source + neighbours; a docs/config-only module, e.g. `root`, shows no code — enrich it by citing its README/config instead).
 - `ask "<question>"` — assemble grounded evidence to answer from.
@@ -90,9 +92,17 @@ high-assurance answer adds → 4.
   builds of an unchanged repo are byte-identical except for `manifest.json`'s
   `builtAt` provenance timestamp; `vectors.json` is also excluded (its floats
   depend on the provider).
+- **AST-exact symbols** via committed tree-sitter grammars for JS/TS/TSX,
+  Python, Go, Rust, Java, C, C++, C#, Ruby, PHP — real nesting, precise kinds,
+  structural export. Other languages fall back to regex extractors (still
+  searchable). The grammar wasms ship in the bundle, so there is still no
+  `npm install` at skill-use time (the install is heavier — ~17 MiB of wasm).
 - **Import edges** for JS/TS (tsconfig `paths`, package `exports` maps),
-  Python, Go (multi-module + `replace`), Rust (`mod`/`use`), Java (packages).
-  Other languages are scanned and searchable; they just get no import edges.
+  Python, Go (multi-module + `replace`), Rust (`mod`/`use`), Java (packages),
+  C/C++ (`#include "..."`), Ruby (`require_relative`/`require`), PHP (composer
+  PSR-4 + relative `require`), C# (`using` → `namespace`). Plus conservative
+  code→code `use` edges when a file references another file's unique exported
+  symbol without importing it. Remaining languages get no import edges.
   Yarn PnP's virtual filesystem is out of scope (workspace names still resolve).
 - Dangling edges usually mean **the repo itself** has broken imports or stale
   doc links — that's a finding to report, not to paper over.

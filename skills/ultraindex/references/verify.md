@@ -65,8 +65,11 @@ node scripts/ultraindex.mjs check --answer ANSWER.md --semantic --out <index-dir
 
 `--semantic` re-checks citation resolution **and** folds `VERIFY.json`, failing on
 any refuted/unsupported claim — the single command to gate a high-assurance answer
-on. With no `VERIFY.json` next to the answer, `--semantic` only warns and skips the
-gate, so steps 1–3 must actually have run. Present the answer only once this passes.
+on. It **fails closed**: with no `VERIFY.json` next to the answer it exits non-zero
+(steps 1–3 must actually have run), so `--semantic` can never pass on resolution
+alone. Plain `check --answer` (no `--semantic`) remains the resolution-only gate.
+A misspelled verdict token or a malformed verdict row is a hard error at
+`verify --apply` time, not a silent skip. Present the answer only once this passes.
 
 ## Adjudicate in parallel with skeptic subagents
 

@@ -28,14 +28,23 @@ workflow's job.
    It returns the top modules with their **exact source files to open**, the
    matched terms, and graph neighbours. Results flagged `enriched` carry
    verified, citation-checked analysis in their entry — trust those entries
-   first. With a semantic layer set up, results may also carry a
-   `semanticRank` (see semantic.md). Use `neighbors <file|module>` to expand
-   along the graph ("what else touches this").
+   first. `find` weights rare query terms above common ones (IDF), so a
+   distinctive identifier discriminates better than a boilerplate word. With a
+   semantic layer set up, results may also carry a `semanticRank` (see
+   semantic.md). Use `neighbors <file|module>` to expand along the graph ("what
+   else touches this").
+
+   **When you already know the symbol, skip `find`:** `symbols "<name>"` points
+   straight at every definition site (file:line, kind, owning module) and the
+   files that reference it — no ranking, no guessing. Before you change a file
+   or symbol, run `impact <file|module>` to see its reverse dependency closure
+   (everything that imports or uses it) so you know the blast radius.
 
    **When `find` comes up empty or wrong, escalate in this order:**
    1. Re-query with synonyms and identifier-style terms (`auth login session`,
       `parseConfig`, the feature's route or flag name).
-   2. `neighbors` from any file or module you DO know is involved.
+   2. `symbols "<name>"` if you know the identifier; `neighbors` or `impact`
+      from any file or module you DO know is involved.
    3. If available, set up semantic search (semantic.md) — it catches
       vocabulary mismatches lexical search can't.
    4. Last resort: `rg` (or grep) **restricted to the module paths the index

@@ -9,13 +9,17 @@ node scripts/ultraindex.mjs build --repo <path-to-repo> --json
 ```
 
 Add `--out docs/ultraindex` if the team wants it committed and reviewed in PRs.
-Fast even on huge repos — pure file I/O, no model involvement. The `--json`
-report is self-diagnosing: if `dangling > 0`, read `danglingByReason` and its
+Fast even on huge repos, and **incremental** — a rebuild reuses the extraction
+of files whose content is unchanged, so only edited files are re-parsed (pass
+`--no-cache` to force a full re-extract). The `--json` report is
+self-diagnosing: if `dangling > 0`, read `danglingByReason` and its
 `reasonHints`, and check `notes` (unparseable tsconfig/package.json files are
-listed there). Fix what's fixable before enriching: `--exclude` vendored or
-generated trees, flag repo config issues. Dangling edges usually mean **the
-repo itself** has broken imports or stale doc links — report that to the user
-rather than papering over it.
+listed there). If `truncated` is set, the scan hit `--max-files` (default
+20000) and the index is PARTIAL — raise `--max-files` and rebuild. Fix what's
+fixable before enriching: `--exclude` vendored or generated trees, flag repo
+config issues. Dangling edges usually mean **the repo itself** has broken
+imports or stale doc links — report that to the user rather than papering over
+it.
 
 ## 2. Skim the map
 
