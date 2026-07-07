@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [3.0.0](https://github.com/maxgfr/ultraindex/compare/v2.2.0...v3.0.0) (2026-07-07)
+
+
+* feat(engine)!: extract symbols via tree-sitter (AST-first, regex fallback) ([9310047](https://github.com/maxgfr/ultraindex/commit/9310047406d56b345f95ac7bc4b948975a704a01))
+* feat(verify)!: harden the grounding gates against silent bypasses ([e5ad37c](https://github.com/maxgfr/ultraindex/commit/e5ad37cee678496dd8493bf8aca000ebb43e8bf0)), closes [hi#assurance](https://github.com/hi/issues/assurance)
+
+
+### Features
+
+* **ast:** tree-sitter extraction engine (loader + programmatic extractor) ([d5b7ec9](https://github.com/maxgfr/ultraindex/commit/d5b7ec91082f99623b812d7eb3a25bf5443b3e7d))
+* **build:** incremental extraction cache (cache.json) ([6141311](https://github.com/maxgfr/ultraindex/commit/6141311a996606acbf87ef081f0ab16d38af8213))
+* **cli:** `symbols` and `impact` navigation commands ([8633ce4](https://github.com/maxgfr/ultraindex/commit/8633ce4f79cd96699d34539e138a1d9e0c15cc9e))
+* **engine:** schema v2 socle — surfaced caps, O(module) entry rendering ([09bf3c3](https://github.com/maxgfr/ultraindex/commit/09bf3c3fdeb6721473db84dc2e5a12e60ddba642))
+* **find:** IDF term weighting, cosine floor, hybrid ask ([86aecca](https://github.com/maxgfr/ultraindex/commit/86aecca7155179199843cfd6da61384aa51482b7))
+* **graph:** code→code `use` edges + symbols.json refs ([fd6ee56](https://github.com/maxgfr/ultraindex/commit/fd6ee5653bcf07a5fe251b674836c4246badf736))
+* **index:** emit symbols.json — persisted symbol definition table ([0f59cca](https://github.com/maxgfr/ultraindex/commit/0f59cca7fe4f4d7d379de4d88b417be917df31d7))
+* **resolve:** import edges for C/C++, Ruby, PHP, C# ([9a1251e](https://github.com/maxgfr/ultraindex/commit/9a1251eb3fd17860f414546dada7173352c54609)), closes [#include](https://github.com/maxgfr/ultraindex/issues/include)
+
+
+### BREAKING CHANGES
+
+* check --answer --semantic without a VERIFY.json now exits
+non-zero instead of skipping the semantic gate.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+* the index is schema v2 and symbol extraction changed; existing
+indexes must be rebuilt.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
 # [2.2.0](https://github.com/maxgfr/ultraindex/compare/v2.1.0...v2.2.0) (2026-06-16)
 
 

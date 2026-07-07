@@ -3,7 +3,7 @@ name: ultraindex
 description: "Use when a repo is too large to hold in context — to BUILD a compact, navigable, AI-analyzed map of it AND to NAVIGATE that map for any later task or question. One skill, auto-routed: if no index exists it builds one; if the index is stale it rebuilds; if the user has a task/question it navigates. A deterministic zero-dependency engine scans the WHOLE repo (code + markdown) — no API keys, no LLM read of the repo — and emits a layered artifact: a small always-loadable INDEX.md (the map), per-module encyclopedia entries (business 'why/links' + code 'what/where'), a typed link-graph (graph.json + Mermaid), and a manifest for staleness. You then write grounded, citation-checked analysis per module (`dossier` hands you real source; `check` REJECTS citations that don't resolve — anti-hallucination), and later answer questions over the index with `find`/`neighbors`/`ask`, loading only the handful of files a task needs. Optional semantic search via a local docker-compose embeddings provider. Triggers: 'index/map/analyze this codebase', 'build the encyclopedia', 'where is X handled', 'what touches Y', 'how does Z work in this repo', 'which files do I change for Z', 'this repo is too big for context'."
 license: MIT
 metadata:
-  version: 2.2.0
+  version: 3.0.0
 ---
 
 # ultraindex — build and navigate an AI-analyzed encyclopedia of a whole repo
