@@ -8,7 +8,7 @@ import { realpathSync as realpathSync2 } from "fs";
 
 // src/types.ts
 var VERSION = "2.2.0";
-var SCHEMA_VERSION = 1;
+var SCHEMA_VERSION = 2;
 
 // src/build.ts
 import { basename as basename2, relative as relative2, isAbsolute } from "path";
@@ -116,14 +116,19 @@ var BINARY_EXT = /* @__PURE__ */ new Set([
   ".min.js",
   ".map"
 ]);
+var DEFAULT_MAX_FILES = 2e4;
 function walk(root, opts = {}) {
   const maxFileBytes = opts.maxFileBytes ?? 1024 * 1024;
-  const maxFiles = opts.maxFiles ?? 2e4;
+  const maxFiles = opts.maxFiles ?? DEFAULT_MAX_FILES;
   const out = [];
+  let capped = false;
   const stack = [root];
   const seenDirs = /* @__PURE__ */ new Set();
   while (stack.length) {
-    if (out.length >= maxFiles) break;
+    if (out.length >= maxFiles) {
+      capped = true;
+      break;
+    }
     const dir = stack.pop();
     let real;
     try {
@@ -161,7 +166,7 @@ function walk(root, opts = {}) {
       out.push({ rel: relative(root, abs).split(sep).join("/"), abs, size: st.size, ext });
     }
   }
-  return out;
+  return { files: out, capped };
 }
 function readText(abs) {
   try {
@@ -1165,10 +1170,11 @@ function countLines(s) {
 function scanRepo(root, opts = {}) {
   const include = compileGlobs(opts.include);
   const exclude = compileGlobs(opts.exclude);
-  const walked = walk(root, { maxFileBytes: opts.maxBytes });
+  const { files: walked, capped } = walk(root, { maxFileBytes: opts.maxBytes, maxFiles: opts.maxFiles });
   const outPrefix = opts.out ? opts.out.replace(/\/+$/, "") + "/" : null;
   const files = [];
   const languages = {};
+  const docText = /* @__PURE__ */ new Map();
   for (const f of walked) {
     if (outPrefix && (f.abs === opts.out || f.abs.startsWith(outPrefix))) continue;
     if (include && !include(f.rel)) continue;
@@ -1211,10 +1217,11 @@ function scanRepo(root, opts = {}) {
     } else {
       record.title = basename(f.rel);
     }
+    if (kind === "doc" && content) docText.set(f.rel, content);
     files.push(record);
   }
   files.sort(byKey((f) => f.rel));
-  return { root, commit: headCommit(root), files, languages };
+  return { root, commit: headCommit(root), files, languages, docText, capped };
 }
 
 // src/resolve.ts
@@ -1917,7 +1924,7 @@ function buildGraph(scan2, ctx, modules, moduleOf) {
   if (unique.size) {
     for (const f of scan2.files) {
       if (f.kind !== "doc") continue;
-      const content = readText(join3(scan2.root, f.rel));
+      const content = scan2.docText.get(f.rel) ?? readText(join3(scan2.root, f.rel));
       if (!content) continue;
       const tokens = /* @__PURE__ */ new Map();
       for (const tok of content.split(/[^A-Za-z0-9_]+/)) {
@@ -2133,6 +2140,26 @@ function mergeEntry(spec, existing, migrated) {
 }
 
 // src/render/encyclopedia.ts
+function buildEntryEdgeIndex(graph, moduleOf) {
+  const out = /* @__PURE__ */ new Map();
+  const inc = /* @__PURE__ */ new Map();
+  const dangling = /* @__PURE__ */ new Map();
+  const push = (m, key, e) => {
+    const arr = m.get(key);
+    if (arr) arr.push(e);
+    else m.set(key, [e]);
+  };
+  for (const e of graph.moduleEdges) {
+    push(out, e.from, e);
+    push(inc, e.to, e);
+  }
+  for (const e of graph.fileEdges) {
+    if (!e.dangling) continue;
+    const slug = moduleOf.get(e.from);
+    if (slug) push(dangling, slug, e);
+  }
+  return { out, inc, dangling };
+}
 var TIER_LABEL = { 0: "Foundations", 1: "Features", 2: "Tail" };
 var MAX_SYMBOLS_PER_FILE = 15;
 var MAX_DANGLING = 12;
@@ -2194,9 +2221,9 @@ function codeViewRegion(m, records) {
   }
   return { type: "gen", key: "code-view", body: lines.join("\n") };
 }
-function linksRegion(m, graph, moduleOf) {
+function linksRegion(m, edgeIndex) {
   const render = (edges, other) => {
-    const sorted = edges.sort((a, b) => b.weight - a.weight || byStr(other(a), other(b)));
+    const sorted = edges.slice().sort((a, b) => b.weight - a.weight || byStr(other(a), other(b)));
     const shown = sorted.slice(0, MAX_LINKS).map((e) => {
       const o = other(e);
       return `[\`${o}\`](${o}.md) (${e.kind}${e.weight > 1 ? ` \xD7${e.weight}` : ""})`;
@@ -2204,9 +2231,9 @@ function linksRegion(m, graph, moduleOf) {
     if (sorted.length > MAX_LINKS) shown.push(`\u2026and ${sorted.length - MAX_LINKS} more`);
     return shown;
   };
-  const out = render(graph.moduleEdges.filter((e) => e.from === m.slug), (e) => e.to);
-  const inc = render(graph.moduleEdges.filter((e) => e.to === m.slug), (e) => e.from);
-  const dangling = graph.fileEdges.filter((e) => e.dangling && moduleOf.get(e.from) === m.slug).sort((a, b) => byStr(a.from, b.from) || byStr(a.to, b.to)).slice(0, MAX_DANGLING).map((e) => `\`${e.to}\` (${e.kind}, ${e.reason}) \u2014 from \`${e.from}\``);
+  const out = render(edgeIndex.out.get(m.slug) ?? [], (e) => e.to);
+  const inc = render(edgeIndex.inc.get(m.slug) ?? [], (e) => e.from);
+  const dangling = (edgeIndex.dangling.get(m.slug) ?? []).slice().sort((a, b) => byStr(a.from, b.from) || byStr(a.to, b.to)).slice(0, MAX_DANGLING).map((e) => `\`${e.to}\` (${e.kind}, ${e.reason}) \u2014 from \`${e.from}\``);
   const bulletList = (items) => items.length ? items.map((i) => `- ${i}`) : ["_none_"];
   const lines = ["## Links"];
   lines.push("");
@@ -2232,12 +2259,12 @@ function sourcePointersRegion(m, records) {
   }
   return { type: "gen", key: "source-pointers", body: lines.join("\n") };
 }
-function renderEntrySpec(m, graph, records, moduleOf) {
+function renderEntrySpec(m, edgeIndex, records) {
   return [
     headerRegion(m),
     businessStub(),
     codeViewRegion(m, records),
-    linksRegion(m, graph, moduleOf),
+    linksRegion(m, edgeIndex),
     sourcePointersRegion(m, records),
     gotchasStub()
   ];
@@ -2384,6 +2411,7 @@ function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = [], fil
   if (filters.include?.length) scanFilters.include = filters.include;
   if (filters.exclude?.length) scanFilters.exclude = filters.exclude;
   if (filters.maxBytes !== void 0) scanFilters.maxBytes = filters.maxBytes;
+  if (filters.maxFiles !== void 0) scanFilters.maxFiles = filters.maxFiles;
   return {
     schemaVersion: SCHEMA_VERSION,
     version: VERSION,
@@ -2549,6 +2577,7 @@ function runBuild(opts, builtAt) {
     include: opts.include,
     exclude: opts.exclude,
     maxBytes: opts.maxBytes,
+    maxFiles: opts.maxFiles,
     out: opts.out
   });
   const ctx = buildResolveContext(scan2);
@@ -2558,10 +2587,11 @@ function runBuild(opts, builtAt) {
   const paths = indexPaths(opts.out);
   ensureDir(opts.out);
   const prev = loadManifest(opts.out);
+  const edgeIndex = buildEntryEdgeIndex(graph, moduleOf);
   const entryInputs = graph.modules.map((m) => ({
     slug: m.slug,
     members: m.members,
-    spec: renderEntrySpec(m, graph, records, moduleOf)
+    spec: renderEntrySpec(m, edgeIndex, records)
   }));
   const sync = syncEntries(opts.out, entryInputs, prev?.modules ?? {});
   const mermaid = opts.mermaid ? renderMermaid(graph) : void 0;
@@ -2569,18 +2599,21 @@ function runBuild(opts, builtAt) {
   if (mermaid) writeFileIfChanged(paths.mermaid, mermaid.content);
   else removeFile(paths.mermaid);
   writeFileIfChanged(paths.index, renderIndex(graph, { repoName: basename2(opts.repo) || "repo", mermaid }));
+  const cappedNote = scan2.capped ? [`file scan hit the --max-files cap (${opts.maxFiles ?? DEFAULT_MAX_FILES}); the index is PARTIAL \u2014 raise --max-files to index the whole repo`] : [];
   const extraNotes = [
     ...ctx.warnings,
+    ...cappedNote,
     ...opts.mermaid ? [] : ["mermaid diagram disabled (--no-mermaid)"]
   ];
   const outRel = !isAbsolute(relative2(opts.repo, opts.out)) && !relative2(opts.repo, opts.out).startsWith("..") ? relative2(opts.repo, opts.out) : opts.out;
   const manifest = buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes, {
     include: opts.include,
     exclude: opts.exclude,
-    maxBytes: opts.maxBytes
+    maxBytes: opts.maxBytes,
+    maxFiles: opts.maxFiles
   });
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
-  return { outDir: opts.out, graph, manifest };
+  return { outDir: opts.out, graph, manifest, capped: scan2.capped };
 }
 
 // src/find.ts
@@ -3479,7 +3512,7 @@ function hashRepo(repo, outAbs, filters) {
   const include = compileGlobs(filters?.include);
   const exclude = compileGlobs(filters?.exclude);
   const out = {};
-  for (const f of walk(repo, { maxFileBytes: filters?.maxBytes })) {
+  for (const f of walk(repo, { maxFileBytes: filters?.maxBytes, maxFiles: filters?.maxFiles }).files) {
     if (f.abs === outAbs || f.abs.startsWith(outPrefix)) continue;
     if (include && !include(f.rel)) continue;
     if (exclude && exclude(f.rel)) continue;
@@ -3731,7 +3764,7 @@ Deterministically index a whole repo (code + docs) into a navigable encyclopedia
 huge codebases without filling its context window. Zero deps, no keys.
 
 Usage:
-  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--no-mermaid]
+  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-mermaid]
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex embed   [--out <dir>] [--force]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
@@ -3771,7 +3804,8 @@ Options:
   --out <dir>       Index output dir   (default: <repo>/.ultraindex, else docs/ultraindex if present)
   --include <glob>  Only index paths matching (comma-separated globs)
   --exclude <glob>  Skip paths matching (comma-separated globs)
-  --max-bytes <n>   Skip files larger than n bytes
+  --max-bytes <n>   Skip files larger than n bytes                (default: 1 MiB)
+  --max-files <n>   Stop the scan after n files; the index warns if hit (default: 20000)
   --no-mermaid      Do not write graph.mmd
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
   --depth <n>       neighbors: hops to traverse                (default: 1)
@@ -3800,7 +3834,7 @@ Grounding:
   citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
 var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check", "verify"]);
-var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
+var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "quiet", "force", "semantic"]);
 var REASON_HINTS = {
   "missing-module": "a relative import's target file does not exist \u2014 usually a real broken import in the repo, worth reporting",
@@ -3890,13 +3924,16 @@ function cmdBuild(p) {
   const out = p.values.out ? resolve(p.values.out) : join13(repo, ".ultraindex");
   const maxBytes = p.values["max-bytes"] ? Number(p.values["max-bytes"]) : void 0;
   if (maxBytes !== void 0 && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
-  const { graph, manifest } = runBuild(
+  const maxFiles = p.values["max-files"] ? Number(p.values["max-files"]) : void 0;
+  if (maxFiles !== void 0 && (!Number.isInteger(maxFiles) || maxFiles <= 0)) fail("invalid --max-files");
+  const { graph, manifest, capped } = runBuild(
     {
       repo,
       out,
       include: splitList(p.values.include),
       exclude: splitList(p.values.exclude),
       maxBytes,
+      maxFiles,
       mermaid: !p.bools.has("no-mermaid"),
       json: p.bools.has("json")
     },
@@ -3923,6 +3960,7 @@ function cmdBuild(p) {
           edges: graph.fileEdges.length,
           dangling,
           ...dangling ? { danglingByReason, reasonHints } : {},
+          ...capped ? { truncated: true } : {},
           orphaned: manifest.orphaned,
           ...manifest.notes.length ? { notes: manifest.notes } : {}
         },
@@ -3933,9 +3971,10 @@ function cmdBuild(p) {
     return;
   }
   const lines = [
-    `ultraindex: built index for ${graph.fileCount} files`,
+    `ultraindex: built index for ${graph.fileCount} files${capped ? " (PARTIAL \u2014 --max-files cap hit)" : ""}`,
     `  out:      ${out}${graph.commit ? `  (@ ${graph.commit})` : ""}`,
     `  modules:  ${graph.modules.length} \xB7 links: ${graph.fileEdges.length}${dangling ? ` \xB7 dangling: ${dangling}` : ""}`,
+    ...capped ? [`  WARNING:  scan hit --max-files \u2014 the index is partial; raise --max-files to index the whole repo`] : [],
     ...manifest.orphaned.length ? [`  orphaned: ${manifest.orphaned.length} (see encyclopedia/_orphaned/)`] : [],
     ...manifest.notes.length ? [`  notes:    ${manifest.notes.length} (see manifest.json)`] : [],
     `  next:     enrich encyclopedia/*.md (ui:human regions), then \`ultraindex check\``

@@ -1,7 +1,37 @@
-import type { FileRecord, Graph, ModuleNode, Tier } from "../types.js";
+import type { Edge, FileRecord, Graph, ModuleNode, Tier } from "../types.js";
 import { ENRICH_MARKER, type Region } from "../merge.js";
 import { byStr } from "../sort.js";
 import { clip } from "../util.js";
+
+// Module edges and dangling refs pre-grouped by module, built ONCE per build so
+// each entry is O(its own links) instead of re-scanning every graph edge — the
+// difference between O(modules+edges) and O(modules×edges) on a hub-heavy repo.
+export interface EntryEdgeIndex {
+  out: Map<string, Edge[]>; // moduleEdges keyed by `from`
+  inc: Map<string, Edge[]>; // moduleEdges keyed by `to`
+  dangling: Map<string, Edge[]>; // dangling fileEdges keyed by the owning module slug
+}
+
+export function buildEntryEdgeIndex(graph: Graph, moduleOf: Map<string, string>): EntryEdgeIndex {
+  const out = new Map<string, Edge[]>();
+  const inc = new Map<string, Edge[]>();
+  const dangling = new Map<string, Edge[]>();
+  const push = (m: Map<string, Edge[]>, key: string, e: Edge): void => {
+    const arr = m.get(key);
+    if (arr) arr.push(e);
+    else m.set(key, [e]);
+  };
+  for (const e of graph.moduleEdges) {
+    push(out, e.from, e);
+    push(inc, e.to, e);
+  }
+  for (const e of graph.fileEdges) {
+    if (!e.dangling) continue;
+    const slug = moduleOf.get(e.from);
+    if (slug) push(dangling, slug, e);
+  }
+  return { out, inc, dangling };
+}
 
 const TIER_LABEL: Record<Tier, string> = { 0: "Foundations", 1: "Features", 2: "Tail" };
 const MAX_SYMBOLS_PER_FILE = 15;
@@ -71,11 +101,11 @@ function codeViewRegion(m: ModuleNode, records: Map<string, FileRecord>): Region
   return { type: "gen", key: "code-view", body: lines.join("\n") };
 }
 
-function linksRegion(m: ModuleNode, graph: Graph, moduleOf: Map<string, string>): Region {
+function linksRegion(m: ModuleNode, edgeIndex: EntryEdgeIndex): Region {
   // Heaviest links first, capped — a hub can have hundreds of dependents and an
   // unbounded list makes the entry unreadable and its diffs enormous.
-  const render = (edges: typeof graph.moduleEdges, other: (e: { from: string; to: string }) => string): string[] => {
-    const sorted = edges.sort((a, b) => b.weight - a.weight || byStr(other(a), other(b)));
+  const render = (edges: Edge[], other: (e: { from: string; to: string }) => string): string[] => {
+    const sorted = edges.slice().sort((a, b) => b.weight - a.weight || byStr(other(a), other(b)));
     const shown = sorted.slice(0, MAX_LINKS).map((e) => {
       const o = other(e);
       return `[\`${o}\`](${o}.md) (${e.kind}${e.weight > 1 ? ` ×${e.weight}` : ""})`;
@@ -83,10 +113,10 @@ function linksRegion(m: ModuleNode, graph: Graph, moduleOf: Map<string, string>)
     if (sorted.length > MAX_LINKS) shown.push(`…and ${sorted.length - MAX_LINKS} more`);
     return shown;
   };
-  const out = render(graph.moduleEdges.filter((e) => e.from === m.slug), (e) => e.to);
-  const inc = render(graph.moduleEdges.filter((e) => e.to === m.slug), (e) => e.from);
-  const dangling = graph.fileEdges
-    .filter((e) => e.dangling && moduleOf.get(e.from) === m.slug)
+  const out = render(edgeIndex.out.get(m.slug) ?? [], (e) => e.to);
+  const inc = render(edgeIndex.inc.get(m.slug) ?? [], (e) => e.from);
+  const dangling = (edgeIndex.dangling.get(m.slug) ?? [])
+    .slice()
     .sort((a, b) => byStr(a.from, b.from) || byStr(a.to, b.to))
     .slice(0, MAX_DANGLING)
     .map((e) => `\`${e.to}\` (${e.kind}, ${e.reason}) — from \`${e.from}\``);
@@ -127,15 +157,14 @@ function sourcePointersRegion(m: ModuleNode, records: Map<string, FileRecord>): 
 // regions (business, gotchas) are stubs the agent fills and the merge preserves.
 export function renderEntrySpec(
   m: ModuleNode,
-  graph: Graph,
+  edgeIndex: EntryEdgeIndex,
   records: Map<string, FileRecord>,
-  moduleOf: Map<string, string>,
 ): Region[] {
   return [
     headerRegion(m),
     businessStub(),
     codeViewRegion(m, records),
-    linksRegion(m, graph, moduleOf),
+    linksRegion(m, edgeIndex),
     sourcePointersRegion(m, records),
     gotchasStub(),
   ];

@@ -1,10 +1,11 @@
 import { basename, relative, isAbsolute } from "node:path";
 import type { BuildOptions, FileRecord, Graph, Manifest } from "./types.js";
 import { scanRepo } from "./scan.js";
+import { DEFAULT_MAX_FILES } from "./walk.js";
 import { buildResolveContext } from "./resolve.js";
 import { buildModules } from "./modules.js";
 import { buildGraph } from "./graph.js";
-import { renderEntrySpec } from "./render/encyclopedia.js";
+import { renderEntrySpec, buildEntryEdgeIndex } from "./render/encyclopedia.js";
 import { renderIndex } from "./render/index-md.js";
 import { renderMermaid } from "./render/mermaid.js";
 import { renderGraphJson } from "./render/graph-json.js";
@@ -17,6 +18,7 @@ export interface BuildResult {
   outDir: string;
   graph: Graph;
   manifest: Manifest;
+  capped: boolean; // the walk hit --max-files; the index is partial
 }
 
 // The full deterministic pipeline: scan → resolve → group → graph → render →
@@ -26,6 +28,7 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
     include: opts.include,
     exclude: opts.exclude,
     maxBytes: opts.maxBytes,
+    maxFiles: opts.maxFiles,
     out: opts.out,
   });
   const ctx = buildResolveContext(scan);
@@ -37,11 +40,13 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
   ensureDir(opts.out);
 
   // Entries: render each module's region spec, then merge against existing prose.
+  // The edge index is built once so each entry costs O(its own links), not O(E).
   const prev = loadManifest(opts.out);
+  const edgeIndex = buildEntryEdgeIndex(graph, moduleOf);
   const entryInputs: EntryInput[] = graph.modules.map((m) => ({
     slug: m.slug,
     members: m.members,
-    spec: renderEntrySpec(m, graph, records, moduleOf),
+    spec: renderEntrySpec(m, edgeIndex, records),
   }));
   const sync = syncEntries(opts.out, entryInputs, prev?.modules ?? {});
 
@@ -52,8 +57,12 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
   else removeFile(paths.mermaid); // keep the dir consistent with --no-mermaid
   writeFileIfChanged(paths.index, renderIndex(graph, { repoName: basename(opts.repo) || "repo", mermaid }));
 
+  const cappedNote = scan.capped
+    ? [`file scan hit the --max-files cap (${opts.maxFiles ?? DEFAULT_MAX_FILES}); the index is PARTIAL — raise --max-files to index the whole repo`]
+    : [];
   const extraNotes = [
     ...ctx.warnings,
+    ...cappedNote,
     ...(opts.mermaid ? [] : ["mermaid diagram disabled (--no-mermaid)"]),
   ];
   const outRel = !isAbsolute(relative(opts.repo, opts.out)) && !relative(opts.repo, opts.out).startsWith("..")
@@ -63,8 +72,9 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
     include: opts.include,
     exclude: opts.exclude,
     maxBytes: opts.maxBytes,
+    maxFiles: opts.maxFiles,
   });
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
 
-  return { outDir: opts.out, graph, manifest };
+  return { outDir: opts.out, graph, manifest, capped: scan.capped };
 }

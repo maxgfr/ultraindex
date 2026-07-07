@@ -37,6 +37,28 @@ describe("runBuild", () => {
     expect(graph.fileEdges.some((e) => e.dangling)).toBe(true);
   });
 
+  it("surfaces the --max-files cap instead of silently truncating", () => {
+    const dir = out();
+    const res = runBuild({ repo: REPO, out: dir, maxFiles: 3, mermaid: false, json: false }, FIXED_TIME);
+    expect(res.capped).toBe(true);
+    expect(res.graph.fileCount).toBeLessThanOrEqual(4); // soft cap: at most one dir's overshoot
+    const manifest = loadManifest(dir)!;
+    expect(manifest.notes.some((n) => /--max-files cap/.test(n))).toBe(true);
+    expect(manifest.scan?.maxFiles).toBe(3);
+  });
+
+  it("does not report capped for an uncapped build", () => {
+    const dir = out();
+    expect(build(dir).capped).toBe(false);
+  });
+
+  it("writes the current schema version so an old index is rejected, not misread", () => {
+    const dir = out();
+    build(dir);
+    expect(loadGraph(dir)!.schemaVersion).toBe(2);
+    expect(loadManifest(dir)!.schemaVersion).toBe(2);
+  });
+
   it("omits graph.mmd with mermaid disabled", () => {
     const dir = out();
     build(dir, false);

@@ -4,8 +4,16 @@
 export const VERSION = "2.2.0";
 
 // Bumped whenever the on-disk artifact shape changes, so `check`/nav can reject
-// an index written by an incompatible engine instead of misreading it.
-export const SCHEMA_VERSION = 1;
+// an index written by an incompatible engine instead of misreading it. v2 adds
+// symbols.json, the `use` edge kind, per-symbol parent/endLine, and the
+// extraction cache — a v1 index can't be read, so `check` asks for a rebuild.
+export const SCHEMA_VERSION = 2;
+
+// Identifies the extraction engine's output shape independently of the artifact
+// schema. The incremental build cache keys reused FileRecords on (content hash,
+// EXTRACTOR_VERSION); bump this whenever symbol/import extraction changes so a
+// stale cache is discarded wholesale rather than mixing old and new records.
+export const EXTRACTOR_VERSION = 2;
 
 // How a file is classified for the encyclopedia. `code` gets symbol/import
 // extraction; `doc` gets link/heading extraction; the rest are catalogued but
@@ -13,9 +21,11 @@ export const SCHEMA_VERSION = 1;
 export type FileKind = "code" | "doc" | "config" | "asset" | "other";
 
 // Edge kinds in the link-graph. `contains` is the module→member hierarchy;
-// `doc-link` a markdown link; `import` a resolved local code import; `mention` a
+// `doc-link` a markdown link; `import` a resolved local code import; `use` a
+// code file referencing another file's unique exported symbol (AST-derived, and
+// suppressed when an `import` edge already covers the same pair); `mention` a
 // doc naming an exported symbol.
-export type EdgeKind = "contains" | "doc-link" | "import" | "mention";
+export type EdgeKind = "contains" | "doc-link" | "import" | "use" | "mention";
 
 // Dependency tier, mirroring reconstruct's model: 0 = foundations (types, utils,
 // config), 1 = features, 2 = tail (tests, docs, examples, scripts).
@@ -28,6 +38,8 @@ export interface CodeSymbol {
   kind: string; // function | class | method | const | type | interface | enum | struct | trait | def
   file: string; // relative to repo root
   line: number; // 1-based
+  endLine?: number; // 1-based end of the declaration node (AST extractor only)
+  parent?: string; // enclosing symbol name for a nested member (AST extractor only)
   signature?: string;
   exported: boolean;
   lang: string;
@@ -133,7 +145,7 @@ export interface Manifest {
   notes: string[]; // merge conflicts and other build-time warnings
   // The file-selection filters the build applied, when any — so `check` can hash
   // the SAME file set and not report a filtered build as perpetually stale.
-  scan?: { include?: string[]; exclude?: string[]; maxBytes?: number };
+  scan?: { include?: string[]; exclude?: string[]; maxBytes?: number; maxFiles?: number };
 }
 
 // Resolved options for a `build`.
@@ -143,6 +155,7 @@ export interface BuildOptions {
   include?: string[];
   exclude?: string[];
   maxBytes?: number;
+  maxFiles?: number;
   mermaid: boolean;
   json: boolean;
 }

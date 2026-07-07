@@ -21,7 +21,7 @@ Deterministically index a whole repo (code + docs) into a navigable encyclopedia
 huge codebases without filling its context window. Zero deps, no keys.
 
 Usage:
-  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--no-mermaid]
+  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-mermaid]
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex embed   [--out <dir>] [--force]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
@@ -61,7 +61,8 @@ Options:
   --out <dir>       Index output dir   (default: <repo>/.ultraindex, else docs/ultraindex if present)
   --include <glob>  Only index paths matching (comma-separated globs)
   --exclude <glob>  Skip paths matching (comma-separated globs)
-  --max-bytes <n>   Skip files larger than n bytes
+  --max-bytes <n>   Skip files larger than n bytes                (default: 1 MiB)
+  --max-files <n>   Stop the scan after n files; the index warns if hit (default: 20000)
   --no-mermaid      Do not write graph.mmd
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
   --depth <n>       neighbors: hops to traverse                (default: 1)
@@ -91,7 +92,7 @@ Grounding:
 `;
 
 const COMMANDS = new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check", "verify"]);
-const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
+const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
 const BOOL_FLAGS = new Set(["json", "no-mermaid", "quiet", "force", "semantic"]);
 
 // What each dangling reason means and what to do about it — emitted in
@@ -204,14 +205,17 @@ function cmdBuild(p: Parsed): void {
   const out = p.values.out ? resolve(p.values.out) : join(repo, ".ultraindex");
   const maxBytes = p.values["max-bytes"] ? Number(p.values["max-bytes"]) : undefined;
   if (maxBytes !== undefined && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
+  const maxFiles = p.values["max-files"] ? Number(p.values["max-files"]) : undefined;
+  if (maxFiles !== undefined && (!Number.isInteger(maxFiles) || maxFiles <= 0)) fail("invalid --max-files");
 
-  const { graph, manifest } = runBuild(
+  const { graph, manifest, capped } = runBuild(
     {
       repo,
       out,
       include: splitList(p.values.include),
       exclude: splitList(p.values.exclude),
       maxBytes,
+      maxFiles,
       mermaid: !p.bools.has("no-mermaid"),
       json: p.bools.has("json"),
     },
@@ -241,6 +245,7 @@ function cmdBuild(p: Parsed): void {
           edges: graph.fileEdges.length,
           dangling,
           ...(dangling ? { danglingByReason, reasonHints } : {}),
+          ...(capped ? { truncated: true } : {}),
           orphaned: manifest.orphaned,
           ...(manifest.notes.length ? { notes: manifest.notes } : {}),
         },
@@ -251,9 +256,10 @@ function cmdBuild(p: Parsed): void {
     return;
   }
   const lines = [
-    `ultraindex: built index for ${graph.fileCount} files`,
+    `ultraindex: built index for ${graph.fileCount} files${capped ? " (PARTIAL — --max-files cap hit)" : ""}`,
     `  out:      ${out}${graph.commit ? `  (@ ${graph.commit})` : ""}`,
     `  modules:  ${graph.modules.length} · links: ${graph.fileEdges.length}${dangling ? ` · dangling: ${dangling}` : ""}`,
+    ...(capped ? [`  WARNING:  scan hit --max-files — the index is partial; raise --max-files to index the whole repo`] : []),
     ...(manifest.orphaned.length ? [`  orphaned: ${manifest.orphaned.length} (see encyclopedia/_orphaned/)`] : []),
     ...(manifest.notes.length ? [`  notes:    ${manifest.notes.length} (see manifest.json)`] : []),
     `  next:     enrich encyclopedia/*.md (ui:human regions), then \`ultraindex check\``,

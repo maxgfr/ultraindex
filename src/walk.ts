@@ -39,17 +39,30 @@ export interface WalkedFile {
   ext: string;
 }
 
+export interface WalkResult {
+  files: WalkedFile[];
+  capped: boolean; // true when the maxFiles cap was hit and the walk stopped early
+}
+
+export const DEFAULT_MAX_FILES = 20_000;
+
 // Recursively list source-like files under `root`, applying ignore rules. Pure
-// filesystem walk — no git dependency, so it works on any directory.
-export function walk(root: string, opts: WalkOptions = {}): WalkedFile[] {
+// filesystem walk — no git dependency, so it works on any directory. Returns a
+// `capped` flag (never a silent truncation) so the caller can warn when the
+// maxFiles cap stopped the walk with files still unindexed.
+export function walk(root: string, opts: WalkOptions = {}): WalkResult {
   const maxFileBytes = opts.maxFileBytes ?? 1024 * 1024;
-  const maxFiles = opts.maxFiles ?? 20_000;
+  const maxFiles = opts.maxFiles ?? DEFAULT_MAX_FILES;
   const out: WalkedFile[] = [];
+  let capped = false;
 
   const stack: string[] = [root];
   const seenDirs = new Set<string>(); // resolved real dirs already walked
   while (stack.length) {
-    if (out.length >= maxFiles) break;
+    if (out.length >= maxFiles) {
+      capped = true;
+      break;
+    }
     const dir = stack.pop()!;
     // Cycle guard: a directory symlink pointing at an ancestor would otherwise
     // make walk() loop, flooding the index with phantom duplicate files. Resolve
@@ -90,7 +103,7 @@ export function walk(root: string, opts: WalkOptions = {}): WalkedFile[] {
       out.push({ rel: relative(root, abs).split(sep).join("/"), abs, size: st.size, ext });
     }
   }
-  return out;
+  return { files: out, capped };
 }
 
 // Read a file as text, returning "" on any error (unreadable, vanished). Honours

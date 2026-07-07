@@ -15,12 +15,18 @@ export interface RepoScan {
   commit?: string;
   files: FileRecord[];
   languages: Record<string, number>;
+  // Raw content of doc files, kept so the graph's mention pass does not re-read
+  // them from disk (they were already read here). Docs only — bounding memory to
+  // prose, never the whole source tree.
+  docText: Map<string, string>;
+  capped: boolean; // the walk hit --max-files and the index is partial
 }
 
 export interface ScanOptions {
   include?: string[];
   exclude?: string[];
   maxBytes?: number;
+  maxFiles?: number;
   out?: string; // absolute output dir to exclude from the scan (self-index guard)
 }
 
@@ -36,13 +42,14 @@ function countLines(s: string): number {
 export function scanRepo(root: string, opts: ScanOptions = {}): RepoScan {
   const include = compileGlobs(opts.include);
   const exclude = compileGlobs(opts.exclude);
-  const walked = walk(root, { maxFileBytes: opts.maxBytes });
+  const { files: walked, capped } = walk(root, { maxFileBytes: opts.maxBytes, maxFiles: opts.maxFiles });
   // Never index our own output (e.g. a committed `docs/ultraindex/`), or builds
   // would describe the encyclopedia instead of the code.
   const outPrefix = opts.out ? opts.out.replace(/\/+$/, "") + "/" : null;
 
   const files: FileRecord[] = [];
   const languages: Record<string, number> = {};
+  const docText = new Map<string, string>();
 
   for (const f of walked) {
     if (outPrefix && (f.abs === opts.out || f.abs.startsWith(outPrefix))) continue;
@@ -91,9 +98,13 @@ export function scanRepo(root: string, opts: ScanOptions = {}): RepoScan {
       record.title = basename(f.rel);
     }
 
+    // Retain doc content for the graph's mention pass (docs only) so it is read
+    // once here, not a second time from disk.
+    if (kind === "doc" && content) docText.set(f.rel, content);
+
     files.push(record);
   }
 
   files.sort(byKey((f) => f.rel));
-  return { root, commit: headCommit(root), files, languages };
+  return { root, commit: headCommit(root), files, languages, docText, capped };
 }

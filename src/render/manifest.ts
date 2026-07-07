@@ -21,7 +21,7 @@ export function buildManifest(
   sync: SyncResult,
   builtAt: string,
   extraNotes: string[] = [],
-  filters: { include?: string[]; exclude?: string[]; maxBytes?: number } = {},
+  filters: { include?: string[]; exclude?: string[]; maxBytes?: number; maxFiles?: number } = {},
 ): Manifest {
   const fileHashes: Record<string, string> = {};
   for (const f of scan.files) fileHashes[f.rel] = f.hash;
@@ -37,6 +37,7 @@ export function buildManifest(
   if (filters.include?.length) scanFilters!.include = filters.include;
   if (filters.exclude?.length) scanFilters!.exclude = filters.exclude;
   if (filters.maxBytes !== undefined) scanFilters!.maxBytes = filters.maxBytes;
+  if (filters.maxFiles !== undefined) scanFilters!.maxFiles = filters.maxFiles;
 
   return {
     schemaVersion: SCHEMA_VERSION,

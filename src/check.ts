@@ -20,7 +20,7 @@ function hashRepo(repo: string, outAbs: string, filters: Manifest["scan"]): Reco
   const include = compileGlobs(filters?.include);
   const exclude = compileGlobs(filters?.exclude);
   const out: Record<string, string> = {};
-  for (const f of walk(repo, { maxFileBytes: filters?.maxBytes })) {
+  for (const f of walk(repo, { maxFileBytes: filters?.maxBytes, maxFiles: filters?.maxFiles }).files) {
     if (f.abs === outAbs || f.abs.startsWith(outPrefix)) continue;
     if (include && !include(f.rel)) continue;
     if (exclude && exclude(f.rel)) continue;
