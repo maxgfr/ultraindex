@@ -7094,6 +7094,16 @@ function loadManifest(outDir) {
     return void 0;
   }
 }
+function loadSymbols(outDir) {
+  const raw = readIfExists(indexPaths(outDir).symbols);
+  if (raw === void 0) return void 0;
+  try {
+    const s = JSON.parse(raw);
+    return s.schemaVersion === SCHEMA_VERSION ? s : void 0;
+  } catch {
+    return void 0;
+  }
+}
 function loadCache(outDir) {
   const raw = readIfExists(indexPaths(outDir).cache);
   if (raw === void 0) return void 0;
@@ -7687,6 +7697,82 @@ function runNeighbors(outDir, target, depth = 1) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
   return neighborsOf(graph, target, depth);
+}
+
+// src/symbols.ts
+var MAX_HITS = 20;
+function lookupSymbols(index, graph, query) {
+  const moduleOf = new Map(graph.files.map((f) => [f.rel, f.module]));
+  const names = Object.keys(index.defs);
+  const q = query.toLowerCase();
+  let matches;
+  if (index.defs[query]) {
+    matches = [query];
+  } else {
+    const qParts = new Set(splitIdentifier(query).map((p) => p.toLowerCase()));
+    matches = names.filter((n) => {
+      const lower = n.toLowerCase();
+      if (lower.includes(q)) return true;
+      const parts2 = new Set(splitIdentifier(n).map((p) => p.toLowerCase()));
+      for (const p of qParts) if (parts2.has(p)) return true;
+      return false;
+    }).sort((a, b) => Number(b === query) - Number(a === query) || a.length - b.length || byStr(a, b)).slice(0, MAX_HITS);
+  }
+  const hits = matches.map((name2) => ({
+    name: name2,
+    defs: (index.defs[name2] ?? []).map((d) => ({ ...d, module: moduleOf.get(d.file) ?? "root" })),
+    refs: index.refs[name2] ?? []
+  }));
+  return { query, hits };
+}
+function runSymbols(outDir, query) {
+  const graph = loadGraph(outDir);
+  const index = loadSymbols(outDir);
+  if (!graph || !index) return void 0;
+  return lookupSymbols(index, graph, query);
+}
+
+// src/impact.ts
+function reverseClosure(edges, seeds, depth) {
+  const dependents = /* @__PURE__ */ new Map();
+  for (const e of edges) {
+    if (e.dangling || e.kind !== "import" && e.kind !== "use") continue;
+    let arr = dependents.get(e.to);
+    if (!arr) dependents.set(e.to, arr = []);
+    arr.push(e);
+  }
+  const depthOf = /* @__PURE__ */ new Map();
+  const seen = new Set(seeds);
+  let frontier = [...seeds];
+  for (let d = 1; d <= depth && frontier.length; d++) {
+    const next = [];
+    for (const node of frontier) {
+      for (const e of (dependents.get(node) ?? []).slice().sort((a, b) => byStr(a.from, b.from))) {
+        if (seen.has(e.from)) continue;
+        seen.add(e.from);
+        depthOf.set(e.from, d);
+        next.push(e.from);
+      }
+    }
+    frontier = next;
+  }
+  return depthOf;
+}
+function impactOf(graph, target, depth = Infinity) {
+  const moduleOf = new Map(graph.files.map((f) => [f.rel, f.module]));
+  const mod = graph.modules.find((m) => m.slug === target);
+  const file = mod ? void 0 : graph.files.find((f) => f.rel === target);
+  if (!mod && !file) return void 0;
+  const seeds = mod ? mod.members : [file.rel];
+  const depthOf = reverseClosure(graph.fileEdges, seeds, depth);
+  const files = [...depthOf.entries()].map(([rel, d]) => ({ rel, module: moduleOf.get(rel) ?? "root", depth: d })).sort((a, b) => a.depth - b.depth || byStr(a.rel, b.rel));
+  const modules = [...new Set(files.map((f) => f.module).filter((m) => m !== target))].sort(byStr);
+  return { target, scope: mod ? "module" : "file", seeds, files, modules };
+}
+function runImpact(outDir, target, depth = Infinity) {
+  const graph = loadGraph(outDir);
+  if (!graph) return void 0;
+  return impactOf(graph, target, depth);
 }
 
 // src/mapcmd.ts
@@ -8338,6 +8424,8 @@ Usage:
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex embed   [--out <dir>] [--force]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
+  ultraindex symbols "<name>" [--out <dir>] [--json]
+  ultraindex impact  <file|module-slug> [--out <dir>] [--depth <n>] [--json]
   ultraindex map     [--out <dir>] [--module <slug>]
   ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
@@ -8355,6 +8443,10 @@ Commands:
              provider (see Semantic below). Incremental \u2014 unchanged modules keep
              their vectors.
   neighbors  Show graph neighbours of a file or module (what links to/from it).
+  symbols    Find where a symbol is defined (file:line, kind, owning module) and
+             which files reference it \u2014 from symbols.json, no repo re-scan.
+  impact     Reverse dependency closure: every file that transitively imports or
+             uses the target, grouped by module \u2014 "what breaks if I change this".
   map        Print INDEX.md (the map) or one module's entry. With --json, emit
              the module table (slug, path, tier, degree, summary) for parsing.
   status     Show enrichment progress and the suggested order to enrich next \u2014
@@ -8404,7 +8496,7 @@ Grounding:
   [path:start-end]. \`check\` (encyclopedia prose) and \`check --answer\` fail if a
   citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check", "verify"]);
+var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify"]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "quiet", "force", "semantic"]);
 var REASON_HINTS = {
@@ -8632,6 +8724,55 @@ function cmdNeighbors(p) {
   }
   process.stdout.write(lines.join("\n") + "\n");
 }
+function cmdSymbols(p) {
+  const out2 = resolveOut(p, resolve(p.values.repo ?? "."));
+  const query = p.positional.join(" ").trim();
+  if (!query) fail('missing symbol name \u2014 usage: ultraindex symbols "<name>"');
+  const res = runSymbols(out2, query);
+  if (!res) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    return;
+  }
+  if (!res.hits.length) {
+    process.stderr.write(`ultraindex: no symbol matching "${query}" (try \`ultraindex find\`)
+`);
+    process.exit(1);
+  }
+  const lines = [];
+  for (const h of res.hits) {
+    lines.push(`${h.name}`);
+    for (const d of h.defs) {
+      const where = d.parent ? ` in ${d.parent}` : "";
+      lines.push(`  def  ${d.file}:${d.line}  (${d.kind}${where}, ${d.exported ? "exported" : "local"}, module ${d.module})`);
+    }
+    if (h.refs.length) lines.push(`  used ${h.refs.length} file(s): ${h.refs.slice(0, 8).join("  ")}${h.refs.length > 8 ? "  \u2026" : ""}`);
+  }
+  process.stdout.write(lines.join("\n") + "\n");
+}
+function cmdImpact(p) {
+  const out2 = resolveOut(p, resolve(p.values.repo ?? "."));
+  const target = p.positional[0];
+  if (!target) fail("missing target \u2014 usage: ultraindex impact <file|module-slug>");
+  if (!indexExists(out2)) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
+  const depth = p.values.depth ? Number(p.values.depth) : void 0;
+  if (depth !== void 0 && (!Number.isInteger(depth) || depth <= 0)) fail("invalid --depth");
+  const res = runImpact(out2, target, depth ?? Infinity);
+  if (!res) fail(`"${target}" is not a module slug or file in the index`);
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    return;
+  }
+  const lines = [
+    `ultraindex: impact of ${res.scope} "${res.target}" \u2014 ${res.files.length} dependent file(s), ${res.modules.length} module(s)`
+  ];
+  if (!res.files.length) lines.push("  (nothing depends on this)");
+  else {
+    lines.push(`  modules: ${res.modules.join("  ") || "(none other)"}`, "");
+    for (const f of res.files) lines.push(`  \u2190 ${f.rel}  (module ${f.module}, depth ${f.depth})`);
+  }
+  process.stdout.write(lines.join("\n") + "\n");
+}
 function cmdMap(p) {
   const base = resolve(p.values.repo ?? ".");
   const out2 = resolveOut(p, base);
@@ -8784,6 +8925,10 @@ async function main() {
       return cmdEmbed(p);
     case "neighbors":
       return cmdNeighbors(p);
+    case "symbols":
+      return cmdSymbols(p);
+    case "impact":
+      return cmdImpact(p);
     case "map":
       return cmdMap(p);
     case "status":

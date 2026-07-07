@@ -8,6 +8,8 @@ import { runFindHybrid } from "./find.js";
 import { loadSemanticConfig } from "./semantic.js";
 import { runEmbed } from "./vectors.js";
 import { runNeighbors } from "./neighbors.js";
+import { runSymbols } from "./symbols.js";
+import { runImpact } from "./impact.js";
 import { runMap } from "./mapcmd.js";
 import { runStatus } from "./status.js";
 import { runCheck, checkAnswer } from "./check.js";
@@ -26,6 +28,8 @@ Usage:
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex embed   [--out <dir>] [--force]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
+  ultraindex symbols "<name>" [--out <dir>] [--json]
+  ultraindex impact  <file|module-slug> [--out <dir>] [--depth <n>] [--json]
   ultraindex map     [--out <dir>] [--module <slug>]
   ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
@@ -43,6 +47,10 @@ Commands:
              provider (see Semantic below). Incremental — unchanged modules keep
              their vectors.
   neighbors  Show graph neighbours of a file or module (what links to/from it).
+  symbols    Find where a symbol is defined (file:line, kind, owning module) and
+             which files reference it — from symbols.json, no repo re-scan.
+  impact     Reverse dependency closure: every file that transitively imports or
+             uses the target, grouped by module — "what breaks if I change this".
   map        Print INDEX.md (the map) or one module's entry. With --json, emit
              the module table (slug, path, tier, degree, summary) for parsing.
   status     Show enrichment progress and the suggested order to enrich next —
@@ -93,7 +101,7 @@ Grounding:
   citation does not resolve to a real file/line — the anti-hallucination guard.
 `;
 
-const COMMANDS = new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check", "verify"]);
+const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify"]);
 const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
 const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "quiet", "force", "semantic"]);
 
@@ -357,6 +365,56 @@ function cmdNeighbors(p: Parsed): void {
   process.stdout.write(lines.join("\n") + "\n");
 }
 
+function cmdSymbols(p: Parsed): void {
+  const out = resolveOut(p, resolve(p.values.repo ?? "."));
+  const query = p.positional.join(" ").trim();
+  if (!query) fail('missing symbol name — usage: ultraindex symbols "<name>"');
+  const res = runSymbols(out, query);
+  if (!res) fail(`no index at ${out} — run \`ultraindex build\` first`);
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    return;
+  }
+  if (!res.hits.length) {
+    process.stderr.write(`ultraindex: no symbol matching "${query}" (try \`ultraindex find\`)\n`);
+    process.exit(1);
+  }
+  const lines: string[] = [];
+  for (const h of res.hits) {
+    lines.push(`${h.name}`);
+    for (const d of h.defs) {
+      const where = d.parent ? ` in ${d.parent}` : "";
+      lines.push(`  def  ${d.file}:${d.line}  (${d.kind}${where}, ${d.exported ? "exported" : "local"}, module ${d.module})`);
+    }
+    if (h.refs.length) lines.push(`  used ${h.refs.length} file(s): ${h.refs.slice(0, 8).join("  ")}${h.refs.length > 8 ? "  …" : ""}`);
+  }
+  process.stdout.write(lines.join("\n") + "\n");
+}
+
+function cmdImpact(p: Parsed): void {
+  const out = resolveOut(p, resolve(p.values.repo ?? "."));
+  const target = p.positional[0];
+  if (!target) fail("missing target — usage: ultraindex impact <file|module-slug>");
+  if (!indexExists(out)) fail(`no index at ${out} — run \`ultraindex build\` first`);
+  const depth = p.values.depth ? Number(p.values.depth) : undefined;
+  if (depth !== undefined && (!Number.isInteger(depth) || depth <= 0)) fail("invalid --depth");
+  const res = runImpact(out, target, depth ?? Infinity);
+  if (!res) fail(`"${target}" is not a module slug or file in the index`);
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    return;
+  }
+  const lines = [
+    `ultraindex: impact of ${res.scope} "${res.target}" — ${res.files.length} dependent file(s), ${res.modules.length} module(s)`,
+  ];
+  if (!res.files.length) lines.push("  (nothing depends on this)");
+  else {
+    lines.push(`  modules: ${res.modules.join("  ") || "(none other)"}`, "");
+    for (const f of res.files) lines.push(`  ← ${f.rel}  (module ${f.module}, depth ${f.depth})`);
+  }
+  process.stdout.write(lines.join("\n") + "\n");
+}
+
 function cmdMap(p: Parsed): void {
   const base = resolve(p.values.repo ?? ".");
   const out = resolveOut(p, base);
@@ -520,6 +578,10 @@ async function main(): Promise<void> {
       return cmdEmbed(p);
     case "neighbors":
       return cmdNeighbors(p);
+    case "symbols":
+      return cmdSymbols(p);
+    case "impact":
+      return cmdImpact(p);
     case "map":
       return cmdMap(p);
     case "status":
