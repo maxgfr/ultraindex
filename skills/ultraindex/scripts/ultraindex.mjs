@@ -8083,25 +8083,55 @@ _Showing ${kept} of ${total} pair(s) \u2014 capped._`);
   return out2.join("\n");
 }
 function applyVerdicts(dir, verdictsPath) {
-  const raw = JSON.parse(readFileSync4(verdictsPath, "utf8"));
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync4(verdictsPath, "utf8"));
+  } catch (e) {
+    throw new Error(`verdicts file is not valid JSON (${e.message})`);
+  }
   const list = Array.isArray(raw) ? raw : Array.isArray(raw?.pairs) ? raw.pairs : [];
   const verdicts = [];
-  for (const v of list) {
-    if (!v || typeof v.claimId !== "string" || typeof v.citation !== "string") continue;
-    const verdict = VALID_VERDICTS.includes(v.verdict) ? v.verdict : void 0;
+  const errors = [];
+  list.forEach((v, i2) => {
+    if (!v || typeof v.claimId !== "string" || typeof v.citation !== "string") {
+      errors.push(`entry ${i2}: missing "claimId" and/or "citation"`);
+      return;
+    }
+    if (!VALID_VERDICTS.includes(v.verdict)) {
+      errors.push(`${v.claimId} (${v.citation}): invalid verdict ${JSON.stringify(v.verdict)} \u2014 use exactly one of ${VALID_VERDICTS.join(", ")}`);
+      return;
+    }
     verdicts.push({
       claimId: v.claimId,
       claim: typeof v.claim === "string" ? v.claim : "",
       citation: v.citation,
       path: typeof v.path === "string" ? v.path : "",
       digest: typeof v.digest === "string" ? v.digest : "",
-      verdict,
+      verdict: v.verdict,
       note: typeof v.note === "string" ? v.note : ""
     });
+  });
+  if (errors.length) {
+    throw new Error(`verdicts file has ${errors.length} problem(s):
+  - ${errors.join("\n  - ")}`);
   }
   const result = reduceVerdicts(verdicts);
   writeFileSync2(join11(dir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
   return result;
+}
+function citationlessClaims(text) {
+  const out2 = [];
+  const substantive = (masked) => masked.trim().replace(/\s+/g, " ").length > 15;
+  for (const u of extractClaimUnits(text)) {
+    if (u.kind === "text") {
+      if (substantive(u.text) && parseCitations(u.text).length === 0) out2.push(u.display.trim());
+    } else {
+      for (let i2 = 0; i2 < u.items.length; i2++) {
+        if (substantive(u.items[i2]) && parseCitations(u.items[i2]).length === 0) out2.push(u.itemsD[i2].trim());
+      }
+    }
+  }
+  return out2;
 }
 function reduceVerdicts(verdicts) {
   const counts = { supported: 0, partial: 0, refuted: 0, unsupported: 0 };
@@ -8252,12 +8282,19 @@ function checkAnswer(outDir, answerPath, opts = {}) {
   const attempts = cc.resolved.length + cc.unresolved.length;
   if (attempts === 0) errors.push("answer has no citations \u2014 cite every claim with [file:line] (bare brackets, not a markdown link)");
   for (const u of cc.unresolved) errors.push(`citation [${u.citation.raw}] \u2014 ${u.reason}`);
+  const warnings = [];
+  if (attempts > 0) {
+    const missing = citationlessClaims(text);
+    if (missing.length) warnings.push(`${missing.length} claim(s) carry no [file:line] citation \u2014 grounding is not enforced on them`);
+  }
   const result = { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
   if (opts.semantic) {
-    const warnings = [];
     const sem = loadVerify(dirname4(answerPath));
     if (!sem) {
-      warnings.push("--semantic: no VERIFY.json next to the answer \u2014 run `verify` then `verify --apply <verdicts.json>` first; semantic gate skipped.");
+      result.ok = false;
+      errors.push(
+        "--semantic: no VERIFY.json next to the answer \u2014 run `verify --answer`, adjudicate, then `verify --apply <verdicts.json>` before gating. (Plain `check --answer` is the resolution-only gate.)"
+      );
     } else {
       result.semantic = sem;
       if (!sem.ok) {
@@ -8278,8 +8315,8 @@ function checkAnswer(outDir, answerPath, opts = {}) {
       }
       if (sem.unadjudicated?.length) warnings.push(`${sem.unadjudicated.length} claim(s) not fully adjudicated by verify`);
     }
-    if (warnings.length) result.warnings = warnings;
   }
+  if (warnings.length) result.warnings = warnings;
   return result;
 }
 
@@ -8892,7 +8929,12 @@ function cmdVerify(p) {
   const answerPath = resolve(answer);
   const dir = dirname5(answerPath);
   if (p.values.apply) {
-    const res = applyVerdicts(dir, resolve(p.values.apply));
+    let res;
+    try {
+      res = applyVerdicts(dir, resolve(p.values.apply));
+    } catch (e) {
+      fail(e.message);
+    }
     if (p.bools.has("json")) process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     else if (!p.bools.has("quiet")) process.stdout.write(formatVerifyReport(res) + "\n");
     if (!res.ok) process.exit(1);

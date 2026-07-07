@@ -235,25 +235,60 @@ function renderWorklistMd(wl: VerifyWorklist, total: number, kept: number): stri
 // or a bare `Verdict[]`), validate it, reduce to a VerifyResult, and persist
 // VERIFY.json in `dir` (the answer's directory) for `check --semantic` / render.
 export function applyVerdicts(dir: string, verdictsPath: string): VerifyResult {
-  const raw = JSON.parse(readFileSync(verdictsPath, "utf8"));
-  const list: any[] = Array.isArray(raw) ? raw : Array.isArray(raw?.pairs) ? raw.pairs : [];
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(verdictsPath, "utf8"));
+  } catch (e) {
+    throw new Error(`verdicts file is not valid JSON (${(e as Error).message})`);
+  }
+  const list: any[] = Array.isArray(raw) ? raw : Array.isArray((raw as any)?.pairs) ? (raw as any).pairs : [];
   const verdicts: Verdict[] = [];
-  for (const v of list) {
-    if (!v || typeof v.claimId !== "string" || typeof v.citation !== "string") continue;
-    const verdict = VALID_VERDICTS.includes(v.verdict) ? (v.verdict as VerdictKind) : (undefined as unknown as VerdictKind);
+  // A malformed row or a misspelled verdict token is a HARD error, not a silent
+  // drop/coercion — a "pass" must never rest on a verdict the tool couldn't read.
+  const errors: string[] = [];
+  list.forEach((v, i) => {
+    if (!v || typeof v.claimId !== "string" || typeof v.citation !== "string") {
+      errors.push(`entry ${i}: missing "claimId" and/or "citation"`);
+      return;
+    }
+    if (!VALID_VERDICTS.includes(v.verdict)) {
+      errors.push(`${v.claimId} (${v.citation}): invalid verdict ${JSON.stringify(v.verdict)} — use exactly one of ${VALID_VERDICTS.join(", ")}`);
+      return;
+    }
     verdicts.push({
       claimId: v.claimId,
       claim: typeof v.claim === "string" ? v.claim : "",
       citation: v.citation,
       path: typeof v.path === "string" ? v.path : "",
       digest: typeof v.digest === "string" ? v.digest : "",
-      verdict,
+      verdict: v.verdict as VerdictKind,
       note: typeof v.note === "string" ? v.note : "",
     });
+  });
+  if (errors.length) {
+    throw new Error(`verdicts file has ${errors.length} problem(s):\n  - ${errors.join("\n  - ")}`);
   }
   const result = reduceVerdicts(verdicts);
   writeFileSync(join(dir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
   return result;
+}
+
+// Claim units (text sentences / list items) of a substantive length that carry
+// NO citation — grounding is not enforced on them. Returned as display text for a
+// non-failing `check --answer` warning that nudges toward per-claim citations.
+export function citationlessClaims(text: string): string[] {
+  const out: string[] = [];
+  const substantive = (masked: string): boolean => masked.trim().replace(/\s+/g, " ").length > 15;
+  for (const u of extractClaimUnits(text)) {
+    if (u.kind === "text") {
+      if (substantive(u.text) && parseCitations(u.text).length === 0) out.push(u.display.trim());
+    } else {
+      for (let i = 0; i < u.items.length; i++) {
+        if (substantive(u.items[i]!) && parseCitations(u.items[i]!).length === 0) out.push(u.itemsD[i]!.trim());
+      }
+    }
+  }
+  return out;
 }
 
 // Fold per-pair verdicts into pass/fail. A claim FAILS if a cited excerpt

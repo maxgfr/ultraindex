@@ -110,14 +110,19 @@ describe("checkAnswer --semantic composition", () => {
     rmSync(repo, { recursive: true, force: true });
   });
 
-  it("warns (does not fail) when --semantic is set but no VERIFY.json exists", () => {
+  it("FAILS closed when --semantic is set but no VERIFY.json exists", () => {
     const repo = miniRepo();
     const out = join(repo, ".ultraindex");
     runBuild({ repo, out, mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
     const ans = join(repo, "ANSWER.md");
     writeFileSync(ans, ANSWER);
+    // --semantic is an explicit high-assurance request: a missing VERIFY.json is
+    // a failure, not a silent skip (plain check --answer is the resolution gate).
     const r = checkAnswer(out, ans, { semantic: true });
-    expect(r.ok).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => /no VERIFY\.json/.test(e))).toBe(true);
+    // Plain check --answer (no --semantic) still passes on resolution alone.
+    expect(checkAnswer(out, ans).ok).toBe(true);
     rmSync(repo, { recursive: true, force: true });
   });
 

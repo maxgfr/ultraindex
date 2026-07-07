@@ -544,7 +544,12 @@ function cmdVerify(p: Parsed): void {
   const dir = dirname(answerPath);
 
   if (p.values.apply) {
-    const res = applyVerdicts(dir, resolve(p.values.apply));
+    let res;
+    try {
+      res = applyVerdicts(dir, resolve(p.values.apply));
+    } catch (e) {
+      fail((e as Error).message); // clean message, no stack trace
+    }
     if (p.bools.has("json")) process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     else if (!p.bools.has("quiet")) process.stdout.write(formatVerifyReport(res) + "\n");
     if (!res.ok) process.exit(1);

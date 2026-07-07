@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import type { CheckResult, Manifest, VerifyResult } from "./types.js";
-import { loadVerify, buildClaimPairs } from "./verify.js";
+import { loadVerify, buildClaimPairs, citationlessClaims } from "./verify.js";
 import { walk, readText } from "./walk.js";
 import { sha1 } from "./hash.js";
 import { compileGlobs } from "./glob.js";
@@ -149,12 +149,25 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
   if (attempts === 0) errors.push("answer has no citations — cite every claim with [file:line] (bare brackets, not a markdown link)");
   for (const u of cc.unresolved) errors.push(`citation [${u.citation.raw}] — ${u.reason}`);
 
+  // Non-failing nudge: substantive claims carrying no citation aren't grounded.
+  // Only when the answer is otherwise a cited analysis (≥1 citation present).
+  const warnings: string[] = [];
+  if (attempts > 0) {
+    const missing = citationlessClaims(text);
+    if (missing.length) warnings.push(`${missing.length} claim(s) carry no [file:line] citation — grounding is not enforced on them`);
+  }
+
   const result: AnswerCheck = { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
   if (opts.semantic) {
-    const warnings: string[] = [];
     const sem = loadVerify(dirname(answerPath));
     if (!sem) {
-      warnings.push("--semantic: no VERIFY.json next to the answer — run `verify` then `verify --apply <verdicts.json>` first; semantic gate skipped.");
+      // `--semantic` is an explicit request for the high-assurance gate, so a
+      // MISSING VERIFY.json fails closed (was: warn-and-skip — a real bypass).
+      // Plain `check --answer` remains the resolution-only gate.
+      result.ok = false;
+      errors.push(
+        "--semantic: no VERIFY.json next to the answer — run `verify --answer`, adjudicate, then `verify --apply <verdicts.json>` before gating. (Plain `check --answer` is the resolution-only gate.)",
+      );
     } else {
       result.semantic = sem;
       if (!sem.ok) {
@@ -184,7 +197,7 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
       }
       if (sem.unadjudicated?.length) warnings.push(`${sem.unadjudicated.length} claim(s) not fully adjudicated by verify`);
     }
-    if (warnings.length) result.warnings = warnings;
   }
+  if (warnings.length) result.warnings = warnings;
   return result;
 }

@@ -177,11 +177,13 @@ describe("verify gate (shipped CLI) — references/verify.md", () => {
     expect(sem.out).toMatch(/refuted/);
   });
 
-  it("--semantic with NO VERIFY.json warns and SKIPS (does not fail)", () => {
+  it("--semantic with NO VERIFY.json FAILS closed (high-assurance gate)", () => {
     const { dir, ans } = setup(); // setup writes the answer but does not run verify
     const r = run(["check", "--answer", ans, "--semantic", "--out", dir]);
-    expect(r.code).toBe(0);
+    expect(r.code).not.toBe(0);
     expect(r.out).toMatch(/no VERIFY\.json/);
+    // Plain check --answer (no --semantic) still passes on resolution alone.
+    expect(run(["check", "--answer", ans, "--out", dir]).code).toBe(0);
   });
 
   // REGRESSION: an EXISTING but empty/stale VERIFY.json must not read as "verified".
