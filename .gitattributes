@@ -1,0 +1,6 @@
+# Committed tree-sitter grammar wasms + the bundled engine are binary/generated:
+# never line-ending-normalize them, and keep them out of textual diffs so the
+# reproducibility gate (check:build) compares bytes, not rendered patches.
+*.wasm binary
+scripts/ultraindex.mjs -diff
+skills/ultraindex/scripts/ultraindex.mjs -diff
