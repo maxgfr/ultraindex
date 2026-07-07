@@ -5003,6 +5003,18 @@ function parserFor(key) {
 }
 
 // src/ast/extract.ts
+var MAX_REF_IDENTS = 256;
+function collectRefIdents(root, defNames) {
+  const found = /* @__PURE__ */ new Set();
+  const visit = (node) => {
+    if (node.namedChildCount === 0 && /identifier|constant|(^|_)name$/.test(node.type) && /^[A-Za-z_]\w{4,}$/.test(node.text) && !defNames.has(node.text)) {
+      found.add(node.text);
+    }
+    for (let i2 = 0; i2 < node.namedChildCount; i2++) visit(node.namedChild(i2));
+  };
+  visit(root);
+  return [...found].sort().slice(0, MAX_REF_IDENTS);
+}
 var byPublicKeyword = (line) => /\b(public|internal)\b/.test(line);
 var byPub = (line) => /\bpub\b/.test(line);
 var byCapital = (_l, name2) => /^[A-Z]/.test(name2);
@@ -5239,12 +5251,13 @@ function extractAst(rel, ext, content) {
       for (const s of symbols) if (!s.exported && exportedNames.has(s.name)) s.exported = true;
     }
     const refs = collectImports(root, spec);
+    const idents = collectRefIdents(root, new Set(symbols.map((s) => s.name)));
     let pkg;
     if (spec.lang === "java") {
       const p = findFirst(root, (n) => n.type === "package_declaration");
       if (p) pkg = p.text.replace(/^package\s+/, "").replace(/;.*$/, "").trim();
     }
-    return { symbols, refs, pkg };
+    return { symbols, refs, pkg, idents };
   } catch {
     return void 0;
   } finally {
@@ -5467,7 +5480,8 @@ function extractCode(rel, ext, content) {
     symbols: [...symbols, ...reexports],
     summary: topDocComment(content),
     refs: extractImports(ext, content),
-    pkg: ext === ".java" ? /^\s*package\s+([\w.]+)\s*;/m.exec(content)?.[1] : void 0
+    pkg: ext === ".java" ? /^\s*package\s+([\w.]+)\s*;/m.exec(content)?.[1] : void 0,
+    idents: ast?.idents
   };
 }
 
@@ -5522,6 +5536,7 @@ function scanRepo(root, opts = {}) {
         record.symbols = code.symbols;
         record.refs = code.refs;
         record.pkg = code.pkg;
+        record.idents = code.idents;
       } else {
         record.title = basename(f.rel);
       }
@@ -6210,6 +6225,7 @@ function collect(edges, e) {
 }
 function buildGraph(scan2, ctx, modules, moduleOf) {
   const fileEdgeMap = /* @__PURE__ */ new Map();
+  const importPairs = /* @__PURE__ */ new Set();
   for (const f of scan2.files) {
     for (const ref of f.refs) {
       if (ref.kind === "doc-link") {
@@ -6227,11 +6243,27 @@ function buildGraph(scan2, ctx, modules, moduleOf) {
           collect(fileEdgeMap, { from: f.rel, to: ref.spec, kind: "import", weight: 1, dangling: true, reason: r.reason });
         } else if (r.target !== f.rel) {
           collect(fileEdgeMap, { from: f.rel, to: r.target, kind: "import", weight: 1 });
+          importPairs.add(`${f.rel}|${r.target}`);
         }
       }
     }
   }
   const unique = uniqueSymbolDefs(scan2);
+  if (unique.size) {
+    for (const f of scan2.files) {
+      if (f.kind !== "code" || !f.idents?.length) continue;
+      const perTarget = /* @__PURE__ */ new Map();
+      for (const id of f.idents) {
+        const target = unique.get(id);
+        if (!target || target === f.rel) continue;
+        perTarget.set(target, (perTarget.get(target) ?? 0) + 1);
+      }
+      for (const [target, count] of perTarget) {
+        if (importPairs.has(`${f.rel}|${target}`)) continue;
+        collect(fileEdgeMap, { from: f.rel, to: target, kind: "use", weight: Math.min(count, 5) });
+      }
+    }
+  }
   if (unique.size) {
     for (const f of scan2.files) {
       if (f.kind !== "doc") continue;
@@ -6259,7 +6291,7 @@ function buildGraph(scan2, ctx, modules, moduleOf) {
     degOut.set(e.from, (degOut.get(e.from) ?? 0) + 1);
     degIn.set(e.to, (degIn.get(e.to) ?? 0) + 1);
   }
-  const KIND_RANK = { import: 3, "doc-link": 2, mention: 1, contains: 0 };
+  const KIND_RANK = { import: 4, use: 3, "doc-link": 2, mention: 1, contains: 0 };
   const modEdgeMap = /* @__PURE__ */ new Map();
   for (const e of fileEdges) {
     if (e.dangling || !fileSet.has(e.to)) continue;
@@ -6706,6 +6738,32 @@ function renderGraphJson(graph) {
 }
 
 // src/render/symbols-json.ts
+function computeSymbolRefs(scan2) {
+  const unique = uniqueSymbolDefs(scan2);
+  const refs = /* @__PURE__ */ new Map();
+  if (!unique.size) return refs;
+  const add = (name2, file) => {
+    let set = refs.get(name2);
+    if (!set) refs.set(name2, set = /* @__PURE__ */ new Set());
+    set.add(file);
+  };
+  for (const f of scan2.files) {
+    if (f.kind === "code" && f.idents) {
+      for (const id of f.idents) {
+        const target = unique.get(id);
+        if (target && target !== f.rel) add(id, f.rel);
+      }
+    } else if (f.kind === "doc") {
+      const content = scan2.docText.get(f.rel);
+      if (!content) continue;
+      for (const tok of content.split(/[^A-Za-z0-9_]+/)) {
+        const target = unique.get(tok);
+        if (target && target !== f.rel) add(tok, f.rel);
+      }
+    }
+  }
+  return refs;
+}
 function buildSymbolIndex(scan2, refs = /* @__PURE__ */ new Map()) {
   const defsByName = /* @__PURE__ */ new Map();
   for (const f of scan2.files) {
@@ -6940,7 +6998,7 @@ function runBuild(opts, builtAt) {
   const sync = syncEntries(opts.out, entryInputs, prev?.modules ?? {});
   const mermaid = opts.mermaid ? renderMermaid(graph) : void 0;
   writeFileIfChanged(paths.graph, renderGraphJson(graph));
-  writeFileIfChanged(paths.symbols, renderSymbolsJson(buildSymbolIndex(scan2)));
+  writeFileIfChanged(paths.symbols, renderSymbolsJson(buildSymbolIndex(scan2, computeSymbolRefs(scan2))));
   if (mermaid) writeFileIfChanged(paths.mermaid, mermaid.content);
   else removeFile(paths.mermaid);
   writeFileIfChanged(paths.index, renderIndex(graph, { repoName: basename2(opts.repo) || "repo", mermaid }));

@@ -7,6 +7,7 @@ export interface CodeInfo {
   summary?: string;
   refs: RawRef[]; // import refs (raw specifiers, unresolved)
   pkg?: string; // Java: the file's own `package x.y.z;` — used to derive source roots
+  idents?: string[]; // distinctive identifiers referenced (AST path) — feeds `use` edges
 }
 
 const JS_TS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -262,5 +263,6 @@ export function extractCode(rel: string, ext: string, content: string): CodeInfo
     summary: topDocComment(content),
     refs: extractImports(ext, content),
     pkg: ext === ".java" ? /^\s*package\s+([\w.]+)\s*;/m.exec(content)?.[1] : undefined,
+    idents: ast?.idents,
   };
 }

@@ -2,6 +2,38 @@ import { SCHEMA_VERSION } from "../types.js";
 import type { SymbolIndex } from "../types.js";
 import type { RepoScan } from "../scan.js";
 import { byStr } from "../sort.js";
+import { uniqueSymbolDefs } from "../graph.js";
+
+// Files that REFERENCE each unique exported symbol — code files via their AST
+// identifiers, doc files via naming the symbol. Feeds symbols.json `refs` so
+// `symbols <name>` can answer "where is X used?". Mirrors the graph's use/mention
+// eligibility (unique + distinctive), so refs and edges stay consistent.
+export function computeSymbolRefs(scan: RepoScan): Map<string, Set<string>> {
+  const unique = uniqueSymbolDefs(scan);
+  const refs = new Map<string, Set<string>>();
+  if (!unique.size) return refs;
+  const add = (name: string, file: string): void => {
+    let set = refs.get(name);
+    if (!set) refs.set(name, (set = new Set()));
+    set.add(file);
+  };
+  for (const f of scan.files) {
+    if (f.kind === "code" && f.idents) {
+      for (const id of f.idents) {
+        const target = unique.get(id);
+        if (target && target !== f.rel) add(id, f.rel);
+      }
+    } else if (f.kind === "doc") {
+      const content = scan.docText.get(f.rel);
+      if (!content) continue;
+      for (const tok of content.split(/[^A-Za-z0-9_]+/)) {
+        const target = unique.get(tok);
+        if (target && target !== f.rel) add(tok, f.rel);
+      }
+    }
+  }
+  return refs;
+}
 
 // Build the persisted symbol table from the scan. `defs` collects every declared
 // symbol by name; `refs` (files that USE a name) is filled by the graph's

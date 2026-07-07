@@ -18,6 +18,31 @@ export interface AstResult {
   symbols: CodeSymbol[];
   refs: RawRef[];
   pkg?: string;
+  // Distinctive identifiers this file REFERENCES (not defines) — the raw material
+  // for code→code `use` edges. Bounded and pre-filtered to identifiers that could
+  // plausibly be a unique exported symbol (length ≥ 5), so the set stays small.
+  idents: string[];
+}
+
+const MAX_REF_IDENTS = 256;
+
+// Collect distinctive referenced identifiers across the whole tree, minus the
+// file's own definition names. Deterministic (sorted) and capped.
+function collectRefIdents(root: TSNode, defNames: Set<string>): string[] {
+  const found = new Set<string>();
+  const visit = (node: TSNode): void => {
+    if (
+      node.namedChildCount === 0 &&
+      /identifier|constant|(^|_)name$/.test(node.type) &&
+      /^[A-Za-z_]\w{4,}$/.test(node.text) &&
+      !defNames.has(node.text)
+    ) {
+      found.add(node.text);
+    }
+    for (let i = 0; i < node.namedChildCount; i++) visit(node.namedChild(i)!);
+  };
+  visit(root);
+  return [...found].sort().slice(0, MAX_REF_IDENTS);
 }
 
 // How one grammar's declarations map to symbols. `defs` maps a node type to a
@@ -271,12 +296,13 @@ export function extractAst(rel: string, ext: string, content: string): AstResult
     }
 
     const refs = collectImports(root, spec);
+    const idents = collectRefIdents(root, new Set(symbols.map((s) => s.name)));
     let pkg: string | undefined;
     if (spec.lang === "java") {
       const p = findFirst(root, (n) => n.type === "package_declaration");
       if (p) pkg = p.text.replace(/^package\s+/, "").replace(/;.*$/, "").trim();
     }
-    return { symbols, refs, pkg };
+    return { symbols, refs, pkg, idents };
   } catch {
     return undefined; // any parse/walk failure → regex fallback
   } finally {

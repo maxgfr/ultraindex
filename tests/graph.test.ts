@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { scanRepo } from "../src/scan.js";
 import { buildResolveContext } from "../src/resolve.js";
 import { buildModules } from "../src/modules.js";
@@ -68,6 +71,26 @@ describe("buildGraph", () => {
   it("lifts file edges to module edges without self-loops", () => {
     expect(graph.moduleEdges.every((e) => e.from !== e.to)).toBe(true);
     expect(has(graph.moduleEdges, "gopkg", "gopkg-sub", "import")).toBe(true);
+  });
+
+  it("adds a `use` edge for an unimported cross-file symbol reference, but not when an import covers it", () => {
+    const root = mkdtempSync(join(tmpdir(), "ui-use-"));
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "factory.ts"), "export class WidgetFactory {}\n");
+    // uses WidgetFactory WITHOUT importing it → use edge
+    writeFileSync(join(root, "src", "consumer.ts"), "export function make() {\n  return new WidgetFactory();\n}\n");
+    // imports WidgetFactory → import edge should SUPPRESS the use edge
+    writeFileSync(
+      join(root, "src", "importer.ts"),
+      "import { WidgetFactory } from './factory';\nexport function build() {\n  return new WidgetFactory();\n}\n",
+    );
+    const scan = scanRepo(root);
+    const ctx = buildResolveContext(scan);
+    const { modules, moduleOf } = buildModules(scan);
+    const g = buildGraph(scan, ctx, modules, moduleOf);
+    expect(has(g.fileEdges, "src/consumer.ts", "src/factory.ts", "use")).toBe(true);
+    expect(has(g.fileEdges, "src/importer.ts", "src/factory.ts", "import")).toBe(true);
+    expect(has(g.fileEdges, "src/importer.ts", "src/factory.ts", "use")).toBe(false);
   });
 
   it("is deterministic — two builds are deeply equal", () => {

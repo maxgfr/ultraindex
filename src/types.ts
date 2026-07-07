@@ -69,6 +69,7 @@ export interface FileRecord {
   symbols: CodeSymbol[]; // declared symbols (capped per file)
   refs: RawRef[]; // unresolved outbound links/imports
   pkg?: string; // Java: the file's `package` declaration — anchors source roots
+  idents?: string[]; // distinctive identifiers referenced (transient — feeds `use` edges, not persisted)
 }
 
 // A node in the link-graph. Files and modules are both nodes; `find`/`neighbors`

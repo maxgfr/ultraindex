@@ -9,7 +9,7 @@ import { renderEntrySpec, buildEntryEdgeIndex } from "./render/encyclopedia.js";
 import { renderIndex } from "./render/index-md.js";
 import { renderMermaid } from "./render/mermaid.js";
 import { renderGraphJson } from "./render/graph-json.js";
-import { buildSymbolIndex, renderSymbolsJson } from "./render/symbols-json.js";
+import { buildSymbolIndex, renderSymbolsJson, computeSymbolRefs } from "./render/symbols-json.js";
 import { buildManifest, renderManifestJson } from "./render/manifest.js";
 import { syncEntries, type EntryInput } from "./entries.js";
 import { loadManifest, indexPaths } from "./store.js";
@@ -54,7 +54,7 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
   // Top-level artifacts.
   const mermaid = opts.mermaid ? renderMermaid(graph) : undefined;
   writeFileIfChanged(paths.graph, renderGraphJson(graph));
-  writeFileIfChanged(paths.symbols, renderSymbolsJson(buildSymbolIndex(scan)));
+  writeFileIfChanged(paths.symbols, renderSymbolsJson(buildSymbolIndex(scan, computeSymbolRefs(scan))));
   if (mermaid) writeFileIfChanged(paths.mermaid, mermaid.content);
   else removeFile(paths.mermaid); // keep the dir consistent with --no-mermaid
   writeFileIfChanged(paths.index, renderIndex(graph, { repoName: basename(opts.repo) || "repo", mermaid }));
