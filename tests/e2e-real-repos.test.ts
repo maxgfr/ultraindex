@@ -22,6 +22,7 @@ const KNOWN_REASONS = new Set([
   "alias-unresolved",
   "escapes-repo-root",
   "missing-package",
+  "missing-include",
   "missing-target",
 ]);
 

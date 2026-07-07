@@ -2,6 +2,7 @@ import { posix } from "node:path";
 import { join } from "node:path";
 import type { RepoScan } from "./scan.js";
 import { readText } from "./walk.js";
+import { byStr } from "./sort.js";
 
 // Resolution outcome for a single ref. `external` ⇒ no edge (third-party,
 // stdlib, URL, in-page anchor). `dangling` ⇒ an edge that points nowhere real
@@ -64,6 +65,10 @@ export interface ResolveContext {
   javaRoots: string[]; // dirs that java package paths resolve against
   pyRoots: string[]; // posix dirs that are python import roots ("" allowed)
   workspacePackages: WorkspacePackage[]; // monorepo pkg name -> its dir + entry points
+  cIncludeRoots: string[]; // dirs a C/C++ `#include "x"` resolves against (besides the file's dir)
+  rubyLibRoots: string[]; // dirs a Ruby bare `require` resolves against
+  phpPsr4: { prefix: string; dir: string }[]; // composer PSR-4 namespace prefix -> dir, longest first
+  csharpNamespaces: Map<string, string[]>; // C# namespace -> files declaring it (sorted)
   warnings: string[]; // build-time config issues (e.g. an unparseable tsconfig)
 }
 
@@ -80,6 +85,7 @@ const JS_EXT_PROBES = ["", ".ts", ".tsx", ".d.ts", ".mts", ".cts", ".js", ".jsx"
 const JS_INDEX = ["index.ts", "index.tsx", "index.js", "index.jsx", "index.mjs", "index.cjs"];
 const JS_TS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 const PY = new Set([".py", ".pyi"]);
+const C_CPP = new Set([".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh"]);
 
 // Directory names that hold build output. An exports-map target under one of
 // these usually has its source under `src/` (or at the package root) instead.
@@ -467,6 +473,55 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
   }
   workspacePackages.sort((a, b) => b.name.length - a.name.length);
 
+  // C/C++ include roots: dirs literally named include/inc, plus the repo root, so
+  // `#include "a/b.h"` resolves whether written relative to the file or to a root.
+  const cIncludeRoots = new Set<string>([""]);
+  for (const d of dirSet) {
+    const base = d.slice(d.lastIndexOf("/") + 1);
+    if (base === "include" || base === "inc" || base === "src") cIncludeRoots.add(d);
+  }
+
+  // Ruby lib roots: dirs named lib, plus the repo root, for bare `require`.
+  const rubyLibRoots = new Set<string>([""]);
+  for (const d of dirSet) if (d.slice(d.lastIndexOf("/") + 1) === "lib") rubyLibRoots.add(d);
+
+  // PHP PSR-4: every composer.json's autoload(+autoload-dev).psr-4 maps a
+  // namespace prefix onto a directory (relative to the composer.json). Longest
+  // prefix first so a more specific mapping wins.
+  const phpPsr4: { prefix: string; dir: string }[] = [];
+  for (const rel of fileSet) {
+    if (rel !== "composer.json" && !rel.endsWith("/composer.json")) continue;
+    const composer = tolerantJsonParse(readText(join(scan.root, rel))) as
+      | { autoload?: { "psr-4"?: Record<string, string | string[]> }; "autoload-dev"?: { "psr-4"?: Record<string, string | string[]> } }
+      | undefined;
+    if (!composer) {
+      warnings.push(`unparseable ${rel} — skipped for PHP PSR-4 resolution`);
+      continue;
+    }
+    const baseDir = rel.includes("/") ? posix.dirname(rel) : "";
+    for (const block of [composer.autoload?.["psr-4"], composer["autoload-dev"]?.["psr-4"]]) {
+      if (!block) continue;
+      for (const [prefix, dirs] of Object.entries(block)) {
+        for (const d of Array.isArray(dirs) ? dirs : [dirs]) {
+          if (typeof d !== "string") continue;
+          phpPsr4.push({ prefix: prefix.replace(/\\+$/, ""), dir: norm(posix.join(baseDir, d)).replace(/^\.$/, "") });
+        }
+      }
+    }
+  }
+  phpPsr4.sort((a, b) => b.prefix.length - a.prefix.length);
+
+  // C# namespaces: file's `namespace X.Y` (captured as pkg) → the files declaring
+  // it, so `using X.Y;` resolves to in-repo source (Java's model, applied to C#).
+  const csharpNamespaces = new Map<string, string[]>();
+  for (const f of scan.files) {
+    if (f.ext !== ".cs" || !f.pkg) continue;
+    let arr = csharpNamespaces.get(f.pkg);
+    if (!arr) csharpNamespaces.set(f.pkg, (arr = []));
+    arr.push(f.rel);
+  }
+  for (const arr of csharpNamespaces.values()) arr.sort(byStr);
+
   return {
     fileSet,
     dirSet,
@@ -477,6 +532,10 @@ export function buildResolveContext(scan: RepoScan): ResolveContext {
     javaRoots: [...javaRoots].sort(byLen),
     pyRoots: [...pyRoots],
     workspacePackages,
+    cIncludeRoots: [...cIncludeRoots].sort(byLen),
+    rubyLibRoots: [...rubyLibRoots].sort(byLen),
+    phpPsr4,
+    csharpNamespaces,
     warnings,
   };
 }
@@ -791,6 +850,64 @@ function resolveJava(spec: string, ctx: ResolveContext): Resolution {
   return hit ? { kind: "resolved", target: hit } : { kind: "external" };
 }
 
+// C/C++: local `#include "x"` relative to the including file, then each include
+// root. Unresolved quoted includes are dangling (they read as an in-repo intent).
+function resolveC(fromRel: string, spec: string, ctx: ResolveContext): Resolution {
+  const fromDir = fromRel.includes("/") ? posix.dirname(fromRel) : "";
+  const hit = firstExisting(ctx, [posix.join(fromDir, spec), ...ctx.cIncludeRoots.map((r) => posix.join(r, spec))]);
+  return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-include" };
+}
+
+// Ruby: `require_relative` (we normalised to a leading "./") resolves against the
+// file's dir; a bare `require` resolves against lib roots, else it is a gem/stdlib.
+function resolveRuby(fromRel: string, spec: string, ctx: ResolveContext): Resolution {
+  if (spec.startsWith(".")) {
+    const fromDir = fromRel.includes("/") ? posix.dirname(fromRel) : "";
+    const base = norm(posix.join(fromDir, spec));
+    const hit = firstExisting(ctx, [base + ".rb", posix.join(base, "index.rb")]);
+    return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
+  }
+  for (const root of ctx.rubyLibRoots) {
+    const hit = firstExisting(ctx, [posix.join(root, spec + ".rb")]);
+    if (hit) return { kind: "resolved", target: hit };
+  }
+  return { kind: "external" };
+}
+
+// PHP: relative `require/include` against the file's dir; `use Namespace\Class`
+// against composer PSR-4 (longest prefix wins). Unmatched namespaces are external.
+function resolvePhp(fromRel: string, spec: string, ctx: ResolveContext): Resolution {
+  if (spec.startsWith(".")) {
+    const fromDir = fromRel.includes("/") ? posix.dirname(fromRel) : "";
+    const base = norm(posix.join(fromDir, spec));
+    const hit = firstExisting(ctx, [base, base + ".php"]);
+    return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
+  }
+  const ns = spec.replace(/^\\+/, "");
+  for (const { prefix, dir } of ctx.phpPsr4) {
+    if (prefix && ns !== prefix && !ns.startsWith(prefix + "\\")) continue;
+    const rest = prefix ? ns.slice(prefix.length).replace(/^\\+/, "") : ns;
+    const hit = firstExisting(ctx, [posix.join(dir, rest.replace(/\\/g, "/")) + ".php"]);
+    if (hit) return { kind: "resolved", target: hit };
+  }
+  return { kind: "external" };
+}
+
+// C#: `using X.Y` → files declaring `namespace X.Y` (exact), else the first file
+// of any namespace nested under it. Unmatched namespaces are system/third-party.
+function resolveCsharp(spec: string, ctx: ResolveContext): Resolution {
+  const exact = ctx.csharpNamespaces.get(spec);
+  if (exact?.length) return { kind: "resolved", target: exact[0]! };
+  let best: string | undefined;
+  for (const [ns, files] of ctx.csharpNamespaces) {
+    if (ns === spec || ns.startsWith(spec + ".")) {
+      const f = files[0]!;
+      if (best === undefined || byStr(f, best) < 0) best = f;
+    }
+  }
+  return best ? { kind: "resolved", target: best } : { kind: "external" };
+}
+
 // Resolve an import specifier for a file of the given extension.
 export function resolveImport(
   fromRel: string,
@@ -809,5 +926,9 @@ export function resolveImport(
   if (ext === ".go") return resolveGo(fromRel, spec, ctx);
   if (ext === ".rs") return resolveRust(fromRel, spec, ctx);
   if (ext === ".java") return resolveJava(spec, ctx);
+  if (C_CPP.has(ext)) return resolveC(fromRel, spec, ctx);
+  if (ext === ".rb" || ext === ".rake") return resolveRuby(fromRel, spec, ctx);
+  if (ext === ".php") return resolvePhp(fromRel, spec, ctx);
+  if (ext === ".cs") return resolveCsharp(spec, ctx);
   return { kind: "external" };
 }

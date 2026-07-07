@@ -103,6 +103,7 @@ const REASON_HINTS: Record<string, string> = {
   "alias-unresolved": "a tsconfig path alias matched but its target file is missing — check the tsconfig paths or uncommitted build artifacts",
   "escapes-repo-root": "an import walks above the indexed root — index the parent directory, or ignore if intentional",
   "missing-package": "a Go import maps to a directory with no .go files — broken import or ungenerated code",
+  "missing-include": 'a C/C++ `#include "..."` names a header with no in-repo file — a missing/renamed header or an external dep quoted like a local one',
   "missing-target": "a markdown link points at a file that does not exist — a stale doc link",
 };
 

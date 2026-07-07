@@ -5268,6 +5268,7 @@ function extractAst(rel, ext, content) {
 // src/extract/code.ts
 var JS_TS = /* @__PURE__ */ new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 var PY = /* @__PURE__ */ new Set([".py", ".pyi"]);
+var C_CPP = /* @__PURE__ */ new Set([".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh"]);
 var DIRECTIVE_RE = /^(eslint\b|eslint-|prettier\b|prettier-|tslint\b|jshint\b|jslint\b|globals?\b|istanbul\b|c8\s|v8\s|@ts-|ts-|@flow\b|@jsx\b|@jsxRuntime\b|@jest-environment\b|@vitest-environment\b|@license\b|@preserve\b|@copyright\b|copyright\b|spdx-|<reference\b|use strict|biome-|deno-lint|noqa\b|type:\s*ignore|pylint:|flake8:|mypy:|coding[:=])/i;
 function isDirective(line) {
   return DIRECTIVE_RE.test(line.trim());
@@ -5422,6 +5423,26 @@ function extractImports(ext, content) {
     let m;
     const imp = /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)\s*;/gm;
     while (m = imp.exec(content)) specs.add(m[1]);
+  } else if (ext === ".rb" || ext === ".rake") {
+    let m;
+    const rel = /^\s*require_relative\s+['"]([^'"]+)['"]/gm;
+    while (m = rel.exec(content)) specs.add(/^\.\.?\//.test(m[1]) ? m[1] : "./" + m[1]);
+    const req = /^\s*require\s+['"]([^'"]+)['"]/gm;
+    while (m = req.exec(content)) specs.add(m[1]);
+  } else if (C_CPP.has(ext)) {
+    let m;
+    const inc = /^\s*#\s*include\s*"([^"]+)"/gm;
+    while (m = inc.exec(content)) specs.add(m[1]);
+  } else if (ext === ".php") {
+    let m;
+    const use = /^\s*use\s+(?:function\s+|const\s+)?\\?([A-Za-z_][\w\\]*)\s*(?:as\s+\w+)?\s*;/gm;
+    while (m = use.exec(content)) specs.add(m[1]);
+    const inc = /\b(?:require|include)(?:_once)?\s*\(?\s*['"]([^'"]+)['"]/g;
+    while (m = inc.exec(content)) specs.add(/^\.\.?\//.test(m[1]) ? m[1] : "./" + m[1]);
+  } else if (ext === ".cs") {
+    let m;
+    const using = /^\s*(?:global\s+)?using\s+(?:static\s+)?([A-Za-z_][\w.]*)\s*;/gm;
+    while (m = using.exec(content)) specs.add(m[1]);
   }
   return [...specs].map((spec) => ({ kind: "import", spec }));
 }
@@ -5480,7 +5501,9 @@ function extractCode(rel, ext, content) {
     symbols: [...symbols, ...reexports],
     summary: topDocComment(content),
     refs: extractImports(ext, content),
-    pkg: ext === ".java" ? /^\s*package\s+([\w.]+)\s*;/m.exec(content)?.[1] : void 0,
+    // pkg anchors namespace→source-root resolution: Java's `package`, C#'s
+    // `namespace` (block or file-scoped). Both feed the same resolver pattern.
+    pkg: ext === ".java" ? /^\s*package\s+([\w.]+)\s*;/m.exec(content)?.[1] : ext === ".cs" ? /^\s*(?:file-scoped\s+)?namespace\s+([\w.]+)/m.exec(content)?.[1] : void 0,
     idents: ast?.idents
   };
 }
@@ -5583,6 +5606,7 @@ var JS_EXT_PROBES = ["", ".ts", ".tsx", ".d.ts", ".mts", ".cts", ".js", ".jsx", 
 var JS_INDEX = ["index.ts", "index.tsx", "index.js", "index.jsx", "index.mjs", "index.cjs"];
 var JS_TS2 = /* @__PURE__ */ new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 var PY2 = /* @__PURE__ */ new Set([".py", ".pyi"]);
+var C_CPP2 = /* @__PURE__ */ new Set([".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh"]);
 var BUILD_DIRS = /* @__PURE__ */ new Set(["dist", "build", "lib", "out", "output", "esm", "cjs", "umd"]);
 function distToSrcCandidates(target) {
   const segs = norm(target).split("/").filter((s) => s !== ".");
@@ -5856,6 +5880,41 @@ function buildResolveContext(scan2) {
     });
   }
   workspacePackages.sort((a, b) => b.name.length - a.name.length);
+  const cIncludeRoots = /* @__PURE__ */ new Set([""]);
+  for (const d of dirSet) {
+    const base = d.slice(d.lastIndexOf("/") + 1);
+    if (base === "include" || base === "inc" || base === "src") cIncludeRoots.add(d);
+  }
+  const rubyLibRoots = /* @__PURE__ */ new Set([""]);
+  for (const d of dirSet) if (d.slice(d.lastIndexOf("/") + 1) === "lib") rubyLibRoots.add(d);
+  const phpPsr4 = [];
+  for (const rel of fileSet) {
+    if (rel !== "composer.json" && !rel.endsWith("/composer.json")) continue;
+    const composer = tolerantJsonParse(readText(join3(scan2.root, rel)));
+    if (!composer) {
+      warnings.push(`unparseable ${rel} \u2014 skipped for PHP PSR-4 resolution`);
+      continue;
+    }
+    const baseDir = rel.includes("/") ? posix.dirname(rel) : "";
+    for (const block of [composer.autoload?.["psr-4"], composer["autoload-dev"]?.["psr-4"]]) {
+      if (!block) continue;
+      for (const [prefix, dirs] of Object.entries(block)) {
+        for (const d of Array.isArray(dirs) ? dirs : [dirs]) {
+          if (typeof d !== "string") continue;
+          phpPsr4.push({ prefix: prefix.replace(/\\+$/, ""), dir: norm(posix.join(baseDir, d)).replace(/^\.$/, "") });
+        }
+      }
+    }
+  }
+  phpPsr4.sort((a, b) => b.prefix.length - a.prefix.length);
+  const csharpNamespaces = /* @__PURE__ */ new Map();
+  for (const f of scan2.files) {
+    if (f.ext !== ".cs" || !f.pkg) continue;
+    let arr = csharpNamespaces.get(f.pkg);
+    if (!arr) csharpNamespaces.set(f.pkg, arr = []);
+    arr.push(f.rel);
+  }
+  for (const arr of csharpNamespaces.values()) arr.sort(byStr);
   return {
     fileSet,
     dirSet,
@@ -5866,6 +5925,10 @@ function buildResolveContext(scan2) {
     javaRoots: [...javaRoots].sort(byLen),
     pyRoots: [...pyRoots],
     workspacePackages,
+    cIncludeRoots: [...cIncludeRoots].sort(byLen),
+    rubyLibRoots: [...rubyLibRoots].sort(byLen),
+    phpPsr4,
+    csharpNamespaces,
     warnings
   };
 }
@@ -6103,6 +6166,52 @@ function resolveJava(spec, ctx) {
   }
   return hit ? { kind: "resolved", target: hit } : { kind: "external" };
 }
+function resolveC(fromRel, spec, ctx) {
+  const fromDir = fromRel.includes("/") ? posix.dirname(fromRel) : "";
+  const hit = firstExisting(ctx, [posix.join(fromDir, spec), ...ctx.cIncludeRoots.map((r) => posix.join(r, spec))]);
+  return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-include" };
+}
+function resolveRuby(fromRel, spec, ctx) {
+  if (spec.startsWith(".")) {
+    const fromDir = fromRel.includes("/") ? posix.dirname(fromRel) : "";
+    const base = norm(posix.join(fromDir, spec));
+    const hit = firstExisting(ctx, [base + ".rb", posix.join(base, "index.rb")]);
+    return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
+  }
+  for (const root of ctx.rubyLibRoots) {
+    const hit = firstExisting(ctx, [posix.join(root, spec + ".rb")]);
+    if (hit) return { kind: "resolved", target: hit };
+  }
+  return { kind: "external" };
+}
+function resolvePhp(fromRel, spec, ctx) {
+  if (spec.startsWith(".")) {
+    const fromDir = fromRel.includes("/") ? posix.dirname(fromRel) : "";
+    const base = norm(posix.join(fromDir, spec));
+    const hit = firstExisting(ctx, [base, base + ".php"]);
+    return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
+  }
+  const ns = spec.replace(/^\\+/, "");
+  for (const { prefix, dir } of ctx.phpPsr4) {
+    if (prefix && ns !== prefix && !ns.startsWith(prefix + "\\")) continue;
+    const rest = prefix ? ns.slice(prefix.length).replace(/^\\+/, "") : ns;
+    const hit = firstExisting(ctx, [posix.join(dir, rest.replace(/\\/g, "/")) + ".php"]);
+    if (hit) return { kind: "resolved", target: hit };
+  }
+  return { kind: "external" };
+}
+function resolveCsharp(spec, ctx) {
+  const exact = ctx.csharpNamespaces.get(spec);
+  if (exact?.length) return { kind: "resolved", target: exact[0] };
+  let best;
+  for (const [ns, files] of ctx.csharpNamespaces) {
+    if (ns === spec || ns.startsWith(spec + ".")) {
+      const f = files[0];
+      if (best === void 0 || byStr(f, best) < 0) best = f;
+    }
+  }
+  return best ? { kind: "resolved", target: best } : { kind: "external" };
+}
 function resolveImport(fromRel, ext, spec, ctx) {
   const dot = spec.lastIndexOf(".");
   if (dot !== -1 && ASSET_EXT.has(spec.slice(dot).toLowerCase().replace(/[?#].*$/, ""))) {
@@ -6113,6 +6222,10 @@ function resolveImport(fromRel, ext, spec, ctx) {
   if (ext === ".go") return resolveGo(fromRel, spec, ctx);
   if (ext === ".rs") return resolveRust(fromRel, spec, ctx);
   if (ext === ".java") return resolveJava(spec, ctx);
+  if (C_CPP2.has(ext)) return resolveC(fromRel, spec, ctx);
+  if (ext === ".rb" || ext === ".rake") return resolveRuby(fromRel, spec, ctx);
+  if (ext === ".php") return resolvePhp(fromRel, spec, ctx);
+  if (ext === ".cs") return resolveCsharp(spec, ctx);
   return { kind: "external" };
 }
 
@@ -8244,6 +8357,7 @@ var REASON_HINTS = {
   "alias-unresolved": "a tsconfig path alias matched but its target file is missing \u2014 check the tsconfig paths or uncommitted build artifacts",
   "escapes-repo-root": "an import walks above the indexed root \u2014 index the parent directory, or ignore if intentional",
   "missing-package": "a Go import maps to a directory with no .go files \u2014 broken import or ungenerated code",
+  "missing-include": 'a C/C++ `#include "..."` names a header with no in-repo file \u2014 a missing/renamed header or an external dep quoted like a local one',
   "missing-target": "a markdown link points at a file that does not exist \u2014 a stale doc link"
 };
 function fail(message) {

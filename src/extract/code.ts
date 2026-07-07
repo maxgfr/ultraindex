@@ -12,6 +12,7 @@ export interface CodeInfo {
 
 const JS_TS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 const PY = new Set([".py", ".pyi"]);
+const C_CPP = new Set([".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh"]);
 
 // Tooling pragmas and boilerplate that are technically the first comment but say
 // nothing about what the file does — never use them as a summary.
@@ -198,6 +199,35 @@ function extractImports(ext: string, content: string): RawRef[] {
     let m: RegExpExecArray | null;
     const imp = /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)\s*;/gm;
     while ((m = imp.exec(content))) specs.add(m[1]!);
+  } else if (ext === ".rb" || ext === ".rake") {
+    // `require_relative "x"` is relative to the file — emit it as a relative path
+    // (leading "./") so the resolver resolves it against the file's dir. `require
+    // "x"` is resolved against lib roots or is external (a gem).
+    let m: RegExpExecArray | null;
+    const rel = /^\s*require_relative\s+['"]([^'"]+)['"]/gm;
+    while ((m = rel.exec(content))) specs.add(/^\.\.?\//.test(m[1]!) ? m[1]! : "./" + m[1]!);
+    const req = /^\s*require\s+['"]([^'"]+)['"]/gm;
+    while ((m = req.exec(content))) specs.add(m[1]!);
+  } else if (C_CPP.has(ext)) {
+    // Local `#include "foo.h"` — a real in-repo dependency. `<...>` is a system/
+    // third-party header (external) and is deliberately not captured.
+    let m: RegExpExecArray | null;
+    const inc = /^\s*#\s*include\s*"([^"]+)"/gm;
+    while ((m = inc.exec(content))) specs.add(m[1]!);
+  } else if (ext === ".php") {
+    // `use Foo\Bar\Baz;` (namespace, resolved via composer PSR-4) and
+    // `require/include 'file.php'` (relative path, emitted with a leading "./").
+    let m: RegExpExecArray | null;
+    const use = /^\s*use\s+(?:function\s+|const\s+)?\\?([A-Za-z_][\w\\]*)\s*(?:as\s+\w+)?\s*;/gm;
+    while ((m = use.exec(content))) specs.add(m[1]!);
+    const inc = /\b(?:require|include)(?:_once)?\s*\(?\s*['"]([^'"]+)['"]/g;
+    while ((m = inc.exec(content))) specs.add(/^\.\.?\//.test(m[1]!) ? m[1]! : "./" + m[1]!);
+  } else if (ext === ".cs") {
+    // `using Foo.Bar;` — a namespace import, resolved to files declaring that
+    // namespace. Skip alias (`using X = ...`) and resource (`using (...)`) forms.
+    let m: RegExpExecArray | null;
+    const using = /^\s*(?:global\s+)?using\s+(?:static\s+)?([A-Za-z_][\w.]*)\s*;/gm;
+    while ((m = using.exec(content))) specs.add(m[1]!);
   }
 
   return [...specs].map((spec) => ({ kind: "import" as const, spec }));
@@ -262,7 +292,14 @@ export function extractCode(rel: string, ext: string, content: string): CodeInfo
     symbols: [...symbols, ...reexports],
     summary: topDocComment(content),
     refs: extractImports(ext, content),
-    pkg: ext === ".java" ? /^\s*package\s+([\w.]+)\s*;/m.exec(content)?.[1] : undefined,
+    // pkg anchors namespace→source-root resolution: Java's `package`, C#'s
+    // `namespace` (block or file-scoped). Both feed the same resolver pattern.
+    pkg:
+      ext === ".java"
+        ? /^\s*package\s+([\w.]+)\s*;/m.exec(content)?.[1]
+        : ext === ".cs"
+          ? /^\s*(?:file-scoped\s+)?namespace\s+([\w.]+)/m.exec(content)?.[1]
+          : undefined,
     idents: ast?.idents,
   };
 }
