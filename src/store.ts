@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { SCHEMA_VERSION } from "./types.js";
-import type { Graph, Manifest } from "./types.js";
+import type { Graph, Manifest, SymbolIndex } from "./types.js";
 import { readIfExists } from "./output.js";
 
 // Canonical paths inside an index output directory.
@@ -12,6 +12,7 @@ export function indexPaths(outDir: string): {
   encyclopedia: string;
   vectors: string;
   semantic: string;
+  symbols: string;
 } {
   return {
     index: join(outDir, "INDEX.md"),
@@ -21,6 +22,7 @@ export function indexPaths(outDir: string): {
     encyclopedia: join(outDir, "encyclopedia"),
     vectors: join(outDir, "vectors.json"),
     semantic: join(outDir, "semantic.json"),
+    symbols: join(outDir, "symbols.json"),
   };
 }
 
@@ -46,6 +48,17 @@ export function loadManifest(outDir: string): Manifest | undefined {
   try {
     const m = JSON.parse(raw) as Manifest;
     return m.schemaVersion === SCHEMA_VERSION ? m : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function loadSymbols(outDir: string): SymbolIndex | undefined {
+  const raw = readIfExists(indexPaths(outDir).symbols);
+  if (raw === undefined) return undefined;
+  try {
+    const s = JSON.parse(raw) as SymbolIndex;
+    return s.schemaVersion === SCHEMA_VERSION ? s : undefined;
   } catch {
     return undefined;
   }

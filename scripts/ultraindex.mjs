@@ -6705,6 +6705,38 @@ function renderGraphJson(graph) {
   return JSON.stringify(ordered, null, 2) + "\n";
 }
 
+// src/render/symbols-json.ts
+function buildSymbolIndex(scan2, refs = /* @__PURE__ */ new Map()) {
+  const defsByName = /* @__PURE__ */ new Map();
+  for (const f of scan2.files) {
+    for (const s of f.symbols) {
+      let arr = defsByName.get(s.name);
+      if (!arr) defsByName.set(s.name, arr = []);
+      arr.push({
+        file: s.file,
+        line: s.line,
+        kind: s.kind,
+        exported: s.exported,
+        lang: s.lang,
+        ...s.parent ? { parent: s.parent } : {}
+      });
+    }
+  }
+  const defs = {};
+  for (const name2 of [...defsByName.keys()].sort(byStr)) {
+    defs[name2] = defsByName.get(name2).slice().sort((a, b) => byStr(a.file, b.file) || a.line - b.line || byStr(a.kind, b.kind));
+  }
+  const refsOut = {};
+  for (const name2 of [...refs.keys()].sort(byStr)) {
+    const files = [...refs.get(name2)].sort(byStr);
+    if (files.length) refsOut[name2] = files;
+  }
+  return { schemaVersion: SCHEMA_VERSION, defs, refs: refsOut };
+}
+function renderSymbolsJson(index) {
+  return JSON.stringify(index, null, 2) + "\n";
+}
+
 // src/render/manifest.ts
 function sortedRecord(obj) {
   const out2 = {};
@@ -6855,7 +6887,8 @@ function indexPaths(outDir) {
     mermaid: join7(outDir, "graph.mmd"),
     encyclopedia: join7(outDir, "encyclopedia"),
     vectors: join7(outDir, "vectors.json"),
-    semantic: join7(outDir, "semantic.json")
+    semantic: join7(outDir, "semantic.json"),
+    symbols: join7(outDir, "symbols.json")
   };
 }
 function indexExists(outDir) {
@@ -6907,6 +6940,7 @@ function runBuild(opts, builtAt) {
   const sync = syncEntries(opts.out, entryInputs, prev?.modules ?? {});
   const mermaid = opts.mermaid ? renderMermaid(graph) : void 0;
   writeFileIfChanged(paths.graph, renderGraphJson(graph));
+  writeFileIfChanged(paths.symbols, renderSymbolsJson(buildSymbolIndex(scan2)));
   if (mermaid) writeFileIfChanged(paths.mermaid, mermaid.content);
   else removeFile(paths.mermaid);
   writeFileIfChanged(paths.index, renderIndex(graph, { repoName: basename2(opts.repo) || "repo", mermaid }));

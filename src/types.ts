@@ -194,6 +194,16 @@ export interface VectorStore {
   vectors: Record<string, { hash: string; v: number[] }>; // slug -> embedded-text hash + vector
 }
 
+// A persisted symbol table (symbols.json), emitted at build so `symbols <name>`
+// can answer "where is X defined?" without re-scanning the repo. `defs` maps a
+// symbol name to its definition sites; `refs` maps a name to the files that
+// reference it (populated by the use/mention pass). Deterministically ordered.
+export interface SymbolIndex {
+  schemaVersion: number;
+  defs: Record<string, { file: string; line: number; kind: string; exported: boolean; lang: string; parent?: string }[]>;
+  refs: Record<string, string[]>;
+}
+
 // Summary of an `embed` run.
 export interface EmbedReport {
   model: string;

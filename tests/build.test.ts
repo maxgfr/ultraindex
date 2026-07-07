@@ -71,9 +71,23 @@ describe("runBuild", () => {
     const b = out();
     build(a);
     build(b);
-    for (const f of ["graph.json", "INDEX.md", "graph.mmd", "encyclopedia/src.md", "encyclopedia/root.md"]) {
+    for (const f of ["graph.json", "symbols.json", "INDEX.md", "graph.mmd", "encyclopedia/src.md", "encyclopedia/root.md"]) {
       expect(readFileSync(join(a, f), "utf8")).toBe(readFileSync(join(b, f), "utf8"));
     }
+  });
+
+  it("emits symbols.json with definition sites for the symbols command", () => {
+    const dir = out();
+    build(dir);
+    const idx = JSON.parse(readFileSync(join(dir, "symbols.json"), "utf8"));
+    expect(idx.schemaVersion).toBe(2);
+    // Every def entry carries a resolvable file:line so `symbols` can point at it.
+    const someName = Object.keys(idx.defs)[0]!;
+    expect(someName).toBeTruthy();
+    const site = idx.defs[someName]![0];
+    expect(typeof site.file).toBe("string");
+    expect(typeof site.line).toBe("number");
+    expect(typeof site.exported).toBe("boolean");
   });
 
   it("preserves enriched prose across a rebuild (idempotent merge end-to-end)", () => {
