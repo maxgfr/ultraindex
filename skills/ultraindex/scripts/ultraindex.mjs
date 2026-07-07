@@ -9,6 +9,7 @@ import { realpathSync as realpathSync2 } from "fs";
 // src/types.ts
 var VERSION = "2.2.0";
 var SCHEMA_VERSION = 2;
+var EXTRACTOR_VERSION = 2;
 
 // src/build.ts
 import { basename as basename2, relative as relative2, isAbsolute } from "path";
@@ -5531,12 +5532,19 @@ function scanRepo(root, opts = {}) {
     const lang = extToLang(f.ext);
     languages[lang] = (languages[lang] ?? 0) + 1;
     const content = readText(f.abs);
+    const hash = sha1(content);
+    const cached = opts.cache?.get(f.rel);
+    if (cached && cached.hash === hash) {
+      files.push(cached.record);
+      if (kind === "doc" && content) docText.set(f.rel, content);
+      continue;
+    }
     const record = {
       rel: f.rel,
       ext: f.ext,
       size: f.size,
       lines: countLines(content),
-      hash: sha1(content),
+      hash,
       kind,
       lang,
       headings: [],
@@ -7059,7 +7067,8 @@ function indexPaths(outDir) {
     encyclopedia: join7(outDir, "encyclopedia"),
     vectors: join7(outDir, "vectors.json"),
     semantic: join7(outDir, "semantic.json"),
-    symbols: join7(outDir, "symbols.json")
+    symbols: join7(outDir, "symbols.json"),
+    cache: join7(outDir, "cache.json")
   };
 }
 function indexExists(outDir) {
@@ -7085,15 +7094,28 @@ function loadManifest(outDir) {
     return void 0;
   }
 }
+function loadCache(outDir) {
+  const raw = readIfExists(indexPaths(outDir).cache);
+  if (raw === void 0) return void 0;
+  try {
+    const c2 = JSON.parse(raw);
+    if (c2.schemaVersion !== SCHEMA_VERSION || c2.extractorVersion !== EXTRACTOR_VERSION) return void 0;
+    return new Map(Object.entries(c2.files));
+  } catch {
+    return void 0;
+  }
+}
 
 // src/build.ts
 function runBuild(opts, builtAt) {
+  const cache = opts.noCache ? void 0 : loadCache(opts.out);
   const scan2 = scanRepo(opts.repo, {
     include: opts.include,
     exclude: opts.exclude,
     maxBytes: opts.maxBytes,
     maxFiles: opts.maxFiles,
-    out: opts.out
+    out: opts.out,
+    cache
   });
   const ctx = buildResolveContext(scan2);
   const { modules, moduleOf } = buildModules(scan2);
@@ -7129,6 +7151,12 @@ function runBuild(opts, builtAt) {
     maxFiles: opts.maxFiles
   });
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
+  if (!opts.noCache) {
+    const files = {};
+    for (const f of scan2.files) files[f.rel] = { hash: f.hash, record: f };
+    const cacheOut = { schemaVersion: SCHEMA_VERSION, extractorVersion: EXTRACTOR_VERSION, files };
+    writeFileIfChanged(paths.cache, JSON.stringify(cacheOut) + "\n");
+  }
   return { outDir: opts.out, graph, manifest, capped: scan2.capped };
 }
 
@@ -8280,7 +8308,7 @@ Deterministically index a whole repo (code + docs) into a navigable encyclopedia
 huge codebases without filling its context window. Zero deps, no keys.
 
 Usage:
-  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-mermaid]
+  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--no-mermaid]
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex embed   [--out <dir>] [--force]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
@@ -8322,6 +8350,7 @@ Options:
   --exclude <glob>  Skip paths matching (comma-separated globs)
   --max-bytes <n>   Skip files larger than n bytes                (default: 1 MiB)
   --max-files <n>   Stop the scan after n files; the index warns if hit (default: 20000)
+  --no-cache        build: ignore cache.json and re-extract every file
   --no-mermaid      Do not write graph.mmd
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
   --depth <n>       neighbors: hops to traverse                (default: 1)
@@ -8351,7 +8380,7 @@ Grounding:
 `;
 var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check", "verify"]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "quiet", "force", "semantic"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "quiet", "force", "semantic"]);
 var REASON_HINTS = {
   "missing-module": "a relative import's target file does not exist \u2014 usually a real broken import in the repo, worth reporting",
   "alias-unresolved": "a tsconfig path alias matched but its target file is missing \u2014 check the tsconfig paths or uncommitted build artifacts",
@@ -8452,6 +8481,7 @@ async function cmdBuild(p) {
       exclude: splitList(p.values.exclude),
       maxBytes,
       maxFiles,
+      noCache: p.bools.has("no-cache"),
       mermaid: !p.bools.has("no-mermaid"),
       json: p.bools.has("json")
     },

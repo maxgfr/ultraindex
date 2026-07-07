@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { SCHEMA_VERSION } from "./types.js";
-import type { Graph, Manifest, SymbolIndex } from "./types.js";
+import { SCHEMA_VERSION, EXTRACTOR_VERSION } from "./types.js";
+import type { ExtractionCache, Graph, Manifest, SymbolIndex } from "./types.js";
 import { readIfExists } from "./output.js";
 
 // Canonical paths inside an index output directory.
@@ -13,6 +13,7 @@ export function indexPaths(outDir: string): {
   vectors: string;
   semantic: string;
   symbols: string;
+  cache: string;
 } {
   return {
     index: join(outDir, "INDEX.md"),
@@ -23,6 +24,7 @@ export function indexPaths(outDir: string): {
     vectors: join(outDir, "vectors.json"),
     semantic: join(outDir, "semantic.json"),
     symbols: join(outDir, "symbols.json"),
+    cache: join(outDir, "cache.json"),
   };
 }
 
@@ -59,6 +61,21 @@ export function loadSymbols(outDir: string): SymbolIndex | undefined {
   try {
     const s = JSON.parse(raw) as SymbolIndex;
     return s.schemaVersion === SCHEMA_VERSION ? s : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Load the extraction cache as a rel → {hash, record} map, but only if it matches
+// BOTH the artifact schema and the extractor version — a mismatch means every
+// record could be shaped differently, so the whole cache is discarded.
+export function loadCache(outDir: string): Map<string, ExtractionCache["files"][string]> | undefined {
+  const raw = readIfExists(indexPaths(outDir).cache);
+  if (raw === undefined) return undefined;
+  try {
+    const c = JSON.parse(raw) as ExtractionCache;
+    if (c.schemaVersion !== SCHEMA_VERSION || c.extractorVersion !== EXTRACTOR_VERSION) return undefined;
+    return new Map(Object.entries(c.files));
   } catch {
     return undefined;
   }

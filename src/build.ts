@@ -1,5 +1,6 @@
 import { basename, relative, isAbsolute } from "node:path";
-import type { BuildOptions, FileRecord, Graph, Manifest } from "./types.js";
+import type { BuildOptions, ExtractionCache, FileRecord, Graph, Manifest } from "./types.js";
+import { SCHEMA_VERSION, EXTRACTOR_VERSION } from "./types.js";
 import { scanRepo } from "./scan.js";
 import { DEFAULT_MAX_FILES } from "./walk.js";
 import { buildResolveContext } from "./resolve.js";
@@ -12,7 +13,7 @@ import { renderGraphJson } from "./render/graph-json.js";
 import { buildSymbolIndex, renderSymbolsJson, computeSymbolRefs } from "./render/symbols-json.js";
 import { buildManifest, renderManifestJson } from "./render/manifest.js";
 import { syncEntries, type EntryInput } from "./entries.js";
-import { loadManifest, indexPaths } from "./store.js";
+import { loadManifest, loadCache, indexPaths } from "./store.js";
 import { writeFileIfChanged, removeFile, ensureDir } from "./output.js";
 
 export interface BuildResult {
@@ -25,12 +26,14 @@ export interface BuildResult {
 // The full deterministic pipeline: scan → resolve → group → graph → render →
 // idempotent write. The model is never involved; this is pure file work.
 export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
+  const cache = opts.noCache ? undefined : loadCache(opts.out);
   const scan = scanRepo(opts.repo, {
     include: opts.include,
     exclude: opts.exclude,
     maxBytes: opts.maxBytes,
     maxFiles: opts.maxFiles,
     out: opts.out,
+    cache,
   });
   const ctx = buildResolveContext(scan);
   const { modules, moduleOf } = buildModules(scan);
@@ -77,6 +80,16 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
     maxFiles: opts.maxFiles,
   });
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
+
+  // Refresh the extraction cache for the next build (skipped with --no-cache).
+  // Written last and excluded from the byte-identical guarantee — it is build
+  // state, not part of the index.
+  if (!opts.noCache) {
+    const files: ExtractionCache["files"] = {};
+    for (const f of scan.files) files[f.rel] = { hash: f.hash, record: f };
+    const cacheOut: ExtractionCache = { schemaVersion: SCHEMA_VERSION, extractorVersion: EXTRACTOR_VERSION, files };
+    writeFileIfChanged(paths.cache, JSON.stringify(cacheOut) + "\n");
+  }
 
   return { outDir: opts.out, graph, manifest, capped: scan.capped };
 }

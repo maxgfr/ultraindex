@@ -22,7 +22,7 @@ Deterministically index a whole repo (code + docs) into a navigable encyclopedia
 huge codebases without filling its context window. Zero deps, no keys.
 
 Usage:
-  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-mermaid]
+  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--no-mermaid]
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex embed   [--out <dir>] [--force]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
@@ -64,6 +64,7 @@ Options:
   --exclude <glob>  Skip paths matching (comma-separated globs)
   --max-bytes <n>   Skip files larger than n bytes                (default: 1 MiB)
   --max-files <n>   Stop the scan after n files; the index warns if hit (default: 20000)
+  --no-cache        build: ignore cache.json and re-extract every file
   --no-mermaid      Do not write graph.mmd
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
   --depth <n>       neighbors: hops to traverse                (default: 1)
@@ -94,7 +95,7 @@ Grounding:
 
 const COMMANDS = new Set(["build", "find", "embed", "neighbors", "map", "status", "dossier", "ask", "check", "verify"]);
 const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
-const BOOL_FLAGS = new Set(["json", "no-mermaid", "quiet", "force", "semantic"]);
+const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "quiet", "force", "semantic"]);
 
 // What each dangling reason means and what to do about it — emitted in
 // `build --json` so the report is self-diagnosing.
@@ -222,6 +223,7 @@ async function cmdBuild(p: Parsed): Promise<void> {
       exclude: splitList(p.values.exclude),
       maxBytes,
       maxFiles,
+      noCache: p.bools.has("no-cache"),
       mermaid: !p.bools.has("no-mermaid"),
       json: p.bools.has("json"),
     },

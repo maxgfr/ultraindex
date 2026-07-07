@@ -28,6 +28,9 @@ export interface ScanOptions {
   maxBytes?: number;
   maxFiles?: number;
   out?: string; // absolute output dir to exclude from the scan (self-index guard)
+  // Previous build's extraction cache (rel → {hash, record}). A file whose
+  // content hash is unchanged reuses its record and skips re-extraction.
+  cache?: Map<string, { hash: string; record: FileRecord }>;
 }
 
 function countLines(s: string): number {
@@ -60,13 +63,25 @@ export function scanRepo(root: string, opts: ScanOptions = {}): RepoScan {
     const lang = extToLang(f.ext);
     languages[lang] = (languages[lang] ?? 0) + 1;
 
+    // Read + hash every file every build (the staleness oracle stays exact);
+    // only EXTRACTION is cached. A cache hit reuses the previous record — content
+    // is byte-identical, so every derived field is too. classify()/extToLang()
+    // depend only on the path, so kind/lang are stable across the hit.
     const content = readText(f.abs);
+    const hash = sha1(content);
+    const cached = opts.cache?.get(f.rel);
+    if (cached && cached.hash === hash) {
+      files.push(cached.record);
+      if (kind === "doc" && content) docText.set(f.rel, content);
+      continue;
+    }
+
     const record: FileRecord = {
       rel: f.rel,
       ext: f.ext,
       size: f.size,
       lines: countLines(content),
-      hash: sha1(content),
+      hash,
       kind,
       lang,
       headings: [],

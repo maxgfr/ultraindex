@@ -157,8 +157,20 @@ export interface BuildOptions {
   exclude?: string[];
   maxBytes?: number;
   maxFiles?: number;
+  noCache?: boolean;
   mermaid: boolean;
   json: boolean;
+}
+
+// The extraction cache (cache.json): per-file content hash → the FileRecord that
+// extraction produced. On the next build, a file whose content hash is unchanged
+// reuses its record and skips re-parsing (the expensive AST step). Keyed by
+// EXTRACTOR_VERSION so an engine change discards the whole cache rather than
+// mixing old and new records. Not part of the index; safe to delete or gitignore.
+export interface ExtractionCache {
+  schemaVersion: number;
+  extractorVersion: number;
+  files: Record<string, { hash: string; record: FileRecord }>;
 }
 
 // One result row from `find`: the module, why it matched, and — crucially — the
