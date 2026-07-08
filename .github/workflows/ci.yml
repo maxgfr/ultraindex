@@ -78,3 +78,32 @@ jobs:
           fi
           printf 'backoff is exponential [src/util.ts:2]\n' > "$RUNNER_TEMP/u18/ANSWER.md"
           node scripts/ultraindex.mjs check --answer "$RUNNER_TEMP/u18/ANSWER.md" --out "$RUNNER_TEMP/u18"
+
+      # The full high-assurance chain, on the committed bundle: verify emits the
+      # worklist, verdicts are applied, check --semantic passes — then a DOCTORED
+      # VERIFY.json (summary says ok while verdicts[] holds a refuted row) must
+      # exit non-zero, proving the gate re-reduces from the raw verdicts and
+      # never trusts the persisted summary.
+      - name: Semantic gate end-to-end (verify → apply → check --semantic + doctored summary fails)
+        run: |
+          ANS="$RUNNER_TEMP/u18/ANSWER.md"
+          node scripts/ultraindex.mjs verify --answer "$ANS" --repo tests/fixtures/mini-repo --out "$RUNNER_TEMP/u18"
+          node -e '
+            const fs = require("fs"), dir = process.argv[1];
+            const todo = JSON.parse(fs.readFileSync(dir + "/VERIFY.todo.json", "utf8"));
+            if (!todo.pairs.length) { console.error("expected at least one claim pair"); process.exit(1); }
+            const pairs = todo.pairs.map((x) => ({ ...x, verdict: "supported", note: "excerpt matches" }));
+            fs.writeFileSync(dir + "/verdicts.json", JSON.stringify({ pairs }));
+          ' "$RUNNER_TEMP/u18"
+          node scripts/ultraindex.mjs verify --apply "$RUNNER_TEMP/u18/verdicts.json" --answer "$ANS"
+          node scripts/ultraindex.mjs check --answer "$ANS" --semantic --repo tests/fixtures/mini-repo --out "$RUNNER_TEMP/u18"
+          node -e '
+            const fs = require("fs"), p = process.argv[1] + "/VERIFY.json";
+            const v = JSON.parse(fs.readFileSync(p, "utf8"));
+            v.verdicts[0].verdict = "refuted";
+            v.ok = true; v.failures = []; v.refuted = 0;
+            fs.writeFileSync(p, JSON.stringify(v, null, 2));
+          ' "$RUNNER_TEMP/u18"
+          if node scripts/ultraindex.mjs check --answer "$ANS" --semantic --repo tests/fixtures/mini-repo --out "$RUNNER_TEMP/u18"; then
+            echo "expected non-zero exit for a doctored VERIFY.json summary"; exit 1
+          fi
