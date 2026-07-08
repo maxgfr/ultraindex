@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [4.0.0](https://github.com/maxgfr/ultraindex/compare/v3.0.0...v4.0.0) (2026-07-08)
+
+
+* feat(verify)!: re-reduce verdicts and re-validate cited excerpts at check time ([b609f6e](https://github.com/maxgfr/ultraindex/commit/b609f6e406091782309b698a310b269d6c13fdfc))
+
+
+### BREAKING CHANGES
+
+* check --answer --semantic now exits non-zero when the cited
+source changed after adjudication or when VERIFY.json lacks verdicts[];
+re-run `verify` and re-adjudicate after any source change.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
 # [3.0.0](https://github.com/maxgfr/ultraindex/compare/v2.2.0...v3.0.0) (2026-07-07)
 
 
