@@ -195,7 +195,7 @@ describe("verify gate (shipped CLI) — references/verify.md", () => {
     run(["verify", "--apply", empty, "--answer", ans, "--out", dir]); // writes VERIFY.json with 0 pairs
     const r = run(["check", "--answer", ans, "--semantic", "--out", dir]);
     expect(r.code).not.toBe(0);
-    expect(r.out).toMatch(/0 pair/);
+    expect(r.out).toMatch(/not actually verified/);
   });
 
   it("--max-verify caps the worklist", () => {

@@ -159,6 +159,49 @@ describe("checkAnswer --semantic composition", () => {
     rmSync(repo, { recursive: true, force: true });
   });
 
+  it("fails when a doctored VERIFY.json summary says ok but verdicts[] holds a refuted row", () => {
+    const repo = miniRepo();
+    const out = join(repo, ".ultraindex");
+    runBuild({ repo, out, mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
+    const ans = join(repo, "ANSWER.md");
+    writeFileSync(ans, ANSWER);
+    runVerify(ans, repo);
+    applyVerdicts(repo, writeVerdicts(repo, { "src/retry.ts:2": "refuted" }));
+    // Doctor the persisted summary: ok:true / failures:[] while the raw verdicts
+    // still hold the refuted row. The gate must re-reduce from verdicts[] and fail.
+    const vPath = join(repo, "VERIFY.json");
+    const v = JSON.parse(readFileSync(vPath, "utf8"));
+    v.ok = true;
+    v.failures = [];
+    v.refuted = 0;
+    v.supported = v.verdicts.length;
+    writeFileSync(vPath, JSON.stringify(v, null, 2));
+    const r = checkAnswer(out, ans, { semantic: true });
+    expect(r.ok).toBe(false);
+    expect(r.semantic?.ok).toBe(false);
+    expect(r.warnings?.some((w) => /recomputed/.test(w))).toBe(true);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("fails closed when VERIFY.json carries no verdicts[] to re-reduce from", () => {
+    const repo = miniRepo();
+    const out = join(repo, ".ultraindex");
+    runBuild({ repo, out, mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
+    const ans = join(repo, "ANSWER.md");
+    writeFileSync(ans, ANSWER);
+    runVerify(ans, repo);
+    applyVerdicts(repo, writeVerdicts(repo, {}));
+    // Strip the raw rows: a summary alone (however green) is not attestable.
+    const vPath = join(repo, "VERIFY.json");
+    const v = JSON.parse(readFileSync(vPath, "utf8"));
+    delete v.verdicts;
+    writeFileSync(vPath, JSON.stringify(v, null, 2));
+    const r = checkAnswer(out, ans, { semantic: true });
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => /verdicts\[\]/.test(e))).toBe(true);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
   it("sizes --semantic coverage against the explicit repo, not just the manifest", () => {
     const repo = miniRepo();
     const out = join(repo, ".ultraindex");
@@ -181,6 +224,67 @@ describe("checkAnswer --semantic composition", () => {
     expect(checkAnswer(out, ans, { semantic: true, repo: altRepo }).ok).toBe(true);
     rmSync(repo, { recursive: true, force: true });
     rmSync(altRepo, { recursive: true, force: true });
+  });
+});
+
+describe("checkAnswer content-level grounding (digest re-validation)", () => {
+  function greenSetup(): { repo: string; out: string; ans: string } {
+    const repo = miniRepo();
+    const out = join(repo, ".ultraindex");
+    runBuild({ repo, out, mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
+    const ans = join(repo, "ANSWER.md");
+    writeFileSync(ans, ANSWER);
+    runVerify(ans, repo);
+    applyVerdicts(repo, writeVerdicts(repo, {}));
+    return { repo, out, ans };
+  }
+
+  it("passes a fresh honest verify→apply→check chain with no warnings", () => {
+    const { repo, out, ans } = greenSetup();
+    const r = checkAnswer(out, ans, { semantic: true });
+    expect(r.ok).toBe(true);
+    expect(r.errors).toEqual([]);
+    expect(r.warnings ?? []).toEqual([]);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("fails --semantic when the cited source changed after the verdicts were adjudicated", () => {
+    const { repo, out, ans } = greenSetup();
+    // The adjudicated excerpt said "exponential backoff"; the repo now says otherwise.
+    writeFileSync(
+      join(repo, "src/retry.ts"),
+      "export function retry() {\n  // linear backoff waits a fixed delay\n  return backoff();\n}\n",
+    );
+    const r = checkAnswer(out, ans, { semantic: true });
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => /no longer matches/.test(e))).toBe(true);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("fails --semantic when the verdicts adjudicate a different answer (identity, not count)", () => {
+    const { repo, out, ans } = greenSetup();
+    // Same NUMBER of verifiable pairs, entirely different claims/citations: the
+    // count-based coverage guard would coincidentally pass; identity must not.
+    writeFileSync(ans, "# Answer\nThe util exports a constant x [src/util.ts:1].\n\nAnd a second constant y [src/util.ts:2].");
+    const r = checkAnswer(out, ans, { semantic: true });
+    expect(r.ok).toBe(false);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("warns (non-failing) on plain check --answer when a cited file changed since the build", () => {
+    const repo = miniRepo();
+    const out = join(repo, ".ultraindex");
+    runBuild({ repo, out, mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
+    const ans = join(repo, "ANSWER.md");
+    writeFileSync(ans, ANSWER);
+    writeFileSync(
+      join(repo, "src/retry.ts"),
+      "export function retry() {\n  // linear backoff waits a fixed delay\n  return backoff();\n}\n",
+    );
+    const r = checkAnswer(out, ans);
+    expect(r.ok).toBe(true); // plain check stays the resolution-only gate
+    expect(r.warnings?.some((w) => /changed since the index was built/.test(w))).toBe(true);
+    rmSync(repo, { recursive: true, force: true });
   });
 });
 

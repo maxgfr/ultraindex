@@ -8133,6 +8133,23 @@ function citationlessClaims(text) {
   }
   return out2;
 }
+function revalidateVerdicts(verdicts, repo) {
+  const out2 = [];
+  for (const v of verdicts) {
+    const c2 = parseCitations(`[${v.citation}]`)[0];
+    if (!c2) {
+      out2.push({ claimId: v.claimId, citation: v.citation, reason: "citation is unparseable" });
+      continue;
+    }
+    const live = readExcerpt(repo, c2);
+    if (!live) {
+      out2.push({ claimId: v.claimId, citation: v.citation, reason: "cited file is missing or empty in the repo" });
+    } else if (live !== v.digest) {
+      out2.push({ claimId: v.claimId, citation: v.citation, reason: "cited excerpt no longer matches the repo" });
+    }
+  }
+  return out2;
+}
 function reduceVerdicts(verdicts) {
   const counts = { supported: 0, partial: 0, refuted: 0, unsupported: 0 };
   for (const v of verdicts) if (v.verdict && counts[v.verdict] !== void 0) counts[v.verdict]++;
@@ -8287,6 +8304,20 @@ function checkAnswer(outDir, answerPath, opts = {}) {
     const missing = citationlessClaims(text);
     if (missing.length) warnings.push(`${missing.length} claim(s) carry no [file:line] citation \u2014 grounding is not enforced on them`);
   }
+  const manifest = loadManifest(outDir);
+  const repoRoot = opts.repo ?? manifest?.repo;
+  if (manifest && repoRoot && cc.resolved.length) {
+    const cited = [...new Set(cc.resolved.map((c2) => c2.path))];
+    const drifted = cited.filter((rel) => {
+      const recorded = manifest.fileHashes[rel];
+      return recorded !== void 0 && sha1(readText(join12(repoRoot, rel))) !== recorded;
+    });
+    if (drifted.length) {
+      warnings.push(
+        `${drifted.length} cited file(s) changed since the index was built (${drifted.slice(0, 5).join(", ")}) \u2014 line numbers may be stale; re-run \`ultraindex build\``
+      );
+    }
+  }
   const result = { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
   if (opts.semantic) {
     const sem = loadVerify(dirname4(answerPath));
@@ -8295,25 +8326,47 @@ function checkAnswer(outDir, answerPath, opts = {}) {
       errors.push(
         "--semantic: no VERIFY.json next to the answer \u2014 run `verify --answer`, adjudicate, then `verify --apply <verdicts.json>` before gating. (Plain `check --answer` is the resolution-only gate.)"
       );
+    } else if (!Array.isArray(sem.verdicts)) {
+      result.ok = false;
+      errors.push(
+        "--semantic: VERIFY.json has no verdicts[] to re-reduce from \u2014 regenerate it with `verify --apply <verdicts.json>` (a persisted summary alone is not attestable)"
+      );
     } else {
-      result.semantic = sem;
-      if (!sem.ok) {
-        result.ok = false;
-        errors.push(`semantic verification failed: ${sem.failures.length} claim(s) refuted or unsupported by their cited excerpt (see VERIFY.json)`);
+      const recomputed = reduceVerdicts(sem.verdicts);
+      if (sem.ok !== recomputed.ok || sem.pairs !== recomputed.pairs || (sem.failures?.length ?? 0) !== recomputed.failures.length) {
+        warnings.push("--semantic: VERIFY.json summary disagrees with its verdicts[] \u2014 verdict recomputed from the raw verdicts");
       }
-      const repoRoot = opts.repo ?? loadManifest(outDir)?.repo;
-      const expected = repoRoot ? buildClaimPairs(text, repoRoot).length : 0;
-      if (sem.pairs === 0 && expected > 0) {
+      result.semantic = recomputed;
+      if (!recomputed.ok) {
+        result.ok = false;
+        errors.push(`semantic verification failed: ${recomputed.failures.length} claim(s) refuted or unsupported by their cited excerpt (see VERIFY.json)`);
+      }
+      if (repoRoot) {
+        const mismatches = revalidateVerdicts(sem.verdicts, repoRoot);
+        for (const m of mismatches.slice(0, 12)) {
+          errors.push(`--semantic: ${m.claimId} [${m.citation}] \u2014 ${m.reason}; re-run \`verify\` and re-adjudicate`);
+        }
+        if (mismatches.length > 12) errors.push(`--semantic: \u2026and ${mismatches.length - 12} more excerpt mismatch(es)`);
+        if (mismatches.length) result.ok = false;
+      } else {
+        warnings.push("--semantic: repo root unknown (no --repo and no manifest) \u2014 excerpt re-validation skipped");
+      }
+      const currentPairs = repoRoot ? buildClaimPairs(text, repoRoot) : [];
+      const expected = currentPairs.length;
+      const pairKey = (p) => `${p.claim}\0${p.citation}\0${p.digest}`;
+      const adjudicated = new Set(sem.verdicts.map(pairKey));
+      const covered = currentPairs.filter((p) => adjudicated.has(pairKey(p))).length;
+      if (covered === 0 && expected > 0) {
         result.ok = false;
         errors.push(
-          `--semantic: VERIFY.json adjudicates 0 pair(s) but the answer has ${expected} verifiable claim\u2194citation pair(s) \u2014 the answer was not actually verified; re-run \`verify\` on a fresh worklist`
+          `--semantic: none of the answer's ${expected} verifiable claim\u2194citation pair(s) match the adjudicated verdicts \u2014 the answer was not actually verified (stale or foreign VERIFY.json); re-run \`verify\` on a fresh worklist`
         );
-      } else if (sem.pairs < expected) {
+      } else if (covered < expected) {
         warnings.push(
-          `--semantic: VERIFY.json covers ${sem.pairs} of ${expected} verifiable pair(s) \u2014 coverage may be stale or worklist-capped; re-run \`verify\` if the answer changed`
+          `--semantic: VERIFY.json covers ${covered} of ${expected} verifiable pair(s) \u2014 coverage may be stale or worklist-capped; re-run \`verify\` if the answer changed`
         );
       }
-      if (sem.unadjudicated?.length) warnings.push(`${sem.unadjudicated.length} claim(s) not fully adjudicated by verify`);
+      if (recomputed.unadjudicated.length) warnings.push(`${recomputed.unadjudicated.length} claim(s) not fully adjudicated by verify`);
     }
   }
   if (warnings.length) result.warnings = warnings;

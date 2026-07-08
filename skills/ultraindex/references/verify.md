@@ -34,8 +34,8 @@ as "every claim checked").
 ## 2. Adjudicate each pair
 
 Open each pair's excerpt and judge whether it supports the claim. Set each
-`verdict` to **exactly one** of these four tokens (a typo is silently treated as
-*not adjudicated*, not an error):
+`verdict` to **exactly one** of these four tokens (a typo or a malformed row is a
+hard error at `verify --apply` — nothing is silently dropped or coerced):
 
 - `supported` — the excerpt clearly backs the claim.
 - `partial` — it backs part of the claim, or backs it weakly. **Counts as support.**
@@ -71,6 +71,19 @@ alone. Plain `check --answer` (no `--semantic`) remains the resolution-only gate
 A misspelled verdict token or a malformed verdict row is a hard error at
 `verify --apply` time, not a silent skip. Present the answer only once this passes.
 
+The gate takes nothing in `VERIFY.json` at its word:
+
+- The pass/fail verdict is **re-reduced from the raw `verdicts[]` on every
+  check** — the persisted `ok`/`failures` summary is never trusted, so a
+  hand-edited or stale summary cannot flip the gate (a `VERIFY.json` without
+  `verdicts[]` fails closed).
+- Every adjudicated excerpt is **re-read from the live repo and compared with the
+  digest that was judged**. If the cited content changed since `verify` (or the
+  digest was edited), the adjudication attests nothing and the check fails —
+  re-run `verify` and re-adjudicate.
+- Coverage is matched by **identity** (claim + citation + digest), not by count:
+  verdicts adjudicating a different answer never read as coverage of this one.
+
 ## Adjudicate in parallel with skeptic subagents
 
 The worklist's pairs are independent, which makes adversarial verification a clean
@@ -97,4 +110,7 @@ beat one pass that tries to confirm.
 - `partial` counts as support — a claim with one `partial` and the rest
   `unsupported` still passes. Use `refuted` only when the evidence contradicts.
 - The four verdict tokens are exact: `supported`, `partial`, `refuted`,
-  `unsupported`. Anything else (including `support`) is dropped as unadjudicated.
+  `unsupported`. Anything else (including `support`) hard-errors at
+  `verify --apply`.
+- Don't edit the repo between `verify` and `check --semantic`: the gate re-reads
+  every cited excerpt and fails on drift. If sources changed, re-run `verify`.

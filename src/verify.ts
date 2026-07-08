@@ -291,6 +291,29 @@ export function citationlessClaims(text: string): string[] {
   return out;
 }
 
+// Content-level grounding: a verdict attests one SPECIFIC excerpt. Re-read each
+// cited excerpt from the live repo (same deterministic extraction as the
+// worklist) and compare it byte-for-byte with the digest the skeptic judged. A
+// mismatch means the source changed since `verify` — or the digest was edited —
+// so the adjudication no longer grounds the claim.
+export function revalidateVerdicts(verdicts: Verdict[], repo: string): { claimId: string; citation: string; reason: string }[] {
+  const out: { claimId: string; citation: string; reason: string }[] = [];
+  for (const v of verdicts) {
+    const c = parseCitations(`[${v.citation}]`)[0];
+    if (!c) {
+      out.push({ claimId: v.claimId, citation: v.citation, reason: "citation is unparseable" });
+      continue;
+    }
+    const live = readExcerpt(repo, c);
+    if (!live) {
+      out.push({ claimId: v.claimId, citation: v.citation, reason: "cited file is missing or empty in the repo" });
+    } else if (live !== v.digest) {
+      out.push({ claimId: v.claimId, citation: v.citation, reason: "cited excerpt no longer matches the repo" });
+    }
+  }
+  return out;
+}
+
 // Fold per-pair verdicts into pass/fail. A claim FAILS if a cited excerpt
 // REFUTES it, or if every fully-adjudicated citation is `unsupported`. Pairs
 // still missing a verdict are reported as unadjudicated (warn, not fail).

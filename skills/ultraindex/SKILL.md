@@ -81,7 +81,7 @@ high-assurance answer adds → 4.
 - `status` — the enrichment **work-queue**, in the exact order to enrich.
 - `dossier <slug>` — a module's grounding packet (real source + neighbours; a docs/config-only module, e.g. `root`, shows no code — enrich it by citing its README/config instead).
 - `ask "<question>"` — assemble grounded evidence to answer from.
-- `check [--answer <file>] [--semantic]` — staleness + integrity + **grounding** (citations must resolve). Non-zero exit ⇒ stale, broken, or ungrounded. `--semantic` also folds the verify gate (fails a claim whose cited excerpt refutes it, or that is fully adjudicated with no support).
+- `check [--answer <file>] [--semantic]` — staleness + integrity + **grounding** (citations must resolve). Non-zero exit ⇒ stale, broken, or ungrounded. `--semantic` also folds the verify gate (fails a claim whose cited excerpt refutes it, or that is fully adjudicated with no support); it re-reduces the verdict from the raw `verdicts[]` and re-reads every adjudicated excerpt from the live repo — a doctored summary or drifted source fails, never passes.
 - `verify --answer <file> [--apply <verdicts.json>] [--max-verify <n>]` — the high-assurance gate **above** `check --answer`: emit a claim↔citation worklist for adversarial support-checking, then `--apply` reduces your verdicts to a pass/fail gate. See [references/verify.md](references/verify.md).
 - `embed [--force]` — build/refresh vectors.json for semantic `find` (needs a provider — see [references/semantic.md](references/semantic.md)).
 

@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import type { CheckResult, Manifest, VerifyResult } from "./types.js";
-import { loadVerify, buildClaimPairs, citationlessClaims } from "./verify.js";
+import { loadVerify, buildClaimPairs, citationlessClaims, reduceVerdicts, revalidateVerdicts } from "./verify.js";
 import { walk, readText } from "./walk.js";
 import { sha1 } from "./hash.js";
 import { compileGlobs } from "./glob.js";
@@ -157,6 +157,25 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
     if (missing.length) warnings.push(`${missing.length} claim(s) carry no [file:line] citation — grounding is not enforced on them`);
   }
 
+  // Non-failing staleness nudge: citations resolve against the INDEX (recorded
+  // line counts), so a cited file whose content changed since the build is
+  // stale-but-in-range. Plain `check --answer` stays the resolution-only gate;
+  // content drift only warns here (`check` on the index is where staleness blocks).
+  const manifest = loadManifest(outDir);
+  const repoRoot = opts.repo ?? manifest?.repo;
+  if (manifest && repoRoot && cc.resolved.length) {
+    const cited = [...new Set(cc.resolved.map((c) => c.path))];
+    const drifted = cited.filter((rel) => {
+      const recorded = manifest.fileHashes[rel];
+      return recorded !== undefined && sha1(readText(join(repoRoot, rel))) !== recorded;
+    });
+    if (drifted.length) {
+      warnings.push(
+        `${drifted.length} cited file(s) changed since the index was built (${drifted.slice(0, 5).join(", ")}) — line numbers may be stale; re-run \`ultraindex build\``,
+      );
+    }
+  }
+
   const result: AnswerCheck = { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
   if (opts.semantic) {
     const sem = loadVerify(dirname(answerPath));
@@ -168,34 +187,65 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
       errors.push(
         "--semantic: no VERIFY.json next to the answer — run `verify --answer`, adjudicate, then `verify --apply <verdicts.json>` before gating. (Plain `check --answer` is the resolution-only gate.)",
       );
+    } else if (!Array.isArray(sem.verdicts)) {
+      // A summary alone is not attestable: the gate re-reduces from the raw
+      // verdicts[] on every check, so a VERIFY.json without them (old format,
+      // hand-stripped) fails closed rather than being taken at its word.
+      result.ok = false;
+      errors.push(
+        "--semantic: VERIFY.json has no verdicts[] to re-reduce from — regenerate it with `verify --apply <verdicts.json>` (a persisted summary alone is not attestable)",
+      );
     } else {
-      result.semantic = sem;
-      if (!sem.ok) {
-        result.ok = false;
-        errors.push(`semantic verification failed: ${sem.failures.length} claim(s) refuted or unsupported by their cited excerpt (see VERIFY.json)`);
+      // NEVER trust the persisted summary: recompute ok/failures/pairs from the
+      // raw verdicts[] on every check, so a hand-edited or stale summary cannot
+      // flip the gate. The recomputed verdict is the one reported and enforced.
+      const recomputed = reduceVerdicts(sem.verdicts);
+      if (sem.ok !== recomputed.ok || sem.pairs !== recomputed.pairs || (sem.failures?.length ?? 0) !== recomputed.failures.length) {
+        warnings.push("--semantic: VERIFY.json summary disagrees with its verdicts[] — verdict recomputed from the raw verdicts");
       }
-      // Coverage guard: the gate can only attest to what VERIFY.json adjudicated.
-      // Size "expected" the SAME way verify does (claim units with a resolvable,
-      // readable excerpt) — NOT the raw mechanical citation count, which also counts
-      // citations in headings or to empty files that verify can never pair (those
-      // would otherwise demand a worklist that always comes back empty). An empty
-      // verdicts set against real verifiable pairs must not read as "verified".
-      // Use the SAME repo `verify` resolved its excerpts from (explicit --repo wins,
-      // else the manifest's recorded root) so `expected` and `sem.pairs` count the
-      // same content — otherwise --repo could spuriously warn/fail the gate.
-      const repoRoot = opts.repo ?? loadManifest(outDir)?.repo;
-      const expected = repoRoot ? buildClaimPairs(text, repoRoot).length : 0;
-      if (sem.pairs === 0 && expected > 0) {
+      result.semantic = recomputed;
+      if (!recomputed.ok) {
+        result.ok = false;
+        errors.push(`semantic verification failed: ${recomputed.failures.length} claim(s) refuted or unsupported by their cited excerpt (see VERIFY.json)`);
+      }
+      // Content-level grounding: re-validate every adjudicated excerpt against
+      // the live repo. A verdict whose cited content drifted since `verify` (or
+      // whose digest was edited) attests nothing, so a mismatch hard-fails.
+      if (repoRoot) {
+        const mismatches = revalidateVerdicts(sem.verdicts, repoRoot);
+        for (const m of mismatches.slice(0, 12)) {
+          errors.push(`--semantic: ${m.claimId} [${m.citation}] — ${m.reason}; re-run \`verify\` and re-adjudicate`);
+        }
+        if (mismatches.length > 12) errors.push(`--semantic: …and ${mismatches.length - 12} more excerpt mismatch(es)`);
+        if (mismatches.length) result.ok = false;
+      } else {
+        warnings.push("--semantic: repo root unknown (no --repo and no manifest) — excerpt re-validation skipped");
+      }
+
+      // Coverage guard, matched by IDENTITY (claim + citation + digest; claimId is
+      // positional so it is excluded) — never by count, which a stale or foreign
+      // VERIFY.json can coincidentally satisfy. Size "expected" the SAME way verify
+      // does (claim units with a resolvable, readable excerpt) — NOT the raw
+      // mechanical citation count, which also counts citations in headings or to
+      // empty files that verify can never pair. Use the SAME repo `verify` resolved
+      // its excerpts from (explicit --repo wins, else the manifest's recorded root)
+      // so both sides of the match read the same content.
+      const currentPairs = repoRoot ? buildClaimPairs(text, repoRoot) : [];
+      const expected = currentPairs.length;
+      const pairKey = (p: { claim: string; citation: string; digest: string }) => `${p.claim}\u0000${p.citation}\u0000${p.digest}`;
+      const adjudicated = new Set(sem.verdicts.map(pairKey));
+      const covered = currentPairs.filter((p) => adjudicated.has(pairKey(p))).length;
+      if (covered === 0 && expected > 0) {
         result.ok = false;
         errors.push(
-          `--semantic: VERIFY.json adjudicates 0 pair(s) but the answer has ${expected} verifiable claim↔citation pair(s) — the answer was not actually verified; re-run \`verify\` on a fresh worklist`,
+          `--semantic: none of the answer's ${expected} verifiable claim↔citation pair(s) match the adjudicated verdicts — the answer was not actually verified (stale or foreign VERIFY.json); re-run \`verify\` on a fresh worklist`,
         );
-      } else if (sem.pairs < expected) {
+      } else if (covered < expected) {
         warnings.push(
-          `--semantic: VERIFY.json covers ${sem.pairs} of ${expected} verifiable pair(s) — coverage may be stale or worklist-capped; re-run \`verify\` if the answer changed`,
+          `--semantic: VERIFY.json covers ${covered} of ${expected} verifiable pair(s) — coverage may be stale or worklist-capped; re-run \`verify\` if the answer changed`,
         );
       }
-      if (sem.unadjudicated?.length) warnings.push(`${sem.unadjudicated.length} claim(s) not fully adjudicated by verify`);
+      if (recomputed.unadjudicated.length) warnings.push(`${recomputed.unadjudicated.length} claim(s) not fully adjudicated by verify`);
     }
   }
   if (warnings.length) result.warnings = warnings;

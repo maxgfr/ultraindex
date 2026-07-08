@@ -131,7 +131,11 @@ to a local index). Citations inside code fences / inline code / markdown links
 don't count, so a decorative cite can't satisfy the gate. For high-assurance
 answers an optional **verify** gate goes further — `check --answer --semantic`
 folds adjudicated verdicts and fails a claim whose cited excerpt refutes it (or,
-once fully adjudicated, supports it nowhere), not merely that it resolves.
+once fully adjudicated, supports it nowhere), not merely that it resolves. The
+gate takes nothing on file at its word: the verdict is re-reduced from the raw
+`verdicts[]` on every check (a doctored summary can't pass), every adjudicated
+excerpt is re-read from the live repo and compared with the digest that was
+judged (content drift fails), and coverage is matched by identity, not count.
 
 ripgrep is used when present (faster); without it a built-in scanner is used.
 Without `git`, the manifest just omits the commit. Two builds of an unchanged repo
