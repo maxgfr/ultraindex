@@ -4,8 +4,69 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runBuild } from "../src/build.js";
-import { runSymbols } from "../src/symbols.js";
+import { runSymbols, lookupSymbols } from "../src/symbols.js";
 import { runImpact } from "../src/impact.js";
+import { SCHEMA_VERSION, VERSION } from "../src/types.js";
+import type { Graph, SymbolIndex } from "../src/types.js";
+
+// Build a synthetic symbol table for the ranking tests: each name maps to one
+// def site at the given file path (the rest of the site is filler).
+function symIndex(defs: Record<string, string>): SymbolIndex {
+  const out: SymbolIndex["defs"] = {};
+  for (const [name, file] of Object.entries(defs)) {
+    out[name] = [{ file, line: 1, kind: "function", exported: true, lang: "typescript" }];
+  }
+  return { schemaVersion: SCHEMA_VERSION, defs: out, refs: {} };
+}
+const EMPTY_GRAPH: Graph = {
+  schemaVersion: SCHEMA_VERSION, version: VERSION, fileCount: 0,
+  languages: {}, files: [], modules: [], fileEdges: [], moduleEdges: [],
+};
+const rank = (defs: Record<string, string>, query: string): string[] =>
+  lookupSymbols(symIndex(defs), EMPTY_GRAPH, query).hits.map((h) => h.name);
+
+describe("lookupSymbols scoring", () => {
+  it("orders exact-tier > prefix-tier > substring-tier", () => {
+    // No def is named exactly "parse", so the exact-name short-circuit is off
+    // and the tiered scorer runs. "Parse" matches the whole term exactly
+    // (case-folded), "parseConfig" by prefix, "xmlparser" by substring only.
+    const hits = rank(
+      { Parse: "src/a.ts", parseConfig: "src/b.ts", xmlparser: "src/c.ts" },
+      "parse",
+    );
+    expect(hits.indexOf("Parse")).toBeLessThan(hits.indexOf("parseConfig"));
+    expect(hits.indexOf("parseConfig")).toBeLessThan(hits.indexOf("xmlparser"));
+  });
+
+  it("ranks a rare name above a common one at the same tier (IDF)", () => {
+    // "zeta" occurs in one name (rare, high IDF); "node" in nine (common). Both
+    // matched names are a prefix hit, so only IDF separates them.
+    const defs: Record<string, string> = { zetaProcessor: "src/p.ts", nodeX: "src/n.ts" };
+    for (let i = 0; i < 8; i++) defs[`node${i}`] = `src/n${i}.ts`;
+    const hits = rank(defs, "zeta node");
+    expect(hits.indexOf("zetaProcessor")).toBeLessThan(hits.indexOf("nodeX"));
+  });
+
+  it("breaks ties by shorter name", () => {
+    const hits = rank({ renderAB: "src/r1.ts", renderA: "src/r0.ts" }, "render");
+    expect(hits.indexOf("renderA")).toBeLessThan(hits.indexOf("renderAB"));
+  });
+
+  it("does not credit coverage for a term found only in the def file path", () => {
+    // "widget backend": widgetBackend matches both terms in its NAME (2/2);
+    // widgetThing matches only "widget" in its name, with "backend" appearing
+    // solely in its def path (a source hit — a small bonus, no coverage);
+    // widgetX matches "widget" alone. The genuine 2/2 match leads; the source
+    // hit lifts widgetThing just above widgetX but never to full coverage.
+    const hits = rank(
+      { widgetBackend: "src/a/wb.ts", widgetThing: "src/backend/thing.ts", widgetX: "src/plain/x.ts" },
+      "widget backend",
+    );
+    expect(hits[0]).toBe("widgetBackend");
+    expect(hits.indexOf("widgetThing")).toBeLessThan(hits.indexOf("widgetX"));
+    expect(hits.indexOf("widgetBackend")).toBeLessThan(hits.indexOf("widgetThing"));
+  });
+});
 
 const REPO = fileURLToPath(new URL("./fixtures/mini-repo", import.meta.url));
 let OUT: string;

@@ -1,5 +1,26 @@
 import { describe, it, expect } from "vitest";
 import { splitIdentifier, stem, synonymGroup, queryTerms, buildHaystack, scoreHaystack } from "../src/lex.js";
+import { foldText, keywords } from "../src/util.js";
+
+describe("foldText (NFKD diacritic folding)", () => {
+  it("strips diacritics but leaves plain ASCII untouched", () => {
+    expect(foldText("café")).toBe("cafe");
+    expect(foldText("naïve résumé")).toBe("naive resume");
+    expect(foldText("getUserProfile")).toBe("getUserProfile");
+  });
+
+  it("folds both query and haystack so accented and plain forms agree", () => {
+    // Query accented, haystack plain — and the reverse — must both match.
+    expect(scoreHaystack(buildHaystack("cafe module"), queryTerms("café")).score).toBeGreaterThan(0);
+    expect(scoreHaystack(buildHaystack("café module"), queryTerms("cafe")).score).toBeGreaterThan(0);
+    // A folded term tokenizes whole ("cafe"), not truncated at the accent ("caf").
+    expect(keywords("café")).toEqual(["cafe"]);
+  });
+
+  it("does not alter plain-ASCII tokenization", () => {
+    expect(keywords("parse HTTP config")).toEqual(["parse", "HTTP", "config"]);
+  });
+});
 
 describe("splitIdentifier", () => {
   it("splits camelCase and PascalCase", () => {

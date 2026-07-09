@@ -1,4 +1,4 @@
-import { keywords } from "./util.js";
+import { foldText, keywords } from "./util.js";
 
 // Lexical matching primitives for `find`: identifier splitting, conservative
 // stemming, and a small code-domain synonym table. Everything here is pure and
@@ -124,10 +124,13 @@ function bump<K>(map: Map<K, number>, key: K): void {
 }
 
 export function buildHaystack(text: string): Haystack {
+  // Fold diacritics once at entry so every derived token set — and hay.raw for
+  // the substring fallback — is on the same footing as a folded query.
+  const folded = foldText(text);
   const counts = new Map<string, number>();
   const groups = new Map<number, number>();
   let length = 0;
-  for (const tok of text.split(/[^A-Za-z0-9_]+/)) {
+  for (const tok of folded.split(/[^A-Za-z0-9_]+/)) {
     if (!tok) continue;
     length++;
     const lower = tok.toLowerCase();
@@ -146,7 +149,7 @@ export function buildHaystack(text: string): Haystack {
       }
     }
   }
-  return { counts, groups, raw: text.toLowerCase(), length };
+  return { counts, groups, raw: folded.toLowerCase(), length };
 }
 
 // Score a haystack against the query terms. Per term, first match wins, tiered:

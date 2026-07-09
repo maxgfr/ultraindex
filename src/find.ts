@@ -1,9 +1,9 @@
-import { join } from "node:path";
+import { join, basename, extname } from "node:path";
 import type { FileNode, FindResult, Graph, ModuleNode } from "./types.js";
 import { loadGraph, indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
 import { humanBodies, isEnrichedBody } from "./merge.js";
-import { buildHaystack, queryTerms, scoreHaystack } from "./lex.js";
+import { buildHaystack, queryTerms, scoreHaystack, splitIdentifier } from "./lex.js";
 import { rrf } from "./util.js";
 import { byStr } from "./sort.js";
 import { loadVectors } from "./vectors.js";
@@ -93,6 +93,11 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: 
     idf.set(t.raw, Math.min(2, Math.max(0.5, 1 + Math.log((N + 1) / (d + 1)))));
   }
 
+  // Full-query tier, computed once: the whole query joined into one string, and
+  // the largest IDF among its terms (the bonus scales with the query's rarity).
+  const joined = terms.map((t) => t.exact).join(" ");
+  const maxIdf = Math.max(1, ...terms.map((t) => idf.get(t.raw) ?? 1));
+
   const scored: { r: FindResult; degree: number }[] = [];
   for (const m of graph.modules) {
     const members = filesByModule.get(m.slug) ?? [];
@@ -125,9 +130,11 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: 
     if (mod.score === 0 && bestFile === 0 && pro.score === 0) continue;
 
     const matchedTerms = new Set([...mod.matched, ...pro.matched, ...scoredFiles.flatMap((x) => x.matched)]);
-    // Coverage: reward matching MORE of the distinct query terms, so a 2/2 match
-    // outranks a 1/2 match on the same token.
-    const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / terms.length);
+    // Coverage: reward matching MORE of the distinct query terms. Squared so a
+    // 1-of-5 collision on a single term can't ride a high tier past a 3-of-5
+    // match; the 0.4 floor is kept because ultraindex's blended score must not
+    // zero out partial matches.
+    const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / terms.length) ** 2;
     // Tail (tests/docs/examples) down-weighted so implementation outranks tests.
     const tierWeight = m.tier === 2 ? 0.45 : 1;
     // A test/demo/sandbox dir mid-path (e.g. app/api/test-sentry-error) is not a
@@ -138,7 +145,26 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: 
     const leaf = m.path.split("/").pop() ?? "";
     const genericPenalty = /^(stores?|components?|types?|utils?|hooks?|constants?|helpers?|styles?|assets?|queries|state)$/i.test(leaf) ? 0.8 : 1;
 
-    const keywordScore = mod.score * 2 + pro.score * PROSE_WEIGHT + bestFile + Math.min(matchCount, 5) * 0.5;
+    // Full-query bonus: does the WHOLE query match a token-normalized module
+    // label — its slug, its path, or a member's basename (extension dropped)?
+    // Exact equality is worth more than a shared prefix; take the max, one
+    // bonus per module.
+    const labels = [
+      splitIdentifier(m.slug).join(" "),
+      splitIdentifier(m.path).join(" "),
+      ...members.map((f) => splitIdentifier(basename(f.rel, extname(f.rel))).join(" ")),
+    ];
+    const fullQuery = labels.some((l) => l === joined)
+      ? 10 * maxIdf
+      : labels.some((l) => l.startsWith(joined))
+        ? 4 * maxIdf
+        : 0;
+
+    // Deliberate deviation from graphify: the full-query bonus is folded INTO
+    // keywordScore rather than added after the penalties, so the tier/path/
+    // generic and coverage factors below still apply — ultraindex wants a
+    // test-dir module demoted even when its name is an exact query hit.
+    const keywordScore = mod.score * 2 + pro.score * PROSE_WEIGHT + bestFile + Math.min(matchCount, 5) * 0.5 + fullQuery;
     const total = keywordScore * tierWeight * pathPenalty * genericPenalty * coverageWeight + Math.min(m.degIn + m.degOut, 5) * 0.25;
 
     const matched = [...matchedTerms].sort(byStr);

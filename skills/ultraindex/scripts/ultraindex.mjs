@@ -327,10 +327,13 @@ var STOPWORDS = /* @__PURE__ */ new Set([
   "my",
   "our"
 ]);
+function foldText(s) {
+  return s.normalize("NFKD").replace(/[̀-ͯ]/g, "");
+}
 function keywords(question) {
   const seen = /* @__PURE__ */ new Set();
   const out2 = [];
-  for (const raw of question.split(/[^A-Za-z0-9_]+/)) {
+  for (const raw of foldText(question).split(/[^A-Za-z0-9_]+/)) {
     if (!raw) continue;
     const lower = raw.toLowerCase();
     if (raw.length < 2) continue;
@@ -948,7 +951,7 @@ import { readFileSync as readFileSync2, existsSync } from "fs";
 import { dirname, join as join2 } from "path";
 import { fileURLToPath } from "url";
 
-// node_modules/.pnpm/web-tree-sitter@0.26.10/node_modules/web-tree-sitter/web-tree-sitter.js
+// ../../../../../../../Users/maxime/Downloads/ultraindex/node_modules/.pnpm/web-tree-sitter@0.26.10/node_modules/web-tree-sitter/web-tree-sitter.js
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 var Edit = class {
@@ -7171,7 +7174,7 @@ function runBuild(opts, builtAt) {
 }
 
 // src/find.ts
-import { join as join8 } from "path";
+import { join as join8, basename as basename3, extname as extname2 } from "path";
 
 // src/lex.ts
 function splitIdentifier(token) {
@@ -7248,10 +7251,11 @@ function bump(map, key) {
   map.set(key, (map.get(key) ?? 0) + 1);
 }
 function buildHaystack(text) {
+  const folded = foldText(text);
   const counts = /* @__PURE__ */ new Map();
   const groups = /* @__PURE__ */ new Map();
   let length = 0;
-  for (const tok of text.split(/[^A-Za-z0-9_]+/)) {
+  for (const tok of folded.split(/[^A-Za-z0-9_]+/)) {
     if (!tok) continue;
     length++;
     const lower = tok.toLowerCase();
@@ -7270,7 +7274,7 @@ function buildHaystack(text) {
       }
     }
   }
-  return { counts, groups, raw: text.toLowerCase(), length };
+  return { counts, groups, raw: folded.toLowerCase(), length };
 }
 function scoreHaystack(hay, terms, saturate = false, idf) {
   let score = 0;
@@ -7544,6 +7548,8 @@ function findModules(graph, query, k = DEFAULT_K, prose) {
     const d = df.get(t.raw) ?? 0;
     idf.set(t.raw, Math.min(2, Math.max(0.5, 1 + Math.log((N + 1) / (d + 1)))));
   }
+  const joined = terms.map((t) => t.exact).join(" ");
+  const maxIdf = Math.max(1, ...terms.map((t) => idf.get(t.raw) ?? 1));
   const scored = [];
   for (const m of graph.modules) {
     const members = filesByModule.get(m.slug) ?? [];
@@ -7561,12 +7567,18 @@ function findModules(graph, query, k = DEFAULT_K, prose) {
     const matchCount = scoredFiles.filter((x) => x.score > 0).length;
     if (mod.score === 0 && bestFile === 0 && pro.score === 0) continue;
     const matchedTerms = /* @__PURE__ */ new Set([...mod.matched, ...pro.matched, ...scoredFiles.flatMap((x) => x.matched)]);
-    const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / terms.length);
+    const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / terms.length) ** 2;
     const tierWeight = m.tier === 2 ? 0.45 : 1;
     const pathPenalty = /(^|\/|-|_)(tests?|demo|examples?|sandbox|stub|mock|fixtures?)(\/|-|_|$)/i.test(m.path) ? 0.55 : 1;
     const leaf = m.path.split("/").pop() ?? "";
     const genericPenalty = /^(stores?|components?|types?|utils?|hooks?|constants?|helpers?|styles?|assets?|queries|state)$/i.test(leaf) ? 0.8 : 1;
-    const keywordScore = mod.score * 2 + pro.score * PROSE_WEIGHT + bestFile + Math.min(matchCount, 5) * 0.5;
+    const labels = [
+      splitIdentifier(m.slug).join(" "),
+      splitIdentifier(m.path).join(" "),
+      ...members.map((f) => splitIdentifier(basename3(f.rel, extname2(f.rel))).join(" "))
+    ];
+    const fullQuery = labels.some((l) => l === joined) ? 10 * maxIdf : labels.some((l) => l.startsWith(joined)) ? 4 * maxIdf : 0;
+    const keywordScore = mod.score * 2 + pro.score * PROSE_WEIGHT + bestFile + Math.min(matchCount, 5) * 0.5 + fullQuery;
     const total = keywordScore * tierWeight * pathPenalty * genericPenalty * coverageWeight + Math.min(m.degIn + m.degOut, 5) * 0.25;
     const matched = [...matchedTerms].sort(byStr);
     let files = scoredFiles.filter((x) => x.score > 0).map((x) => x.f.rel);
@@ -7701,22 +7713,58 @@ function runNeighbors(outDir, target, depth = 1) {
 
 // src/symbols.ts
 var MAX_HITS = 20;
+var EXACT = 1e3;
+var PREFIX = 100;
+var SUBSTRING = 1;
+var SOURCE = 0.5;
 function lookupSymbols(index, graph, query) {
   const moduleOf = new Map(graph.files.map((f) => [f.rel, f.module]));
   const names = Object.keys(index.defs);
-  const q = query.toLowerCase();
   let matches;
   if (index.defs[query]) {
     matches = [query];
   } else {
-    const qParts = new Set(splitIdentifier(query).map((p) => p.toLowerCase()));
-    matches = names.filter((n) => {
-      const lower = n.toLowerCase();
-      if (lower.includes(q)) return true;
-      const parts2 = new Set(splitIdentifier(n).map((p) => p.toLowerCase()));
-      for (const p of qParts) if (parts2.has(p)) return true;
-      return false;
-    }).sort((a, b) => Number(b === query) - Number(a === query) || a.length - b.length || byStr(a, b)).slice(0, MAX_HITS);
+    let terms = keywords(query).map((t) => t.toLowerCase());
+    if (terms.length === 0) terms = [foldText(query).toLowerCase()];
+    const normLabels = names.map((n) => foldText(n).toLowerCase());
+    const labelTokens = names.map((n) => splitIdentifier(n).join(" ").toLowerCase());
+    const sourcePaths = names.map((n) => (index.defs[n] ?? []).map((d) => d.file.toLowerCase()));
+    const N = names.length;
+    const idf = /* @__PURE__ */ new Map();
+    for (const t of terms) {
+      const dfT = normLabels.reduce((c2, l) => c2 + (l.includes(t) ? 1 : 0), 0);
+      idf.set(t, Math.log(1 + N / (1 + dfT)));
+    }
+    const joined = terms.join(" ");
+    const maxIdf = Math.max(...terms.map((t) => idf.get(t) ?? 0)) || 1;
+    const scored = [];
+    for (let i2 = 0; i2 < names.length; i2++) {
+      const normLabel = normLabels[i2];
+      const label = labelTokens[i2];
+      const paths = sourcePaths[i2];
+      let score = 0;
+      let tiered = 0;
+      let matched = 0;
+      if (joined === normLabel || joined === label) score += EXACT * 10 * maxIdf;
+      else if (normLabel.startsWith(joined) || label.startsWith(joined)) score += PREFIX * 10 * maxIdf;
+      for (const t of terms) {
+        const w = idf.get(t) ?? 0;
+        if (t === normLabel) {
+          tiered += EXACT * w;
+          matched++;
+        } else if (normLabel.startsWith(t) || label.startsWith(t)) {
+          tiered += PREFIX * w;
+          matched++;
+        } else if (normLabel.includes(t)) {
+          score += SUBSTRING * w;
+          matched++;
+        }
+        if (paths.some((p) => p.includes(t))) score += SOURCE * w;
+      }
+      score += tiered * (matched / terms.length) ** 2;
+      if (score > 0) scored.push({ name: names[i2], score });
+    }
+    matches = scored.sort((a, b) => b.score - a.score || a.name.length - b.name.length || byStr(a.name, b.name)).slice(0, MAX_HITS).map((x) => x.name);
   }
   const hits = matches.map((name2) => ({
     name: name2,
@@ -8374,7 +8422,7 @@ function checkAnswer(outDir, answerPath, opts = {}) {
 }
 
 // src/evidence.ts
-import { join as join13, extname as extname2 } from "path";
+import { join as join13, extname as extname3 } from "path";
 var HEAD_LINES = 120;
 var MAX_SYMS = 25;
 var ASK_FILE_CAP = 20;
@@ -8384,7 +8432,7 @@ function gatherEvidence(repo, rels, headLines = HEAD_LINES) {
     const content = readText(join13(repo, rel));
     if (!content) continue;
     const lines = content.split(/\r?\n/);
-    const code = extractCode(rel, extname2(rel).toLowerCase(), content);
+    const code = extractCode(rel, extname3(rel).toLowerCase(), content);
     const exported = code.symbols.filter((s) => s.exported).slice(0, MAX_SYMS).map((s) => ({ kind: s.kind, name: s.name, line: s.line, signature: s.signature }));
     out2.push({
       rel,
@@ -8397,7 +8445,7 @@ function gatherEvidence(repo, rels, headLines = HEAD_LINES) {
   return out2;
 }
 function fence(rel) {
-  const lang = extToLang(extname2(rel).toLowerCase());
+  const lang = extToLang(extname3(rel).toLowerCase());
   const map = { typescript: "ts", javascript: "js", python: "py", markdown: "md" };
   return map[lang] ?? (lang === "other" ? "" : lang);
 }

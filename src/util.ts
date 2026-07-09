@@ -104,10 +104,17 @@ const STOPWORDS = new Set([
   "happen","happens","default","value","values","please","explain","tell","me","my","our",
 ]);
 
+// Fold diacritics to their base letters (NFKD decomposition, then drop the
+// combining marks in the U+0300–U+036F block) so "café" and "cafe" tokenize
+// alike. Query and haystack must both pass through this so the two sides agree.
+export function foldText(s: string): string {
+  return s.normalize("NFKD").replace(/[̀-ͯ]/g, "");
+}
+
 export function keywords(question: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const raw of question.split(/[^A-Za-z0-9_]+/)) {
+  for (const raw of foldText(question).split(/[^A-Za-z0-9_]+/)) {
     if (!raw) continue;
     const lower = raw.toLowerCase();
     // Keep identifiers as-is (camelCase/snake_case often carry the real signal),
