@@ -70,6 +70,18 @@ describe("resolveCallEdges", () => {
     expect(resolveCallEdges(scan, new Set(["src/a.ts|pkg/b.py"]))).toEqual([]);
   });
 
+  it("binds a call across the ts↔js boundary — both fold to family js", () => {
+    // Positive counterpart to the cross-family negative above: a .ts caller
+    // importing + calling a function exported from a .js file resolves, because
+    // familyOf collapses typescript/javascript to one "js" family.
+    const scan = scanOf([
+      file("src/a.ts", { calls: [{ name: "foo", line: 3 }], importedNames: ["foo"] }),
+      file("src/b.js", { lang: "javascript", ext: ".js", symbols: [sym("foo", "src/b.js", { lang: "javascript" })] }),
+    ]);
+    const edges = resolveCallEdges(scan, new Set(["src/a.ts|src/b.js"]));
+    expect(edges).toEqual([{ from: "src/a.ts", to: "src/b.js", kind: "call", weight: 1, confidence: "extracted" }]);
+  });
+
   it("skips an ambiguous name when candidates are equally distant (no import evidence)", () => {
     const scan = scanOf([
       file("x/a.py", { lang: "python", ext: ".py", calls: [{ name: "foo", line: 1 }] }),
@@ -105,6 +117,31 @@ describe("resolveCallEdges", () => {
     ]);
     const edges = resolveCallEdges(scan, new Set(["src/a.ts|src/b.ts"]));
     expect(edges[0]!.weight).toBe(5);
+  });
+
+  it("merges two distinct call names to one target: sums their counts and keeps extracted", () => {
+    // A single python caller resolves TWO distinct names (foo×2, bar×3) to the
+    // SAME target file, exercising the cross-name aggregation branch: prev.weight
+    // sums to 5 (2+3, not 2 and not 3 — a lost sum would show one count) and the
+    // extracted confidence is kept. NOTE: an inferred→extracted upgrade to the
+    // SAME target from the SAME file is not constructible, because import evidence
+    // is keyed on the file pair (from|to), so both names see the identical pair
+    // and therefore share one confidence. This is the minimal shape that reaches
+    // both the merge (prev.confidence = "extracted") and the count-summation lines.
+    const scan = scanOf([
+      file("pkg/a.py", {
+        lang: "python",
+        ext: ".py",
+        calls: [{ name: "foo", line: 1 }, { name: "foo", line: 2 }, { name: "bar", line: 3 }, { name: "bar", line: 4 }, { name: "bar", line: 5 }],
+      }),
+      file("pkg/b.py", {
+        lang: "python",
+        ext: ".py",
+        symbols: [sym("foo", "pkg/b.py", { lang: "python" }), sym("bar", "pkg/b.py", { lang: "python" })],
+      }),
+    ]);
+    const edges = resolveCallEdges(scan, new Set(["pkg/a.py|pkg/b.py"]));
+    expect(edges).toEqual([{ from: "pkg/a.py", to: "pkg/b.py", kind: "call", weight: 5, confidence: "extracted" }]);
   });
 
   it("keeps the strongest confidence and sorts the emitted edges", () => {

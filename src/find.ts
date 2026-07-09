@@ -296,6 +296,9 @@ export function expandResults(
   fullScored: { r: FindResult; degree: number }[],
   seeds: string[],
   k: number,
+  // Slugs whose entry carries enriched prose, so a BFS-discovered bare row reports
+  // its real enriched state instead of a hardcoded false. Absent ⇒ none enriched.
+  enrichedSlugs?: Set<string>,
 ): FindResult[] {
   const cap = k + 4;
   const out: FindResult[] = [...top];
@@ -371,7 +374,7 @@ export function expandResults(
     if (present.has(slug)) continue;
     const m = moduleBySlug.get(slug);
     if (!m) continue;
-    out.push({ ...bareRow(graph, m, filesByModule.get(slug) ?? [], false), via: "graph" });
+    out.push({ ...bareRow(graph, m, filesByModule.get(slug) ?? [], enrichedSlugs?.has(slug) ?? false), via: "graph" });
     present.add(slug);
   }
   return out.slice(0, cap);
@@ -391,7 +394,7 @@ export function runFind(outDir: string, query: string, k = DEFAULT_K): FindResul
   const prose = loadEnrichedProse(outDir, graph);
   const full = scoreModules(graph, query, prose, loadSymbolNames(outDir));
   const top = full.slice(0, k).map((x) => x.r);
-  return expandResults(graph, top, full, pickSeeds(full, queryTerms(query)), k);
+  return expandResults(graph, top, full, pickSeeds(full, queryTerms(query)), k, new Set(prose.keys()));
 }
 
 // A result row for a module that surfaced semantically but never matched a
@@ -438,7 +441,7 @@ export async function runFindHybrid(outDir: string, query: string, k = DEFAULT_K
   // applied to whatever ranked list is ultimately returned — the fused list when
   // semantic ran, else the lexical one it degrades to.
   const seeds = pickSeeds(full, queryTerms(query));
-  const expand = (topRows: FindResult[]): FindResult[] => expandResults(graph, topRows, full, seeds, k);
+  const expand = (topRows: FindResult[]): FindResult[] => expandResults(graph, topRows, full, seeds, k, new Set(prose.keys()));
 
   const store = loadVectors(outDir);
   if (!store) return { results: expand(lexical.slice(0, k)), semantic: false };

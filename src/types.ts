@@ -6,8 +6,10 @@ export const VERSION = "4.0.0";
 // Bumped whenever the on-disk artifact shape changes, so `check`/nav can reject
 // an index written by an incompatible engine instead of misreading it. v2 adds
 // symbols.json, the `use` edge kind, per-symbol parent/endLine, and the
-// extraction cache; v3 adds the `call` edge kind and `Edge.confidence`. An index
-// written by an incompatible engine can't be read, so `check` asks for a rebuild.
+// extraction cache; v3 adds the `call` edge kind, `Edge.confidence`,
+// `ModuleNode.community` (graph.json), and `Manifest.communities` (manifest.json)
+// — the community fields are additive/optional, so they share the same bump. An
+// index written by an incompatible engine can't be read, so `check` asks for a rebuild.
 export const SCHEMA_VERSION = 3;
 
 // Identifies the extraction engine's output shape independently of the artifact

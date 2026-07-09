@@ -126,7 +126,13 @@ function pushEvidence(lines: string[], evidence: EvidenceFile[], budget?: number
     const room = charBudget - used;
     const nl = room > 0 ? block.lastIndexOf("\n", room) : -1;
     if (nl > 0) {
-      lines.push("", block.slice(0, nl));
+      const kept = block.slice(0, nl);
+      lines.push("", kept);
+      // A mid-content trim severs the source block's ``` fence open; close it so
+      // the truncation notice below renders as prose, not swallowed into the code
+      // block. Only when the kept prefix has an odd fence count (an actually
+      // unclosed fence) — a trim landing before the opening fence needs none.
+      if ((kept.match(/```/g)?.length ?? 0) % 2 === 1) lines.push("```");
       trimmedShown = true;
     }
     break;

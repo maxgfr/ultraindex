@@ -8160,7 +8160,7 @@ function hubThreshold(degrees) {
   const p99 = n === 0 ? 0 : sorted[Math.min(n - 1, Math.floor(0.99 * n))];
   return Math.max(HUB_FLOOR, p99);
 }
-function expandResults(graph, top, fullScored, seeds, k) {
+function expandResults(graph, top, fullScored, seeds, k, enrichedSlugs) {
   const cap = k + 4;
   const out2 = [...top];
   const present = new Set(out2.map((r) => r.slug));
@@ -8221,7 +8221,7 @@ function expandResults(graph, top, fullScored, seeds, k) {
     if (present.has(slug)) continue;
     const m = moduleBySlug.get(slug);
     if (!m) continue;
-    out2.push({ ...bareRow(graph, m, filesByModule.get(slug) ?? [], false), via: "graph" });
+    out2.push({ ...bareRow(graph, m, filesByModule.get(slug) ?? [], enrichedSlugs?.has(slug) ?? false), via: "graph" });
     present.add(slug);
   }
   return out2.slice(0, cap);
@@ -8252,7 +8252,7 @@ async function runFindHybrid(outDir, query, k = DEFAULT_K) {
   const full = scoreModules(graph, query, prose, loadSymbolNames(outDir));
   const lexical = full.slice(0, pool).map((x) => x.r);
   const seeds = pickSeeds(full, queryTerms(query));
-  const expand = (topRows) => expandResults(graph, topRows, full, seeds, k);
+  const expand = (topRows) => expandResults(graph, topRows, full, seeds, k, new Set(prose.keys()));
   const store = loadVectors(outDir);
   if (!store) return { results: expand(lexical.slice(0, k)), semantic: false };
   const lexOnly = (warning) => ({ results: expand(lexical.slice(0, k)), semantic: false, warning });
@@ -9071,7 +9071,9 @@ function pushEvidence(lines, evidence, budget) {
     const room = charBudget - used;
     const nl = room > 0 ? block.lastIndexOf("\n", room) : -1;
     if (nl > 0) {
-      lines.push("", block.slice(0, nl));
+      const kept = block.slice(0, nl);
+      lines.push("", kept);
+      if ((kept.match(/```/g)?.length ?? 0) % 2 === 1) lines.push("```");
       trimmedShown = true;
     }
     break;
