@@ -8,8 +8,8 @@ import { realpathSync as realpathSync2 } from "fs";
 
 // src/types.ts
 var VERSION = "4.0.0";
-var SCHEMA_VERSION = 2;
-var EXTRACTOR_VERSION = 2;
+var SCHEMA_VERSION = 3;
+var EXTRACTOR_VERSION = 3;
 
 // src/build.ts
 import { basename as basename2, relative as relative2, isAbsolute } from "path";
@@ -5008,6 +5008,8 @@ function parserFor(key) {
 
 // src/ast/extract.ts
 var MAX_REF_IDENTS = 256;
+var MAX_CALLS = 512;
+var MAX_IMPORTED_NAMES = 256;
 function collectRefIdents(root, defNames) {
   const found = /* @__PURE__ */ new Set();
   const visit = (node) => {
@@ -5041,7 +5043,8 @@ var TS_SPEC = {
   containers: /* @__PURE__ */ new Set(["class_body", "export_statement", "program", "lexical_declaration", "variable_declaration"]),
   exported: neverExport,
   // export is tracked structurally via export_statement; see walk
-  imports: { import_statement: "string" }
+  imports: { import_statement: "string" },
+  calls: { call_expression: "function", new_expression: "constructor" }
 };
 var SPECS = {
   typescript: TS_SPEC,
@@ -5062,7 +5065,8 @@ var SPECS = {
     defs: { function_definition: "function", class_definition: "class" },
     containers: /* @__PURE__ */ new Set(["block", "decorated_definition", "module"]),
     exported: byPyConvention,
-    imports: { import_statement: "path", import_from_statement: "path" }
+    imports: { import_statement: "path", import_from_statement: "path" },
+    calls: { call: "function" }
   },
   go: {
     lang: "go",
@@ -5075,13 +5079,17 @@ var SPECS = {
     },
     containers: /* @__PURE__ */ new Set(["type_declaration", "const_declaration", "var_declaration", "source_file"]),
     exported: byCapital,
-    imports: { import_declaration: "string" }
+    imports: { import_declaration: "string" },
+    calls: { call_expression: "function" }
   },
   ruby: {
     lang: "ruby",
     defs: { method: "def", singleton_method: "def", class: "class", module: "module" },
     containers: /* @__PURE__ */ new Set(["class", "module", "body_statement", "program"]),
-    exported: always
+    exported: always,
+    // Ruby models every invocation — dotted, parenthesized, or bare command form
+    // (`puts "x"`) — as a `call` node whose callee is the `method` field.
+    calls: { call: "function" }
   },
   java: {
     lang: "java",
@@ -5095,7 +5103,8 @@ var SPECS = {
     },
     containers: /* @__PURE__ */ new Set(["class_body", "interface_body", "enum_body", "program"]),
     exported: byPublicKeyword,
-    imports: { import_declaration: "path" }
+    imports: { import_declaration: "path" },
+    calls: { method_invocation: "function", object_creation_expression: "constructor" }
   },
   rust: {
     lang: "rust",
@@ -5112,7 +5121,8 @@ var SPECS = {
       macro_definition: "macro"
     },
     containers: /* @__PURE__ */ new Set(["impl_item", "declaration_list", "source_file"]),
-    exported: byPub
+    exported: byPub,
+    calls: { call_expression: "function" }
   },
   c_sharp: {
     lang: "csharp",
@@ -5127,7 +5137,8 @@ var SPECS = {
       property_declaration: "property"
     },
     containers: /* @__PURE__ */ new Set(["namespace_declaration", "declaration_list", "compilation_unit", "file_scoped_namespace_declaration"]),
-    exported: byPublicKeyword
+    exported: byPublicKeyword,
+    calls: { invocation_expression: "function", object_creation_expression: "constructor" }
   },
   php: {
     lang: "php",
@@ -5140,7 +5151,8 @@ var SPECS = {
       method_declaration: "method"
     },
     containers: /* @__PURE__ */ new Set(["declaration_list", "program"]),
-    exported: always
+    exported: always,
+    calls: { function_call_expression: "function", member_call_expression: "member", object_creation_expression: "constructor" }
   }
 };
 function firstLine(node) {
@@ -5189,6 +5201,72 @@ function findFirst(node, pred) {
     if (deep) return deep;
   }
   return void 0;
+}
+var IDENT_LEAF = /(^|_)(identifier|name|constant)$/;
+function readName(node) {
+  if (!node) return void 0;
+  if (node.namedChildCount === 0) return IDENT_LEAF.test(node.type) ? node.text : void 0;
+  const seg = node.childForFieldName("name") ?? node.childForFieldName("property") ?? node.childForFieldName("attribute") ?? node.childForFieldName("field");
+  if (seg) return readName(seg);
+  const last = node.namedChild(node.namedChildCount - 1);
+  return last && last !== node ? readName(last) : void 0;
+}
+function collectCalls(root, spec) {
+  if (!spec.calls) return [];
+  const out2 = [];
+  const seen = /* @__PURE__ */ new Set();
+  const add = (name2, node) => {
+    if (!name2 || name2.length < 2 || !/^[A-Za-z_]\w*$/.test(name2)) return;
+    const line = node.startPosition.row + 1;
+    const key = `${name2} ${line}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out2.push({ name: name2, line });
+  };
+  const visit = (node) => {
+    const how = spec.calls[node.type];
+    if (how === "function") {
+      add(readName(node.childForFieldName("function") ?? node.childForFieldName("callee") ?? node.childForFieldName("method") ?? node.childForFieldName("name")), node);
+    } else if (how === "member") {
+      add(readName(node.childForFieldName("name")), node);
+    } else if (how === "constructor") {
+      let t = node.childForFieldName("constructor") ?? node.childForFieldName("type") ?? node.childForFieldName("name");
+      for (let i2 = 0; !t && i2 < node.namedChildCount; i2++) {
+        const c2 = node.namedChild(i2);
+        if (IDENT_LEAF.test(c2.type)) t = c2;
+      }
+      add(readName(t), node);
+    }
+    for (let i2 = 0; i2 < node.namedChildCount; i2++) visit(node.namedChild(i2));
+  };
+  visit(root);
+  out2.sort((a, b) => byStr(a.name, b.name) || a.line - b.line);
+  return out2.slice(0, MAX_CALLS);
+}
+function collectImportedNames(root, spec) {
+  if (!spec.imports?.import_statement) return [];
+  const found = /* @__PURE__ */ new Set();
+  const visit = (node) => {
+    if (node.type === "import_statement") {
+      for (let i2 = 0; i2 < node.namedChildCount; i2++) {
+        const clause = node.namedChild(i2);
+        if (clause.type !== "import_clause") continue;
+        for (let j = 0; j < clause.namedChildCount; j++) {
+          const named = clause.namedChild(j);
+          if (named.type !== "named_imports") continue;
+          for (let k = 0; k < named.namedChildCount; k++) {
+            const specifier = named.namedChild(k);
+            if (specifier.type !== "import_specifier") continue;
+            const nm = specifier.childForFieldName("name") ?? specifier.namedChild(0);
+            if (nm?.text) found.add(nm.text);
+          }
+        }
+      }
+    }
+    for (let i2 = 0; i2 < node.namedChildCount; i2++) visit(node.namedChild(i2));
+  };
+  visit(root);
+  return [...found].sort(byStr).slice(0, MAX_IMPORTED_NAMES);
 }
 function extractAst(rel, ext, content) {
   const key = grammarKeyForExt(ext);
@@ -5256,12 +5334,14 @@ function extractAst(rel, ext, content) {
     }
     const refs = collectImports(root, spec);
     const idents = collectRefIdents(root, new Set(symbols.map((s) => s.name)));
+    const calls = collectCalls(root, spec);
+    const importedNames = collectImportedNames(root, spec);
     let pkg;
     if (spec.lang === "java") {
       const p = findFirst(root, (n) => n.type === "package_declaration");
       if (p) pkg = p.text.replace(/^package\s+/, "").replace(/;.*$/, "").trim();
     }
-    return { symbols, refs, pkg, idents };
+    return { symbols, refs, pkg, idents, calls, importedNames };
   } catch {
     return void 0;
   } finally {
@@ -5508,7 +5588,9 @@ function extractCode(rel, ext, content) {
     // pkg anchors namespace→source-root resolution: Java's `package`, C#'s
     // `namespace` (block or file-scoped). Both feed the same resolver pattern.
     pkg: ext === ".java" ? /^\s*package\s+([\w.]+)\s*;/m.exec(content)?.[1] : ext === ".cs" ? /^\s*(?:file-scoped\s+)?namespace\s+([\w.]+)/m.exec(content)?.[1] : void 0,
-    idents: ast?.idents
+    idents: ast?.idents,
+    calls: ast?.calls,
+    importedNames: ast?.importedNames
   };
 }
 
@@ -5571,6 +5653,8 @@ function scanRepo(root, opts = {}) {
         record.refs = code.refs;
         record.pkg = code.pkg;
         record.idents = code.idents;
+        record.calls = code.calls;
+        record.importedNames = code.importedNames;
       } else {
         record.title = basename(f.rel);
       }
@@ -6317,17 +6401,102 @@ function buildModules(scan2) {
 
 // src/graph.ts
 import { join as join4 } from "path";
+
+// src/calls.ts
+var REFERENCE_KINDS = /* @__PURE__ */ new Set(["reexport", "reexport-all", "default"]);
+function familyOf(lang) {
+  return lang === "typescript" || lang === "javascript" ? "js" : lang;
+}
+function sharedSegments(a, b) {
+  const as = a.split("/");
+  const bs = b.split("/");
+  let n = 0;
+  while (n < as.length && n < bs.length && as[n] === bs[n]) n++;
+  return n;
+}
+function pick(callerRel, cands) {
+  if (cands.length === 1) return cands[0];
+  if (cands.length === 0) return void 0;
+  let best;
+  let bestScore = -1;
+  let tied = false;
+  for (const c2 of cands) {
+    const s = sharedSegments(callerRel, c2.file);
+    if (s > bestScore) {
+      bestScore = s;
+      best = c2;
+      tied = false;
+    } else if (s === bestScore) {
+      tied = true;
+    }
+  }
+  return tied ? void 0 : best;
+}
+function resolveCallEdges(scan2, importPairs) {
+  const defs = /* @__PURE__ */ new Map();
+  const seen = /* @__PURE__ */ new Set();
+  for (const f of scan2.files) {
+    for (const s of f.symbols) {
+      if (!s.exported || REFERENCE_KINDS.has(s.kind)) continue;
+      const dedup = `${s.name} ${s.file}`;
+      if (seen.has(dedup)) continue;
+      seen.add(dedup);
+      let arr = defs.get(s.name);
+      if (!arr) defs.set(s.name, arr = []);
+      arr.push({ file: s.file, lang: s.lang });
+    }
+  }
+  const agg = /* @__PURE__ */ new Map();
+  for (const f of scan2.files) {
+    if (!f.calls?.length) continue;
+    const family = familyOf(f.lang);
+    const ownNames = new Set(f.symbols.map((s) => s.name));
+    const counts = /* @__PURE__ */ new Map();
+    for (const c2 of f.calls) counts.set(c2.name, (counts.get(c2.name) ?? 0) + 1);
+    for (const [name2, count] of counts) {
+      if (ownNames.has(name2)) continue;
+      const cands = (defs.get(name2) ?? []).filter((d) => familyOf(d.lang) === family && d.file !== f.rel);
+      if (!cands.length) continue;
+      const imported = cands.filter((d) => importPairs.has(`${f.rel}|${d.file}`));
+      let chosen;
+      let confidence;
+      if (family === "js") {
+        if (!imported.length) continue;
+        chosen = pick(f.rel, imported);
+        confidence = "extracted";
+      } else if (imported.length) {
+        chosen = pick(f.rel, imported);
+        confidence = "extracted";
+      } else {
+        chosen = pick(f.rel, cands);
+        confidence = "inferred";
+      }
+      if (!chosen) continue;
+      const key = `${f.rel}|${chosen.file}`;
+      const prev = agg.get(key);
+      if (prev) {
+        prev.weight += count;
+        if (confidence === "extracted") prev.confidence = "extracted";
+      } else {
+        agg.set(key, { from: f.rel, to: chosen.file, weight: count, confidence });
+      }
+    }
+  }
+  return [...agg.values()].map((e) => ({ from: e.from, to: e.to, kind: "call", weight: Math.min(e.weight, 5), confidence: e.confidence })).sort((a, b) => byStr(a.from, b.from) || byStr(a.to, b.to));
+}
+
+// src/graph.ts
 function isDistinctive(name2) {
   if (name2.length < 5) return false;
   const internalUpper = /[a-z][A-Z]/.test(name2) || /[A-Z]{2}/.test(name2);
   return internalUpper || name2.includes("_") || /\d/.test(name2);
 }
-var REFERENCE_KINDS = /* @__PURE__ */ new Set(["reexport", "reexport-all", "default"]);
+var REFERENCE_KINDS2 = /* @__PURE__ */ new Set(["reexport", "reexport-all", "default"]);
 function uniqueSymbolDefs(scan2) {
   const byName = /* @__PURE__ */ new Map();
   for (const f of scan2.files) {
     for (const s of f.symbols) {
-      if (!s.exported || REFERENCE_KINDS.has(s.kind) || !isDistinctive(s.name)) continue;
+      if (!s.exported || REFERENCE_KINDS2.has(s.kind) || !isDistinctive(s.name)) continue;
       let set = byName.get(s.name);
       if (!set) byName.set(s.name, set = /* @__PURE__ */ new Set());
       set.add(f.rel);
@@ -6372,6 +6541,11 @@ function buildGraph(scan2, ctx, modules, moduleOf) {
       }
     }
   }
+  const callPairs = /* @__PURE__ */ new Set();
+  for (const e of resolveCallEdges(scan2, importPairs)) {
+    collect(fileEdgeMap, e);
+    callPairs.add(`${e.from}|${e.to}`);
+  }
   const unique = uniqueSymbolDefs(scan2);
   if (unique.size) {
     for (const f of scan2.files) {
@@ -6383,7 +6557,8 @@ function buildGraph(scan2, ctx, modules, moduleOf) {
         perTarget.set(target, (perTarget.get(target) ?? 0) + 1);
       }
       for (const [target, count] of perTarget) {
-        if (importPairs.has(`${f.rel}|${target}`)) continue;
+        const pair = `${f.rel}|${target}`;
+        if (importPairs.has(pair) || callPairs.has(pair)) continue;
         collect(fileEdgeMap, { from: f.rel, to: target, kind: "use", weight: Math.min(count, 5) });
       }
     }
@@ -6415,7 +6590,7 @@ function buildGraph(scan2, ctx, modules, moduleOf) {
     degOut.set(e.from, (degOut.get(e.from) ?? 0) + 1);
     degIn.set(e.to, (degIn.get(e.to) ?? 0) + 1);
   }
-  const KIND_RANK = { import: 4, use: 3, "doc-link": 2, mention: 1, contains: 0 };
+  const KIND_RANK = { import: 5, call: 4, use: 3, "doc-link": 2, mention: 1, contains: 0 };
   const modEdgeMap = /* @__PURE__ */ new Map();
   for (const e of fileEdges) {
     if (e.dangling || !fileSet.has(e.to)) continue;

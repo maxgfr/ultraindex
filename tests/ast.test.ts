@@ -101,3 +101,74 @@ describe("AST extraction (tree-sitter)", () => {
     expect(r === undefined || Array.isArray(r.symbols)).toBe(true);
   });
 });
+
+const callNames = (rel: string, ext: string, src: string) =>
+  (extractAst(rel, ext, src)?.calls ?? []).map((c) => c.name);
+
+describe("AST call-site + imported-name collection", () => {
+  it("collects TS function/member/constructor calls, line numbers, and named imports", () => {
+    const src = [
+      "import { foo, bar as baz } from './m';",
+      "export function run() {",
+      "  foo();",
+      "  obj.method();",
+      "  return new Widget();",
+      "}",
+    ].join("\n");
+    const res = extractAst("a.ts", ".ts", src)!;
+    const names = res.calls.map((c) => c.name);
+    expect(names).toContain("foo"); // call_expression, plain callee
+    expect(names).toContain("method"); // call_expression, member callee → rightmost
+    expect(names).toContain("Widget"); // new_expression → constructed type
+    expect(res.calls.find((c) => c.name === "foo")!.line).toBe(3);
+    // The `name` field of each specifier — the pre-alias name for `bar as baz`.
+    expect(res.importedNames).toContain("foo");
+    expect(res.importedNames).toContain("bar");
+  });
+
+  it("collects Python function and attribute-method calls (function mode)", () => {
+    const names = callNames("m.py", ".py", "def run():\n    helper()\n    obj.compute()\n");
+    expect(names).toContain("helper");
+    expect(names).toContain("compute");
+    // Non-JS/TS files carry an empty importedNames set (the gate is JS/TS-only).
+    expect(extractAst("m.py", ".py", "def r():\n    pass\n")!.importedNames).toEqual([]);
+  });
+
+  it("collects Go calls including the rightmost selector segment (function mode)", () => {
+    const names = callNames("g.go", ".go", "package p\nfunc run() {\n\tfmt.Println(DoThing())\n}\n");
+    expect(names).toContain("Println");
+    expect(names).toContain("DoThing");
+  });
+
+  it("collects Java method invocations and object creations (function + constructor)", () => {
+    const src = "package p;\npublic class S {\n  void run() {\n    compute();\n    obj.doIt();\n    new Widget();\n  }\n}\n";
+    const names = callNames("S.java", ".java", src);
+    expect(names).toContain("compute");
+    expect(names).toContain("doIt");
+    expect(names).toContain("Widget");
+  });
+
+  it("collects PHP function, member-call, and constructor calls (member mode)", () => {
+    const src = "<?php\nfunction run() {\n  helper();\n  $obj->doIt();\n  new Widget();\n}\n";
+    const names = callNames("a.php", ".php", src);
+    expect(names).toContain("helper");
+    expect(names).toContain("doIt");
+    expect(names).toContain("Widget");
+  });
+
+  it("collects Ruby calls (dotted, parenthesized, and bare command form)", () => {
+    const names = callNames("r.rb", ".rb", "def run\n  helper()\n  obj.compute\n  render partial\nend\n");
+    expect(names).toContain("helper");
+    expect(names).toContain("compute");
+    expect(names).toContain("render");
+  });
+
+  it("drops single-character and computed callees, and has no calls for a regex-fallback language", () => {
+    // `x()` is below the length-2 floor; a bracket/computed call has no static name.
+    const names = callNames("a.ts", ".ts", "export function r() {\n  x();\n  tbl['k']();\n  ok();\n}\n");
+    expect(names).not.toContain("x");
+    expect(names).toContain("ok");
+    // Swift has no committed grammar → extractAst is undefined, so no calls.
+    expect(extractAst("s.swift", ".swift", "f()")).toBeUndefined();
+  });
+});

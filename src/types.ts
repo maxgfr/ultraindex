@@ -6,14 +6,16 @@ export const VERSION = "4.0.0";
 // Bumped whenever the on-disk artifact shape changes, so `check`/nav can reject
 // an index written by an incompatible engine instead of misreading it. v2 adds
 // symbols.json, the `use` edge kind, per-symbol parent/endLine, and the
-// extraction cache — a v1 index can't be read, so `check` asks for a rebuild.
-export const SCHEMA_VERSION = 2;
+// extraction cache; v3 adds the `call` edge kind and `Edge.confidence`. An index
+// written by an incompatible engine can't be read, so `check` asks for a rebuild.
+export const SCHEMA_VERSION = 3;
 
 // Identifies the extraction engine's output shape independently of the artifact
 // schema. The incremental build cache keys reused FileRecords on (content hash,
 // EXTRACTOR_VERSION); bump this whenever symbol/import extraction changes so a
-// stale cache is discarded wholesale rather than mixing old and new records.
-export const EXTRACTOR_VERSION = 2;
+// stale cache is discarded wholesale rather than mixing old and new records. v3
+// adds FileRecord.calls (call-site callee names) and importedNames.
+export const EXTRACTOR_VERSION = 3;
 
 // How a file is classified for the encyclopedia. `code` gets symbol/import
 // extraction; `doc` gets link/heading extraction; the rest are catalogued but
@@ -21,11 +23,12 @@ export const EXTRACTOR_VERSION = 2;
 export type FileKind = "code" | "doc" | "config" | "asset" | "other";
 
 // Edge kinds in the link-graph. `contains` is the module→member hierarchy;
-// `doc-link` a markdown link; `import` a resolved local code import; `use` a
-// code file referencing another file's unique exported symbol (AST-derived, and
-// suppressed when an `import` edge already covers the same pair); `mention` a
-// doc naming an exported symbol.
-export type EdgeKind = "contains" | "doc-link" | "import" | "use" | "mention";
+// `doc-link` a markdown link; `import` a resolved local code import; `call` a
+// resolved cross-file function/method/constructor call (a global second pass over
+// collected call sites); `use` a code file referencing another file's unique
+// exported symbol (AST-derived, suppressed when an `import` or `call` edge already
+// covers the same pair); `mention` a doc naming an exported symbol.
+export type EdgeKind = "contains" | "doc-link" | "import" | "call" | "use" | "mention";
 
 // Dependency tier, mirroring reconstruct's model: 0 = foundations (types, utils,
 // config), 1 = features, 2 = tail (tests, docs, examples, scripts).
@@ -70,6 +73,13 @@ export interface FileRecord {
   refs: RawRef[]; // unresolved outbound links/imports
   pkg?: string; // Java: the file's `package` declaration — anchors source roots
   idents?: string[]; // distinctive identifiers referenced (transient — feeds `use` edges, not persisted)
+  // Unresolved call-site callee names (cap 512, deduped by name+line, sorted by
+  // name then line). Transient-ish: consumed by the graph builder's global call
+  // resolution pass, not surfaced in the graph itself.
+  calls?: { name: string; line: number }[];
+  // JS/TS named-import bindings (cap 256, deduped, sorted) — feeds the JS/TS
+  // import-evidence gate in call resolution.
+  importedNames?: string[];
 }
 
 // A node in the link-graph. Files and modules are both nodes; `find`/`neighbors`
@@ -112,6 +122,10 @@ export interface Edge {
   weight: number;
   dangling?: boolean;
   reason?: string;
+  // Only `call` edges set this. extracted = an import between the files
+  // corroborates the call; inferred = resolved by a unique name match without
+  // import evidence.
+  confidence?: "extracted" | "inferred";
 }
 
 // The full machine graph, persisted as graph.json. Holds BOTH file-level and

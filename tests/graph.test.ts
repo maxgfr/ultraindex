@@ -65,7 +65,22 @@ describe("buildGraph", () => {
   it("never emits self-loops and computes file in-degrees", () => {
     expect(graph.fileEdges.every((e) => e.from !== e.to)).toBe(true);
     const util = graph.files.find((f) => f.rel === "src/util.ts")!;
-    expect(util.degIn).toBe(2); // imported by client.ts and index.ts
+    // Imported by client.ts and index.ts, and called (backoff) by client.ts —
+    // each resolved edge counts, so a call edge alongside an import raises degree.
+    expect(util.degIn).toBe(3);
+  });
+
+  it("resolves cross-file call edges with import-corroborated confidence", () => {
+    // client.ts imports and calls backoff (util.ts) and helper (helpers.ts).
+    const call = graph.fileEdges.find(
+      (e) => e.from === "src/client.ts" && e.to === "src/util.ts" && e.kind === "call",
+    );
+    expect(call).toBeTruthy();
+    expect(call!.confidence).toBe("extracted");
+    // core.py calls helper_fn defined in util.py (import corroborates it).
+    expect(has(graph.fileEdges, "pkg/core.py", "pkg/util.py", "call")).toBe(true);
+    // A call edge is lifted to a module edge, and import outranks call for the pair.
+    expect(has(graph.moduleEdges, "gopkg", "gopkg-sub", "import")).toBe(true);
   });
 
   it("lifts file edges to module edges without self-loops", () => {
@@ -91,6 +106,24 @@ describe("buildGraph", () => {
     expect(has(g.fileEdges, "src/consumer.ts", "src/factory.ts", "use")).toBe(true);
     expect(has(g.fileEdges, "src/importer.ts", "src/factory.ts", "import")).toBe(true);
     expect(has(g.fileEdges, "src/importer.ts", "src/factory.ts", "use")).toBe(false);
+  });
+
+  it("suppresses a `use` edge for a pair a `call` edge already covers, and ranks call over use", () => {
+    // Python (non-JS): a.py calls helper_fn defined+exported in b.py WITHOUT
+    // importing it → an `inferred` call edge. helper_fn is also a unique
+    // distinctive symbol, so the same pair would otherwise get a `use` edge —
+    // the call edge (stronger evidence) must suppress it.
+    const root = mkdtempSync(join(tmpdir(), "ui-call-"));
+    mkdirSync(join(root, "app"), { recursive: true });
+    writeFileSync(join(root, "app", "b.py"), "def helper_fn():\n    return 1\n");
+    writeFileSync(join(root, "app", "a.py"), "def run():\n    return helper_fn()\n");
+    const scan = scanRepo(root);
+    const ctx = buildResolveContext(scan);
+    const { modules, moduleOf } = buildModules(scan);
+    const g = buildGraph(scan, ctx, modules, moduleOf);
+    const call = g.fileEdges.find((e) => e.from === "app/a.py" && e.to === "app/b.py" && e.kind === "call");
+    expect(call?.confidence).toBe("inferred");
+    expect(has(g.fileEdges, "app/a.py", "app/b.py", "use")).toBe(false);
   });
 
   it("is deterministic — two builds are deeply equal", () => {

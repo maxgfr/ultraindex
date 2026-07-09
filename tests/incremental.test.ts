@@ -78,7 +78,7 @@ describe("incremental build (cache.json)", () => {
     writeFileSync(
       join(out, "cache.json"),
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
         extractorVersion: -999,
         files: { "src/a.ts": { hash: "deadbeef", record: { rel: "src/a.ts", symbols: [{ name: "GHOST" }] } } },
       }),

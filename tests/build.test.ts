@@ -55,8 +55,8 @@ describe("runBuild", () => {
   it("writes the current schema version so an old index is rejected, not misread", () => {
     const dir = out();
     build(dir);
-    expect(loadGraph(dir)!.schemaVersion).toBe(2);
-    expect(loadManifest(dir)!.schemaVersion).toBe(2);
+    expect(loadGraph(dir)!.schemaVersion).toBe(3);
+    expect(loadManifest(dir)!.schemaVersion).toBe(3);
   });
 
   it("omits graph.mmd with mermaid disabled", () => {
@@ -80,7 +80,7 @@ describe("runBuild", () => {
     const dir = out();
     build(dir);
     const idx = JSON.parse(readFileSync(join(dir, "symbols.json"), "utf8"));
-    expect(idx.schemaVersion).toBe(2);
+    expect(idx.schemaVersion).toBe(3);
     // Every def entry carries a resolvable file:line so `symbols` can point at it.
     const someName = Object.keys(idx.defs)[0]!;
     expect(someName).toBeTruthy();

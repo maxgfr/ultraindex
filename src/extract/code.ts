@@ -8,6 +8,8 @@ export interface CodeInfo {
   refs: RawRef[]; // import refs (raw specifiers, unresolved)
   pkg?: string; // Java: the file's own `package x.y.z;` — used to derive source roots
   idents?: string[]; // distinctive identifiers referenced (AST path) — feeds `use` edges
+  calls?: { name: string; line: number }[]; // call-site callee names (AST path) — feeds call edges
+  importedNames?: string[]; // JS/TS named-import bindings (AST path) — feeds the call gate
 }
 
 const JS_TS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -301,5 +303,7 @@ export function extractCode(rel: string, ext: string, content: string): CodeInfo
           ? /^\s*(?:file-scoped\s+)?namespace\s+([\w.]+)/m.exec(content)?.[1]
           : undefined,
     idents: ast?.idents,
+    calls: ast?.calls,
+    importedNames: ast?.importedNames,
   };
 }
