@@ -7313,6 +7313,95 @@ function scoreHaystack(hay, terms, saturate = false, idf) {
   return { score, matched };
 }
 
+// src/symbols.ts
+var MAX_HITS = 20;
+var MAX_NAMES_PER_FILE = 60;
+function exportedNamesByFile(index) {
+  const out2 = /* @__PURE__ */ new Map();
+  const seen = /* @__PURE__ */ new Map();
+  for (const name2 of Object.keys(index.defs).sort(byStr)) {
+    for (const d of index.defs[name2] ?? []) {
+      if (!d.exported) continue;
+      let list = out2.get(d.file);
+      let dedupe = seen.get(d.file);
+      if (!list) {
+        out2.set(d.file, list = []);
+        seen.set(d.file, dedupe = /* @__PURE__ */ new Set());
+      }
+      if (dedupe.has(name2) || list.length >= MAX_NAMES_PER_FILE) continue;
+      dedupe.add(name2);
+      list.push(name2);
+    }
+  }
+  return out2;
+}
+var EXACT = 1e3;
+var PREFIX = 100;
+var SUBSTRING = 1;
+var SOURCE = 0.5;
+function lookupSymbols(index, graph, query) {
+  const moduleOf = new Map(graph.files.map((f) => [f.rel, f.module]));
+  const names = Object.keys(index.defs);
+  let matches;
+  if (index.defs[query]) {
+    matches = [query];
+  } else {
+    let terms = keywords(query).map((t) => t.toLowerCase());
+    if (terms.length === 0) terms = [foldText(query).toLowerCase()];
+    const normLabels = names.map((n) => foldText(n).toLowerCase());
+    const labelTokens = names.map((n) => splitIdentifier(n).join(" ").toLowerCase());
+    const sourcePaths = names.map((n) => (index.defs[n] ?? []).map((d) => d.file.toLowerCase()));
+    const N = names.length;
+    const idf = /* @__PURE__ */ new Map();
+    for (const t of terms) {
+      const dfT = normLabels.reduce((c2, l) => c2 + (l.includes(t) ? 1 : 0), 0);
+      idf.set(t, Math.log(1 + N / (1 + dfT)));
+    }
+    const joined = terms.join(" ");
+    const maxIdf = Math.max(...terms.map((t) => idf.get(t) ?? 0)) || 1;
+    const scored = [];
+    for (let i2 = 0; i2 < names.length; i2++) {
+      const normLabel = normLabels[i2];
+      const label = labelTokens[i2];
+      const paths = sourcePaths[i2];
+      let score = 0;
+      let tiered = 0;
+      let matched = 0;
+      if (joined === normLabel || joined === label) score += EXACT * 10 * maxIdf;
+      else if (normLabel.startsWith(joined) || label.startsWith(joined)) score += PREFIX * 10 * maxIdf;
+      for (const t of terms) {
+        const w = idf.get(t) ?? 0;
+        if (t === normLabel) {
+          tiered += EXACT * w;
+          matched++;
+        } else if (normLabel.startsWith(t) || label.startsWith(t)) {
+          tiered += PREFIX * w;
+          matched++;
+        } else if (normLabel.includes(t)) {
+          score += SUBSTRING * w;
+          matched++;
+        }
+        if (paths.some((p) => p.includes(t))) score += SOURCE * w;
+      }
+      score += tiered * (matched / terms.length) ** 2;
+      if (score > 0) scored.push({ name: names[i2], score });
+    }
+    matches = scored.sort((a, b) => b.score - a.score || a.name.length - b.name.length || byStr(a.name, b.name)).slice(0, MAX_HITS).map((x) => x.name);
+  }
+  const hits = matches.map((name2) => ({
+    name: name2,
+    defs: (index.defs[name2] ?? []).map((d) => ({ ...d, module: moduleOf.get(d.file) ?? "root" })),
+    refs: index.refs[name2] ?? []
+  }));
+  return { query, hits };
+}
+function runSymbols(outDir, query) {
+  const graph = loadGraph(outDir);
+  const index = loadSymbols(outDir);
+  if (!graph || !index) return void 0;
+  return lookupSymbols(index, graph, query);
+}
+
 // src/semantic.ts
 function loadSemanticConfig(outDir) {
   const env = {
@@ -7520,9 +7609,10 @@ function loadEnrichedProse(outDir, graph) {
   }
   return out2;
 }
-function findModules(graph, query, k = DEFAULT_K, prose) {
+function scoreModules(graph, query, prose, symbolNames) {
   const terms = queryTerms(query);
   if (terms.length === 0) return [];
+  const namesOf = (rel) => (symbolNames?.get(rel) ?? []).join(" ");
   const filesByModule = /* @__PURE__ */ new Map();
   for (const f of graph.files) {
     let list = filesByModule.get(f.module);
@@ -7538,7 +7628,9 @@ function findModules(graph, query, k = DEFAULT_K, prose) {
   const df = /* @__PURE__ */ new Map();
   for (const m of graph.modules) {
     const members = filesByModule.get(m.slug) ?? [];
-    const combined = textOf([m.slug, m.path, moduleSummary(m)]) + " " + (prose?.get(m.slug) ?? "") + " " + members.map((f) => textOf([f.rel, f.title, f.summary])).join(" ");
+    const combined = textOf([m.slug, m.path, moduleSummary(m)]) + " " + (prose?.get(m.slug) ?? "") + " " + // Must fold in the SAME symbol names as the scored haystacks, or df/idf
+    // would drift from what's actually scored below.
+    members.map((f) => textOf([f.rel, f.title, f.summary, namesOf(f.rel)])).join(" ");
     for (const raw of new Set(scoreHaystack(buildHaystack(combined), terms).matched)) {
       df.set(raw, (df.get(raw) ?? 0) + 1);
     }
@@ -7559,7 +7651,7 @@ function findModules(graph, query, k = DEFAULT_K, prose) {
     const enrichedText = prose?.get(m.slug);
     const pro = enrichedText ? scoreHaystack(buildHaystack(enrichedText), terms, true, idf) : { score: 0, matched: [] };
     const scoredFiles = members.map((f) => {
-      const hay = textOf([f.rel, f.title, f.summary]);
+      const hay = textOf([f.rel, f.title, f.summary, namesOf(f.rel)]);
       const s = scoreHaystack(buildHaystack(hay), terms, false, idf);
       return { f, score: s.score, matched: s.matched, degree: f.degIn + f.degOut };
     }).sort((a, b) => b.score - a.score || b.degree - a.degree || byStr(a.f.rel, b.f.rel));
@@ -7575,7 +7667,11 @@ function findModules(graph, query, k = DEFAULT_K, prose) {
     const labels = [
       splitIdentifier(m.slug).join(" "),
       splitIdentifier(m.path).join(" "),
-      ...members.map((f) => splitIdentifier(basename3(f.rel, extname2(f.rel))).join(" "))
+      ...members.map((f) => splitIdentifier(basename3(f.rel, extname2(f.rel))).join(" ")),
+      // An exported symbol name whose token form IS the whole query is as strong
+      // a label as a matching basename — a query naming a function should lift its
+      // module the same way its filename would.
+      ...members.flatMap((f) => (symbolNames?.get(f.rel) ?? []).map((n) => splitIdentifier(n).join(" ")))
     ];
     const fullQuery = labels.some((l) => l === joined) ? 10 * maxIdf : labels.some((l) => l.startsWith(joined)) ? 4 * maxIdf : 0;
     const keywordScore = mod.score * 2 + pro.score * PROSE_WEIGHT + bestFile + Math.min(matchCount, 5) * 0.5 + fullQuery;
@@ -7601,7 +7697,106 @@ function findModules(graph, query, k = DEFAULT_K, prose) {
     });
   }
   scored.sort((a, b) => b.r.score - a.r.score || b.degree - a.degree || byStr(a.r.slug, b.r.slug));
-  return scored.slice(0, k).map((x) => x.r);
+  return scored;
+}
+var MAX_SEEDS = 3;
+var SEED_GAP_RATIO = 0.2;
+function pickSeeds(scored, terms) {
+  if (scored.length === 0) return [];
+  const topScore = scored[0].r.score;
+  const seeds = [];
+  const picked = /* @__PURE__ */ new Set();
+  const matchedBySlug = new Map(scored.map((s) => [s.r.slug, s.r.matched]));
+  for (const s of scored) {
+    if (seeds.length >= MAX_SEEDS) break;
+    if (s.r.score < SEED_GAP_RATIO * topScore) break;
+    seeds.push(s.r.slug);
+    picked.add(s.r.slug);
+  }
+  for (const t of terms) {
+    if (seeds.some((slug) => matchedBySlug.get(slug)?.includes(t.raw))) continue;
+    const hit = scored.find((s) => s.r.matched.includes(t.raw));
+    if (hit && !picked.has(hit.r.slug)) {
+      seeds.push(hit.r.slug);
+      picked.add(hit.r.slug);
+    }
+  }
+  return seeds;
+}
+var EXPAND_DEPTH = 2;
+var HUB_FLOOR = 50;
+function expandResults(graph, top, fullScored, seeds, k) {
+  const cap = k + 4;
+  const out2 = [...top];
+  const present = new Set(out2.map((r) => r.slug));
+  const rowBySlug = new Map(fullScored.map((s) => [s.r.slug, s.r]));
+  const moduleBySlug = new Map(graph.modules.map((m) => [m.slug, m]));
+  const degreeOf = (slug) => {
+    const m = moduleBySlug.get(slug);
+    return m ? m.degIn + m.degOut : 0;
+  };
+  for (const slug of seeds) {
+    if (out2.length >= cap) break;
+    if (present.has(slug)) continue;
+    const r = rowBySlug.get(slug);
+    if (!r) continue;
+    out2.push({ ...r, via: "term" });
+    present.add(slug);
+  }
+  const degrees = graph.modules.map((m) => m.degIn + m.degOut).sort((a, b) => a - b);
+  const n = degrees.length;
+  const p99 = n === 0 ? 0 : degrees[Math.min(n - 1, Math.floor(0.99 * n))];
+  const hubThreshold = Math.max(HUB_FLOOR, p99);
+  const adj = /* @__PURE__ */ new Map();
+  const link = (a, b) => {
+    let s = adj.get(a);
+    if (!s) adj.set(a, s = /* @__PURE__ */ new Set());
+    s.add(b);
+  };
+  for (const e of graph.moduleEdges) {
+    if (e.dangling) continue;
+    if (!moduleBySlug.has(e.from) || !moduleBySlug.has(e.to)) continue;
+    link(e.from, e.to);
+    link(e.to, e.from);
+  }
+  const seedSet = new Set(seeds);
+  const depth = /* @__PURE__ */ new Map();
+  const queue = [];
+  for (const s of [...seeds].sort(byStr)) {
+    if (!moduleBySlug.has(s) || depth.has(s)) continue;
+    depth.set(s, 0);
+    queue.push({ slug: s, d: 0 });
+  }
+  for (let i2 = 0; i2 < queue.length; i2++) {
+    const { slug, d } = queue[i2];
+    const expand = d < EXPAND_DEPTH && (seedSet.has(slug) || degreeOf(slug) < hubThreshold);
+    if (!expand) continue;
+    for (const nb of [...adj.get(slug) ?? []].sort(byStr)) {
+      if (depth.has(nb)) continue;
+      depth.set(nb, d + 1);
+      queue.push({ slug: nb, d: d + 1 });
+    }
+  }
+  const filesByModule = /* @__PURE__ */ new Map();
+  for (const f of graph.files) {
+    let list = filesByModule.get(f.module);
+    if (!list) filesByModule.set(f.module, list = []);
+    list.push(f);
+  }
+  const discovered = [...depth.entries()].filter(([, d]) => d >= 1).sort((a, b) => a[1] - b[1] || degreeOf(b[0]) - degreeOf(a[0]) || byStr(a[0], b[0]));
+  for (const [slug] of discovered) {
+    if (out2.length >= cap) break;
+    if (present.has(slug)) continue;
+    const m = moduleBySlug.get(slug);
+    if (!m) continue;
+    out2.push({ ...bareRow(graph, m, filesByModule.get(slug) ?? [], false), via: "graph" });
+    present.add(slug);
+  }
+  return out2.slice(0, cap);
+}
+function loadSymbolNames(outDir) {
+  const index = loadSymbols(outDir);
+  return index ? exportedNamesByFile(index) : void 0;
 }
 function bareRow(graph, m, members, enriched) {
   const files = members.slice().sort((a, b) => b.degIn + b.degOut - (a.degIn + a.degOut) || byStr(a.rel, b.rel)).map((f) => f.rel).slice(0, MAX_FILES);
@@ -7622,10 +7817,13 @@ async function runFindHybrid(outDir, query, k = DEFAULT_K) {
   if (!graph) return void 0;
   const prose = loadEnrichedProse(outDir, graph);
   const pool = Math.max(k * 3, 24);
-  const lexical = findModules(graph, query, pool, prose);
+  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir));
+  const lexical = full.slice(0, pool).map((x) => x.r);
+  const seeds = pickSeeds(full, queryTerms(query));
+  const expand = (topRows) => expandResults(graph, topRows, full, seeds, k);
   const store = loadVectors(outDir);
-  if (!store) return { results: lexical.slice(0, k), semantic: false };
-  const lexOnly = (warning) => ({ results: lexical.slice(0, k), semantic: false, warning });
+  if (!store) return { results: expand(lexical.slice(0, k)), semantic: false };
+  const lexOnly = (warning) => ({ results: expand(lexical.slice(0, k)), semantic: false, warning });
   const cfg = loadSemanticConfig(outDir);
   if (!cfg) {
     return lexOnly("vectors.json present but no semantic config (env or semantic.json) \u2014 lexical-only results");
@@ -7654,12 +7852,12 @@ async function runFindHybrid(outDir, query, k = DEFAULT_K) {
     if (!list) filesByModule.set(f.module, list = []);
     list.push(f);
   }
-  const results = ordered.map((slug) => {
+  const fusedTop = ordered.map((slug) => {
     const sem = semRank.get(slug);
     const row2 = lexRow.get(slug) ?? bareRow(graph, moduleBySlug.get(slug), filesByModule.get(slug) ?? [], prose.has(slug));
     return sem !== void 0 ? { ...row2, semanticRank: sem } : row2;
   });
-  return { results, semantic: true };
+  return { results: expand(fusedTop), semantic: true };
 }
 
 // src/neighbors.ts
@@ -7709,75 +7907,6 @@ function runNeighbors(outDir, target, depth = 1) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
   return neighborsOf(graph, target, depth);
-}
-
-// src/symbols.ts
-var MAX_HITS = 20;
-var EXACT = 1e3;
-var PREFIX = 100;
-var SUBSTRING = 1;
-var SOURCE = 0.5;
-function lookupSymbols(index, graph, query) {
-  const moduleOf = new Map(graph.files.map((f) => [f.rel, f.module]));
-  const names = Object.keys(index.defs);
-  let matches;
-  if (index.defs[query]) {
-    matches = [query];
-  } else {
-    let terms = keywords(query).map((t) => t.toLowerCase());
-    if (terms.length === 0) terms = [foldText(query).toLowerCase()];
-    const normLabels = names.map((n) => foldText(n).toLowerCase());
-    const labelTokens = names.map((n) => splitIdentifier(n).join(" ").toLowerCase());
-    const sourcePaths = names.map((n) => (index.defs[n] ?? []).map((d) => d.file.toLowerCase()));
-    const N = names.length;
-    const idf = /* @__PURE__ */ new Map();
-    for (const t of terms) {
-      const dfT = normLabels.reduce((c2, l) => c2 + (l.includes(t) ? 1 : 0), 0);
-      idf.set(t, Math.log(1 + N / (1 + dfT)));
-    }
-    const joined = terms.join(" ");
-    const maxIdf = Math.max(...terms.map((t) => idf.get(t) ?? 0)) || 1;
-    const scored = [];
-    for (let i2 = 0; i2 < names.length; i2++) {
-      const normLabel = normLabels[i2];
-      const label = labelTokens[i2];
-      const paths = sourcePaths[i2];
-      let score = 0;
-      let tiered = 0;
-      let matched = 0;
-      if (joined === normLabel || joined === label) score += EXACT * 10 * maxIdf;
-      else if (normLabel.startsWith(joined) || label.startsWith(joined)) score += PREFIX * 10 * maxIdf;
-      for (const t of terms) {
-        const w = idf.get(t) ?? 0;
-        if (t === normLabel) {
-          tiered += EXACT * w;
-          matched++;
-        } else if (normLabel.startsWith(t) || label.startsWith(t)) {
-          tiered += PREFIX * w;
-          matched++;
-        } else if (normLabel.includes(t)) {
-          score += SUBSTRING * w;
-          matched++;
-        }
-        if (paths.some((p) => p.includes(t))) score += SOURCE * w;
-      }
-      score += tiered * (matched / terms.length) ** 2;
-      if (score > 0) scored.push({ name: names[i2], score });
-    }
-    matches = scored.sort((a, b) => b.score - a.score || a.name.length - b.name.length || byStr(a.name, b.name)).slice(0, MAX_HITS).map((x) => x.name);
-  }
-  const hits = matches.map((name2) => ({
-    name: name2,
-    defs: (index.defs[name2] ?? []).map((d) => ({ ...d, module: moduleOf.get(d.file) ?? "root" })),
-    refs: index.refs[name2] ?? []
-  }));
-  return { query, hits };
-}
-function runSymbols(outDir, query) {
-  const graph = loadGraph(outDir);
-  const index = loadSymbols(outDir);
-  if (!graph || !index) return void 0;
-  return lookupSymbols(index, graph, query);
 }
 
 // src/impact.ts
@@ -8808,7 +8937,7 @@ async function cmdFind(p) {
   }
   const lines = [`ultraindex: ${results.length} module(s) for "${query}"${found.semantic ? " (hybrid)" : ""}`, ""];
   for (const r of results) {
-    lines.push(`\u25B8 ${r.slug}  (${r.path}, tier ${r.tier}, score ${r.score}${r.semanticRank !== void 0 ? `, semantic #${r.semanticRank}` : ""})`);
+    lines.push(`\u25B8 ${r.slug}  (${r.path}, tier ${r.tier}, score ${r.score}${r.semanticRank !== void 0 ? `, semantic #${r.semanticRank}` : ""})${r.via ? ` via:${r.via}` : ""}`);
     if (r.matched.length) lines.push(`    matched: ${r.matched.join(", ")}`);
     lines.push(`    open:    ${r.files.join("  ") || "(no files)"}`);
     if (r.neighbors.length) lines.push(`    related: ${r.neighbors.join(", ")}`);

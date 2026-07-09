@@ -27,6 +27,34 @@ export interface SymbolResult {
 
 const MAX_HITS = 20;
 
+// Per-file cap on indexed exported names. IDF already discounts generic names, so
+// the cap only bounds the haystack size for a symbol-dense file (barrel/index).
+const MAX_NAMES_PER_FILE = 60;
+
+// Group a symbol index by owning FILE → its exported symbol names, so `find` can
+// fold declared identifiers into each file's haystack. Names are visited in
+// byStr order (deterministic), deduped per file, and capped at 60 — the first 60
+// in sorted order are kept. Only `exported === true` def sites contribute.
+export function exportedNamesByFile(index: SymbolIndex): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const seen = new Map<string, Set<string>>();
+  for (const name of Object.keys(index.defs).sort(byStr)) {
+    for (const d of index.defs[name] ?? []) {
+      if (!d.exported) continue;
+      let list = out.get(d.file);
+      let dedupe = seen.get(d.file);
+      if (!list) {
+        out.set(d.file, (list = []));
+        seen.set(d.file, (dedupe = new Set()));
+      }
+      if (dedupe!.has(name) || list.length >= MAX_NAMES_PER_FILE) continue;
+      dedupe!.add(name);
+      list.push(name);
+    }
+  }
+  return out;
+}
+
 // Tiered lexical scores over a symbol name (graphify's `_score_nodes`): an exact
 // term match dwarfs a prefix, which dwarfs a substring, which dwarfs a hit that
 // lives only in the def's file path. The 10× gaps let per-term IDF reorder

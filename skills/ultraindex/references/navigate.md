@@ -29,10 +29,21 @@ workflow's job.
    matched terms, and graph neighbours. Results flagged `enriched` carry
    verified, citation-checked analysis in their entry — trust those entries
    first. `find` weights rare query terms above common ones (IDF), so a
-   distinctive identifier discriminates better than a boilerplate word. With a
-   semantic layer set up, results may also carry a `semanticRank` (see
-   semantic.md). Use `neighbors <file|module>` to expand along the graph ("what
-   else touches this").
+   distinctive identifier discriminates better than a boilerplate word.
+   **Exported symbol names are searchable:** a query naming an exported
+   function/class/type finds its owning module even when no title, summary, or
+   path mentions it — so you can search the identifier directly, not just prose
+   about it. With a semantic layer set up, results may also carry a
+   `semanticRank` (see semantic.md). Use `neighbors <file|module>` to expand
+   along the graph ("what else touches this").
+
+   **Appended context rows.** Beyond the ranked hits, `find` may add a few
+   rows flagged with a `via` marker: `via: term` is a module that ranked below
+   the top hits but is the best (sometimes only) bearer of one of your query
+   terms — kept so a term is never silently dropped; `via: graph` is a module
+   one or two edges from a strong hit, surfaced as graph context even though it
+   matched no keyword (score 0, no matched terms). Treat `via: graph` rows as
+   "nearby, worth a glance", not as direct matches.
 
    **When you already know the symbol, skip `find`:** `symbols "<name>"` points
    straight at every definition site (file:line, kind, owning module) and the

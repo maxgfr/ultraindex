@@ -133,8 +133,9 @@ describe("find + neighbors after build", () => {
     const results = runFind(dir, "backoff retry", 5)!;
     expect(results[0]?.slug).toBe("src");
     expect(results[0]?.files).toContain("src/util.ts");
-    // Modules with no keyword match must not surface.
-    expect(results.every((r) => r.matched.length > 0)).toBe(true);
+    // A module with no keyword match surfaces only as an appended graph/term row
+    // (flagged with `via`) — never as an unflagged ranked hit.
+    expect(results.every((r) => r.matched.length > 0 || r.via !== undefined)).toBe(true);
   });
 
   it("neighbors walks the graph for a module and a file", () => {

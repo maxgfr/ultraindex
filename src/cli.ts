@@ -305,7 +305,7 @@ async function cmdFind(p: Parsed): Promise<void> {
   }
   const lines: string[] = [`ultraindex: ${results.length} module(s) for "${query}"${found.semantic ? " (hybrid)" : ""}`, ""];
   for (const r of results) {
-    lines.push(`▸ ${r.slug}  (${r.path}, tier ${r.tier}, score ${r.score}${r.semanticRank !== undefined ? `, semantic #${r.semanticRank}` : ""})`);
+    lines.push(`▸ ${r.slug}  (${r.path}, tier ${r.tier}, score ${r.score}${r.semanticRank !== undefined ? `, semantic #${r.semanticRank}` : ""})${r.via ? ` via:${r.via}` : ""}`);
     if (r.matched.length) lines.push(`    matched: ${r.matched.join(", ")}`);
     lines.push(`    open:    ${r.files.join("  ") || "(no files)"}`);
     if (r.neighbors.length) lines.push(`    related: ${r.neighbors.join(", ")}`);

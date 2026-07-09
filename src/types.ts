@@ -186,6 +186,11 @@ export interface FindResult {
   neighbors: string[]; // related module slugs
   enriched: boolean; // the entry carries verified human analysis — higher-trust
   semanticRank?: number; // 1-based rank in the cosine list, only when hybrid ran
+  // How an APPENDED row (beyond the ranked top-k) reached the result set:
+  // "term" = a per-query-term guarantee (a module below top-k that solely covers
+  // a query term); "graph" = discovered by expanding the graph neighbourhood of a
+  // strong hit. Absent on a normal ranked row.
+  via?: "graph" | "term";
 }
 
 // Connection details for an OpenAI-compatible /v1/embeddings provider. Read

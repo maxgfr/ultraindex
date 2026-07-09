@@ -1,9 +1,11 @@
 import { join, basename, extname } from "node:path";
 import type { FileNode, FindResult, Graph, ModuleNode } from "./types.js";
-import { loadGraph, indexPaths } from "./store.js";
+import { loadGraph, loadSymbols, indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
 import { humanBodies, isEnrichedBody } from "./merge.js";
 import { buildHaystack, queryTerms, scoreHaystack, splitIdentifier } from "./lex.js";
+import type { QueryTerm } from "./lex.js";
+import { exportedNamesByFile } from "./symbols.js";
 import { rrf } from "./util.js";
 import { byStr } from "./sort.js";
 import { loadVectors } from "./vectors.js";
@@ -51,12 +53,23 @@ export function loadEnrichedProse(outDir: string, graph: Graph): Map<string, str
   return out;
 }
 
-// Rank modules for a task and return the EXACT files to open. This is the
-// navigator's core: read the index (not the repo), match deterministically, and
-// point the agent at a handful of files instead of the whole tree.
-export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: Map<string, string>): FindResult[] {
+// Score EVERY matched module and return the FULL sorted list (score desc, degree
+// desc, slug). The seed/expansion layer needs rows below the top-k, so scoring is
+// factored out here; `findModules` is the top-k slice of this. `symbolNames` maps
+// a file rel → its exported symbol names, folded into that file's haystack so a
+// query naming an exported identifier surfaces its owning module even when no
+// title/summary/path mentions it. Absent ⇒ identical to symbol-free scoring.
+export function scoreModules(
+  graph: Graph,
+  query: string,
+  prose?: Map<string, string>,
+  symbolNames?: Map<string, string[]>,
+): { r: FindResult; degree: number }[] {
   const terms = queryTerms(query);
   if (terms.length === 0) return [];
+
+  // Exported symbol names declared in a file, folded into its haystack.
+  const namesOf = (rel: string): string => (symbolNames?.get(rel) ?? []).join(" ");
 
   const filesByModule = new Map<string, FileNode[]>();
   for (const f of graph.files) {
@@ -82,7 +95,9 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: 
       " " +
       (prose?.get(m.slug) ?? "") +
       " " +
-      members.map((f) => textOf([f.rel, f.title, f.summary])).join(" ");
+      // Must fold in the SAME symbol names as the scored haystacks, or df/idf
+      // would drift from what's actually scored below.
+      members.map((f) => textOf([f.rel, f.title, f.summary, namesOf(f.rel)])).join(" ");
     for (const raw of new Set(scoreHaystack(buildHaystack(combined), terms).matched)) {
       df.set(raw, (df.get(raw) ?? 0) + 1);
     }
@@ -114,7 +129,7 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: 
     // Per-file scoring drives both the module score and the file ordering.
     const scoredFiles = members
       .map((f) => {
-        const hay = textOf([f.rel, f.title, f.summary]);
+        const hay = textOf([f.rel, f.title, f.summary, namesOf(f.rel)]);
         const s = scoreHaystack(buildHaystack(hay), terms, false, idf);
         return { f, score: s.score, matched: s.matched, degree: f.degIn + f.degOut };
       })
@@ -153,6 +168,10 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: 
       splitIdentifier(m.slug).join(" "),
       splitIdentifier(m.path).join(" "),
       ...members.map((f) => splitIdentifier(basename(f.rel, extname(f.rel))).join(" ")),
+      // An exported symbol name whose token form IS the whole query is as strong
+      // a label as a matching basename — a query naming a function should lift its
+      // module the same way its filename would.
+      ...members.flatMap((f) => (symbolNames?.get(f.rel) ?? []).map((n) => splitIdentifier(n).join(" "))),
     ];
     const fullQuery = labels.some((l) => l === joined)
       ? 10 * maxIdf
@@ -195,13 +214,178 @@ export function findModules(graph: Graph, query: string, k = DEFAULT_K, prose?: 
 
   // Tie-break by degree (centrality) then slug — never by name luck alone.
   scored.sort((a, b) => b.r.score - a.r.score || b.degree - a.degree || byStr(a.r.slug, b.r.slug));
-  return scored.slice(0, k).map((x) => x.r);
+  return scored;
+}
+
+// Rank modules for a task and return the EXACT files to open. This is the
+// navigator's core: read the index (not the repo), match deterministically, and
+// point the agent at a handful of files instead of the whole tree. The top-k
+// slice of `scoreModules`; the trailing `symbolNames` is optional so existing
+// callers keep their exact behavior.
+export function findModules(
+  graph: Graph,
+  query: string,
+  k = DEFAULT_K,
+  prose?: Map<string, string>,
+  symbolNames?: Map<string, string[]>,
+): FindResult[] {
+  return scoreModules(graph, query, prose, symbolNames).slice(0, k).map((x) => x.r);
+}
+
+// graphify's seed constants, verbatim: at most 3 seeds, and a seed must score at
+// least 20% of the top hit.
+const MAX_SEEDS = 3;
+const SEED_GAP_RATIO = 0.2;
+
+// Pick the module slugs to expand the graph from. Walk the full sorted list
+// top-down taking up to 3 seeds, stopping once a row drops below 20% of the top
+// score. Then a per-term guarantee: for each query term with no seed covering it,
+// append the first (highest-ranked) module that DID match that term, so a term
+// whose only bearer sits below top-k is never silently dropped.
+export function pickSeeds(scored: { r: FindResult; degree: number }[], terms: QueryTerm[]): string[] {
+  if (scored.length === 0) return [];
+  const topScore = scored[0]!.r.score;
+  const seeds: string[] = [];
+  const picked = new Set<string>();
+  const matchedBySlug = new Map(scored.map((s) => [s.r.slug, s.r.matched]));
+  for (const s of scored) {
+    if (seeds.length >= MAX_SEEDS) break;
+    if (s.r.score < SEED_GAP_RATIO * topScore) break;
+    seeds.push(s.r.slug);
+    picked.add(s.r.slug);
+  }
+  for (const t of terms) {
+    if (seeds.some((slug) => matchedBySlug.get(slug)?.includes(t.raw))) continue;
+    const hit = scored.find((s) => s.r.matched.includes(t.raw));
+    if (hit && !picked.has(hit.r.slug)) {
+      seeds.push(hit.r.slug);
+      picked.add(hit.r.slug);
+    }
+  }
+  return seeds;
+}
+
+// Graph-expansion depth and the hub floor. Below 50 there is no gating (the
+// intended never-worse behavior on small graphs); above it, a hyper-connected
+// module is visited but not expanded through so a hub can't drag in the world.
+const EXPAND_DEPTH = 2;
+const HUB_FLOOR = 50;
+
+// Append graph context to the ranked top-k. Two kinds of rows are added after
+// `top` (unchanged, in order), deduped by slug, total length capped at k + 4:
+//   1. per-term-guarantee seeds not already shown — their REAL scored row from
+//      `fullScored`, marked via:"term";
+//   2. modules discovered by an undirected, all-kinds, depth-2 BFS from the seeds
+//      over the module graph, as bare rows marked via:"graph".
+// Gap seeds are the highest-scored modules and are already inside `top`; a seed
+// missing from `top` is therefore a per-term guarantee row ranked below it.
+export function expandResults(
+  graph: Graph,
+  top: FindResult[],
+  fullScored: { r: FindResult; degree: number }[],
+  seeds: string[],
+  k: number,
+): FindResult[] {
+  const cap = k + 4;
+  const out: FindResult[] = [...top];
+  const present = new Set(out.map((r) => r.slug));
+  const rowBySlug = new Map(fullScored.map((s) => [s.r.slug, s.r]));
+  const moduleBySlug = new Map(graph.modules.map((m) => [m.slug, m]));
+  const degreeOf = (slug: string): number => {
+    const m = moduleBySlug.get(slug);
+    return m ? m.degIn + m.degOut : 0;
+  };
+
+  // 1. per-term guarantee rows (seeds not already surfaced), in seed order.
+  for (const slug of seeds) {
+    if (out.length >= cap) break;
+    if (present.has(slug)) continue;
+    const r = rowBySlug.get(slug);
+    if (!r) continue;
+    out.push({ ...r, via: "term" });
+    present.add(slug);
+  }
+
+  // Hub threshold: max(50, p99). p99 = the degree at index min(n-1, floor(0.99n))
+  // of the ascending degree array. Numeric sort — deterministic without byStr.
+  const degrees = graph.modules.map((m) => m.degIn + m.degOut).sort((a, b) => a - b);
+  const n = degrees.length;
+  const p99 = n === 0 ? 0 : degrees[Math.min(n - 1, Math.floor(0.99 * n))]!;
+  const hubThreshold = Math.max(HUB_FLOOR, p99);
+
+  // Undirected adjacency over resolved module edges only (a dangling edge points
+  // at an unresolved spec, not a real module).
+  const adj = new Map<string, Set<string>>();
+  const link = (a: string, b: string): void => {
+    let s = adj.get(a);
+    if (!s) adj.set(a, (s = new Set()));
+    s.add(b);
+  };
+  for (const e of graph.moduleEdges) {
+    if (e.dangling) continue;
+    if (!moduleBySlug.has(e.from) || !moduleBySlug.has(e.to)) continue;
+    link(e.from, e.to);
+    link(e.to, e.from);
+  }
+
+  // BFS: seeds at depth 0 always expand; a non-seed hub (degree ≥ threshold) is
+  // recorded but its edges are not followed. Neighbours sorted by byStr so the
+  // level-order is stable (final output is re-sorted, but visitation is fixed).
+  const seedSet = new Set(seeds);
+  const depth = new Map<string, number>();
+  const queue: { slug: string; d: number }[] = [];
+  for (const s of [...seeds].sort(byStr)) {
+    if (!moduleBySlug.has(s) || depth.has(s)) continue;
+    depth.set(s, 0);
+    queue.push({ slug: s, d: 0 });
+  }
+  for (let i = 0; i < queue.length; i++) {
+    const { slug, d } = queue[i]!;
+    const expand = d < EXPAND_DEPTH && (seedSet.has(slug) || degreeOf(slug) < hubThreshold);
+    if (!expand) continue;
+    for (const nb of [...(adj.get(slug) ?? [])].sort(byStr)) {
+      if (depth.has(nb)) continue;
+      depth.set(nb, d + 1);
+      queue.push({ slug: nb, d: d + 1 });
+    }
+  }
+
+  // 2. BFS-discovered modules (depth ≥ 1), ordered depth asc, degree desc, slug.
+  const filesByModule = new Map<string, FileNode[]>();
+  for (const f of graph.files) {
+    let list = filesByModule.get(f.module);
+    if (!list) filesByModule.set(f.module, (list = []));
+    list.push(f);
+  }
+  const discovered = [...depth.entries()]
+    .filter(([, d]) => d >= 1)
+    .sort((a, b) => a[1] - b[1] || degreeOf(b[0]) - degreeOf(a[0]) || byStr(a[0], b[0]));
+  for (const [slug] of discovered) {
+    if (out.length >= cap) break;
+    if (present.has(slug)) continue;
+    const m = moduleBySlug.get(slug);
+    if (!m) continue;
+    out.push({ ...bareRow(graph, m, filesByModule.get(slug) ?? [], false), via: "graph" });
+    present.add(slug);
+  }
+  return out.slice(0, cap);
+}
+
+// Build the exported-symbol-name map for an index, once, from symbols.json. A
+// missing or schema-mismatched symbols.json yields undefined — find then behaves
+// exactly as before symbol names were indexed.
+function loadSymbolNames(outDir: string): Map<string, string[]> | undefined {
+  const index = loadSymbols(outDir);
+  return index ? exportedNamesByFile(index) : undefined;
 }
 
 export function runFind(outDir: string, query: string, k = DEFAULT_K): FindResult[] | undefined {
   const graph = loadGraph(outDir);
   if (!graph) return undefined;
-  return findModules(graph, query, k, loadEnrichedProse(outDir, graph));
+  const prose = loadEnrichedProse(outDir, graph);
+  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir));
+  const top = full.slice(0, k).map((x) => x.r);
+  return expandResults(graph, top, full, pickSeeds(full, queryTerms(query)), k);
 }
 
 // A result row for a module that surfaced semantically but never matched a
@@ -242,12 +426,18 @@ export async function runFindHybrid(outDir: string, query: string, k = DEFAULT_K
   if (!graph) return undefined;
   const prose = loadEnrichedProse(outDir, graph);
   const pool = Math.max(k * 3, 24);
-  const lexical = findModules(graph, query, pool, prose);
+  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir));
+  const lexical = full.slice(0, pool).map((x) => x.r);
+  // Seeds come from the LEXICAL scored list (rows with score > 0); expansion is
+  // applied to whatever ranked list is ultimately returned — the fused list when
+  // semantic ran, else the lexical one it degrades to.
+  const seeds = pickSeeds(full, queryTerms(query));
+  const expand = (topRows: FindResult[]): FindResult[] => expandResults(graph, topRows, full, seeds, k);
 
   const store = loadVectors(outDir);
-  if (!store) return { results: lexical.slice(0, k), semantic: false };
+  if (!store) return { results: expand(lexical.slice(0, k)), semantic: false };
 
-  const lexOnly = (warning: string): HybridFind => ({ results: lexical.slice(0, k), semantic: false, warning });
+  const lexOnly = (warning: string): HybridFind => ({ results: expand(lexical.slice(0, k)), semantic: false, warning });
   const cfg = loadSemanticConfig(outDir);
   if (!cfg) {
     return lexOnly("vectors.json present but no semantic config (env or semantic.json) — lexical-only results");
@@ -288,11 +478,11 @@ export async function runFindHybrid(outDir: string, query: string, k = DEFAULT_K
     if (!list) filesByModule.set(f.module, (list = []));
     list.push(f);
   }
-  const results = ordered.map((slug) => {
+  const fusedTop = ordered.map((slug) => {
     const sem = semRank.get(slug);
     const row =
       lexRow.get(slug) ?? bareRow(graph, moduleBySlug.get(slug)!, filesByModule.get(slug) ?? [], prose.has(slug));
     return sem !== undefined ? { ...row, semanticRank: sem } : row;
   });
-  return { results, semantic: true };
+  return { results: expand(fusedTop), semantic: true };
 }
