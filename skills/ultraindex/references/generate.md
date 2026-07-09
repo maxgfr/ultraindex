@@ -80,6 +80,14 @@ every dossier into one context — reading them all yourself is exactly the
 context blow-up this skill exists to avoid. Without subagents the sequential loop
 above is the fallback: same steps, one module at a time.
 
+`orchestrate` now EMITS this exact fan-out from the current queue:
+`node scripts/ultraindex.mjs orchestrate --phase enrich` writes
+`<index>/orchestration/enrich.workflow.mjs` (the real slugs, batched, with
+absolute paths baked in), `agents/enricher.md` (the isolation contract below,
+made dispatchable) and a sequential `RUNBOOK.md` fallback — prefer it over
+hand-writing the dispatch (see **Orchestration — route by harness** in
+SKILL.md). The rationale and the rules below apply unchanged either way.
+
 The orchestrator's sequence:
 
 1. Run `build` **once**, then `node scripts/ultraindex.mjs status --json` for the

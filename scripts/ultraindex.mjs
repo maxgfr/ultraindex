@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve, join as join14, dirname as dirname5 } from "path";
-import { existsSync as existsSync4 } from "fs";
+import { resolve, join as join16, dirname as dirname6 } from "path";
+import { existsSync as existsSync5 } from "fs";
 import { pathToFileURL, fileURLToPath as fileURLToPath2 } from "url";
 import { realpathSync as realpathSync2 } from "fs";
 
@@ -8503,6 +8503,310 @@ async function runAsk(outDir, repo, question, k = 5) {
   };
 }
 
+// src/orchestrate.ts
+import { existsSync as existsSync4, mkdirSync as mkdirSync2, readFileSync as readFileSync5, writeFileSync as writeFileSync3 } from "fs";
+import { dirname as dirname5, join as join15 } from "path";
+
+// src/orchestrate-templates.ts
+import { join as join14 } from "path";
+var ENRICH_SCHEMA = {
+  type: "object",
+  required: ["entries"],
+  properties: {
+    entries: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["slug", "entry", "note"],
+        properties: {
+          slug: { type: "string", description: "the module slug you enriched" },
+          entry: { type: "string", description: "absolute path of the encyclopedia entry you wrote" },
+          note: { type: "string", description: "one line on what you enriched, grounded in the dossier" }
+        }
+      }
+    }
+  }
+};
+var VERIFY_ANSWER_SCHEMA = {
+  type: "object",
+  required: ["pairs"],
+  properties: {
+    pairs: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["claimId", "citation", "verdict", "note"],
+        properties: {
+          claimId: { type: "string" },
+          citation: { type: "string" },
+          verdict: { enum: ["supported", "partial", "refuted", "unsupported"] },
+          note: { type: "string", description: "one line grounded in the source you read" }
+        }
+      }
+    }
+  }
+};
+var PHASE_SPECS = {
+  enrich: {
+    role: "enricher",
+    title: "Enrich",
+    schema: ENRICH_SCHEMA,
+    description: (n) => `Enrich the ${n} unenriched encyclopedia entr${n === 1 ? "y" : "ies"} of an ultraindex index with cited prose (disjoint-write fan-out)`,
+    joinHint: (ctx) => `node ${ctx.engine} check --out ${ctx.out} --repo ${ctx.repo}`
+  },
+  "verify-answer": {
+    role: "refuter",
+    title: "Verify",
+    schema: VERIFY_ANSWER_SCHEMA,
+    description: (n) => `Adversarially verify the ${n} claim\u2194citation pair(s) of an answer over an ultraindex index (skeptic fan-out)`,
+    joinHint: (ctx) => `node ${ctx.engine} verify --apply <verdicts.json> --answer ${ctx.answer ?? "<answer.md>"}`
+  }
+};
+function phaseSpec(name2) {
+  const spec = PHASE_SPECS[name2];
+  if (!spec) throw new Error(`no phase spec for "${name2}"`);
+  return spec;
+}
+function toBatches(ids, batchSize) {
+  const out2 = [];
+  for (let i2 = 0; i2 < ids.length; i2 += batchSize) out2.push(ids.slice(i2, i2 + batchSize));
+  return out2;
+}
+function phaseWorkflowScript(ph, ctx, batchSize) {
+  const spec = phaseSpec(ph.name);
+  const scriptPath = join14(ctx.out, "orchestration", `${ph.name}.workflow.mjs`);
+  const meta = { name: `ultraindex-${ph.name}`, description: spec.description(ph.items), phases: [{ title: spec.title }] };
+  const source = ph.name === "enrich" ? "the CURRENT enrichment queue (exactly what `status --json` reports)" : "the CURRENT claim\u2194citation worklist";
+  return [
+    `export const meta = ${JSON.stringify(meta)}`,
+    ``,
+    `// NOT a plain Node script: launch via the Workflow tool \u2014 Workflow({ scriptPath: ${JSON.stringify(scriptPath)} }).`,
+    `// Emitted by \`ultraindex orchestrate\` from ${source}. The index is the`,
+    `// source of truth: if it changes, re-run \`orchestrate --phase ${ph.name}\` before launching.`,
+    `//`,
+    `// HARD RULE: no \`build\` or \`map\` runs while this fan-out is in flight \u2014 \`build\``,
+    `// rewrites every encyclopedia entry, so a mid-fan-out rebuild races and clobbers`,
+    `// the agents' writes. Build once before; never during.`,
+    ``,
+    `// Constants for THIS index (injected at emit time; no Date.now/Math.random in this harness).`,
+    `const OUT = ${JSON.stringify(ctx.out)}`,
+    `const REPO = ${JSON.stringify(ctx.repo)}`,
+    `const ENGINE = ${JSON.stringify(ctx.engine)}`,
+    `const WORKLIST = ${JSON.stringify(ph.worklist)}`,
+    `const AGENTS = OUT + '/orchestration/agents'`,
+    `const BATCHES = ${JSON.stringify(toBatches(ph.ids, batchSize))}`,
+    `const SCHEMA = ${JSON.stringify(spec.schema)}`,
+    ``,
+    `function contract(name, extra) {`,
+    `  return 'Read and follow the dispatch contract at ' + AGENTS + '/' + name + '.md VERBATIM.\\n'`,
+    `    + 'Constants: OUT=' + OUT + '  REPO=' + REPO + '  ENGINE=' + ENGINE + '  WORKLIST=' + WORKLIST + '.\\n'`,
+    `    + 'Invoke the engine only by its ABSOLUTE path: node ' + ENGINE + ' <cmd> \u2014 read-only commands only.'`,
+    `    + (extra ? '\\n' + extra : '')`,
+    `}`,
+    ``,
+    `log('ultraindex ${ph.name}: ' + ${JSON.stringify(String(ph.items))} + ' item(s) across ' + BATCHES.length + ' agent(s)')`,
+    ``,
+    `phase(${JSON.stringify(spec.title)})`,
+    `const results = await pipeline(BATCHES, (batch, _item, i) =>`,
+    `  agent(contract('${spec.role}', 'ITEMS=' + batch.join(',')), { label: '${ph.name}:' + (i + 1), phase: ${JSON.stringify(spec.title)}, agentType: 'general-purpose', schema: SCHEMA }))`,
+    ``,
+    ...ph.name === "enrich" ? [
+      `// Disjoint-write exception: each enricher wrote ONLY its own encyclopedia/<slug>.md`,
+      `// entries and returned the list. After the join, the orchestrator (you) runs the`,
+      `// single repo-wide gate and routes each grounding failure back to the agent that`,
+      `// owns that entry (never a mid-flight rebuild):`,
+      `//   ${spec.joinHint(ctx, ph)}`
+    ] : [
+      `// One-writer rule: this workflow only COLLECTS verdict fragments. The main agent folds`,
+      `// them into a verdicts.json itself (your ITEMS are 1-based positions in the worklist's`,
+      `// pairs[]), then runs the fail-closed fold:`,
+      `//   ${spec.joinHint(ctx, ph)}`
+    ],
+    `return { phase: ${JSON.stringify(ph.name)}, worklist: WORKLIST, results: results.filter(Boolean) }`,
+    ``
+  ].join("\n");
+}
+function agentContracts(ctx) {
+  const engine = `node ${ctx.engine}`;
+  return {
+    enricher: `# Contract: enricher
+
+You enrich encyclopedia entries of an ultraindex index \u2014 the grounded business analysis the deterministic engine cannot write. Handle ONLY the module slugs named in your prompt (\`ITEMS=<slug,\u2026>\`).
+
+Index: \`${ctx.out}\` \xB7 Repo: \`${ctx.repo}\`. The queue you were drawn from is exactly what \`${engine} status --out ${ctx.out} --json\` reports (unenriched modules, most useful first).
+
+For EACH of your slugs:
+
+1. Run \`${engine} dossier <slug> --out ${ctx.out}\` (read-only) and read ONLY that packet \u2014 the module's real key source + graph neighbours. A docs/config-only module (often \`root\`) shows no code \u2014 cite its README/config files instead.
+2. Edit \`${join14(ctx.out, "encyclopedia")}/<slug>.md\`: fill the \`ui:human\` regions (\`business\` \u2014 what it does for the product and how it connects; \`gotchas\` \u2014 caveats) with 2\u20135 sentences of genuine analysis, **citing the evidence** as \`[file]\`, \`[file:line]\` or \`[file:start-end]\`. Write only what the source supports \u2014 no guessing. Remove the \`<!-- ui:enrich -->\` stub marker; leave every \`ui:gen\` region alone.
+3. Cite only files inside that module (you may open a file the dossier lists to cite a line past the excerpt \u2014 never a file outside your module).
+
+Return (structured output): \`{ "entries": [{ "slug", "entry", "note" }] }\` \u2014 the entries you wrote (absolute paths) + a one-line note per entry, so the orchestrator can route \`check\` failures back to you.
+
+## Write ONLY your own entries (the sanctioned disjoint-write exception)
+
+ultraindex relaxes the family one-writer rule in exactly one place, and you are it: each module's entry is an independent unit of work, so you write your cited prose DIRECTLY into your own \`encyclopedia/<slug>.md\` entries \u2014 and nothing else. Do NOT edit another module's entry; do NOT touch \`graph.json\` / \`manifest.json\` / \`INDEX.md\` / \`vectors.json\` / \`symbols.json\`. HARD RULE: no \`build\` or \`map\` runs while the fan-out is in flight \u2014 a mid-fan-out rebuild races and clobbers every agent's writes. There is no per-module check either: the orchestrator runs a single repo-wide \`check\` after the join and routes grounding failures back per entry.
+`,
+    refuter: `# Contract: refuter
+
+You are an adversarial skeptic verifying the claims of an answer written over an ultraindex index. Your job is to try to REFUTE each claim: assume it is wrong until the cited source proves it.
+
+Worklist: the \`VERIFY.todo.json\` named in your prompt's \`WORKLIST=\` constant (an object with \`answer\` and \`pairs[]\`; each pair has \`claimId\`, \`claim\`, \`citation\`, \`path\`, \`digest\`). Handle ONLY the pairs whose 1-based position in \`pairs[]\` is named in your prompt (\`ITEMS=<n,\u2026>\`).
+
+For EACH of your pairs:
+
+1. Read the pair's \`digest\` (the cited excerpt, extracted verbatim at \`verify\` time) and open \`path\` in the repo (\`${ctx.repo}\`) at the cited lines whenever the digest alone cannot settle it.
+2. Judge whether the excerpt SUPPORTS the claim:
+   - \`supported\` \u2014 the cited source establishes the claim as stated.
+   - \`partial\` \u2014 a real basis, but the claim overstates it (wrong scope, exaggerated behaviour).
+   - \`unsupported\` \u2014 the source does not establish the claim.
+   - \`refuted\` \u2014 the source contradicts the claim.
+   When unsure, choose the HARSHER verdict \u2014 a false pass is worse than a false fail.
+3. \`note\` is REQUIRED \u2014 one line grounded in what you read (quote or paraphrase the decisive code).
+
+Return (structured output): \`{ "pairs": [{ "claimId", "citation", "verdict", "note" }] }\` \u2014 your ITEMS only.
+
+## Return, don't write
+
+Return ONLY the structured output specified above. Do NOT write, edit, or delete any file; do NOT run any engine command that writes (\`build\`, \`embed\`, \`verify --apply\`). The orchestrator is the sole writer \u2014 it folds your verdicts into a verdicts file itself and runs the fail-closed \`verify --apply\` gate. Exception: if a justification is prose too large to return, write ONLY to \`${join14(ctx.out, "orchestration", "out")}/<role>-<batch>.md\` (a file namespaced to you alone) and return its path.
+`
+  };
+}
+function runbookMd(phases, ctx) {
+  const status = phases.map((p) => `| ${p.name} | \`${p.worklist}\` | ${p.ready ? `ready (${p.items} item(s))` : "not ready"} | \`${p.prerequisite}\` |`).join("\n");
+  const engine = `node ${ctx.engine}`;
+  const agents = join14(ctx.out, "orchestration", "agents");
+  return `# ultraindex \u2014 sequential RUNBOOK (eco / no-subagent fallback)
+
+Index: \`${ctx.out}\` \xB7 Repo: \`${ctx.repo}\` \xB7 Engine: \`${engine}\`
+
+Generated by \`ultraindex orchestrate\` from the CURRENT index state. This sequential path is
+correctness-identical to the multi-agent workflows \u2014 same queue, same contracts, same
+grounding gates; only wall-clock differs. Fan-out is an optimization, not a requirement.
+
+## Phase status
+
+| Phase | Worklist | Status | Produce it with |
+|---|---|---|---|
+${status}
+
+## The loop (play every role yourself, one item at a time)
+
+1. **Build** (if not done): \`${engine} build --repo ${ctx.repo} --out ${ctx.out}\` \u2014 once, before any enrichment.
+2. **Queue**: \`${engine} status --out ${ctx.out} --json\` \u2014 every module in the exact order to enrich (unenriched first, hubs first). The enrich phase fans out over \`${join14(ctx.out, "graph.json")}\` + the entries exactly as this queue reports them.
+3. **Enrich each module** \u2014 apply \`${join14(agents, "enricher.md")}\` yourself: \`${engine} dossier <slug> --out ${ctx.out}\`, then write 2\u20135 sentences of cited \`[file:line]\` prose into the \`ui:human\` regions of \`${join14(ctx.out, "encyclopedia")}/<slug>.md\`. One module at a time; the hard rule holds here too \u2014 no \`build\` or \`map\` mid-loop.
+4. **Gate**: \`${engine} check --out ${ctx.out} --repo ${ctx.repo}\` \u2014 repo-wide; it keys each grounding failure to its entry. Fix and re-run until green (never delete a citation just to pass).
+5. **Semantic layer** (only if \`vectors.json\` exists): \`${engine} embed --out ${ctx.out}\`.
+6. **Verify an answer** (high assurance): \`${engine} verify --answer <answer.md> --repo ${ctx.repo}\` writes \`VERIFY.todo.json\` next to the answer. For EVERY pair, apply \`${join14(agents, "refuter.md")}\` yourself (verdict + note), save your rows as \`verdicts.json\`, then \`${engine} verify --apply verdicts.json --answer <answer.md>\` and gate with \`${engine} check --answer <answer.md> --semantic --out ${ctx.out}\`.
+
+With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${ctx.out} --phase <p>\` then \`Workflow({ scriptPath: "${join14(ctx.out, "orchestration", "<p>.workflow.mjs")}" })\` \u2014 one repo-wide \`check\` after the join either way, and no \`build\` or \`map\` while agents are in flight.
+`;
+}
+
+// src/orchestrate.ts
+var PHASES = ["enrich", "verify-answer"];
+var SMALL_WORKLIST = 3;
+var BATCH_SIZE2 = 8;
+function listPhases(ctx) {
+  const st = runStatus(ctx.out);
+  const enrichIds = st ? st.modules.filter((m) => !m.enriched).map((m) => m.slug) : [];
+  const verifyWl = join15(ctx.answer ? dirname5(ctx.answer) : ctx.repo, "VERIFY.todo.json");
+  let verifyIds = [];
+  let verifyReady = false;
+  if (existsSync4(verifyWl)) {
+    try {
+      const todo = JSON.parse(readFileSync5(verifyWl, "utf8"));
+      if (todo && Array.isArray(todo.pairs)) {
+        verifyReady = true;
+        verifyIds = todo.pairs.map((_, i2) => String(i2 + 1));
+      }
+    } catch {
+    }
+  }
+  return [
+    {
+      name: "enrich",
+      ready: st !== void 0,
+      worklist: indexPaths(ctx.out).graph,
+      items: enrichIds.length,
+      ids: enrichIds,
+      prerequisite: `node ${ctx.engine} build --repo ${ctx.repo} --out ${ctx.out}`
+    },
+    {
+      name: "verify-answer",
+      ready: verifyReady,
+      worklist: verifyWl,
+      items: verifyIds.length,
+      ids: verifyIds,
+      prerequisite: `node ${ctx.engine} verify --answer ${ctx.answer ?? "<answer.md>"} --repo ${ctx.repo}` + (ctx.answer ? "" : ` (then re-run orchestrate with --answer <answer.md>)`)
+    }
+  ];
+}
+function orchestrateRun(ctx, opts = {}) {
+  const phases = listPhases(ctx);
+  if (!phases[0].ready) {
+    return {
+      exitCode: 2,
+      written: [],
+      notices: [],
+      errors: [`no index at ${ctx.out} \u2014 produce it first: ${phases[0].prerequisite}`],
+      phases
+    };
+  }
+  let selected = phases.filter((p) => p.ready);
+  if (opts.phase !== void 0) {
+    const ph = phases.find((p) => p.name === opts.phase);
+    if (!ph) {
+      return {
+        exitCode: 2,
+        written: [],
+        notices: [],
+        errors: [`unknown phase "${opts.phase}" \u2014 expected one of: ${PHASES.join(", ")}.`],
+        phases
+      };
+    }
+    if (!ph.ready) {
+      return {
+        exitCode: 2,
+        written: [],
+        notices: [],
+        errors: [`phase "${ph.name}" is not ready \u2014 its worklist ${ph.worklist} does not exist yet. Produce it first: ${ph.prerequisite}`],
+        phases
+      };
+    }
+    selected = [ph];
+  }
+  const orchDir = join15(ctx.out, "orchestration");
+  const agentsDir = join15(orchDir, "agents");
+  mkdirSync2(join15(orchDir, "out"), { recursive: true });
+  mkdirSync2(agentsDir, { recursive: true });
+  const written = [];
+  const notices = [];
+  for (const [name2, content] of Object.entries(agentContracts(ctx))) {
+    const p = join15(agentsDir, `${name2}.md`);
+    writeFileSync3(p, content);
+    written.push(p);
+  }
+  if (!opts.eco) {
+    for (const ph of selected) {
+      if (ph.items === 0) {
+        notices.push(`phase "${ph.name}": the queue is empty \u2014 nothing to orchestrate.`);
+        continue;
+      }
+      if (ph.items <= SMALL_WORKLIST) {
+        notices.push(`phase "${ph.name}": only ${ph.items} item(s) \u2014 the sequential --eco path is equivalent and cheaper.`);
+      }
+      const p = join15(orchDir, `${ph.name}.workflow.mjs`);
+      writeFileSync3(p, phaseWorkflowScript(ph, ctx, BATCH_SIZE2));
+      written.push(p);
+    }
+  }
+  const rb = join15(orchDir, "RUNBOOK.md");
+  writeFileSync3(rb, runbookMd(phases, ctx));
+  written.push(rb);
+  return { exitCode: 0, written, notices, errors: [], phases };
+}
+
 // src/cli.ts
 var HELP = `ultraindex v${VERSION}
 Deterministically index a whole repo (code + docs) into a navigable encyclopedia
@@ -8522,6 +8826,7 @@ Usage:
   ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
+  ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -8550,6 +8855,10 @@ Commands:
              add --semantic to also fail on a claim its cited excerpt doesn't support.
   verify     Emit a claim\u2194citation worklist for adversarial support-checking of
              an answer, then (--apply <verdicts.json>) gate on refuted/unsupported.
+  orchestrate  Emit the index's multi-agent fan-out from its CURRENT state into
+             <out>/orchestration/: one workflow script per ready phase (enrich =
+             the status work-queue; verify-answer = the claim\u2194citation worklist),
+             the dispatch contracts, and a sequential RUNBOOK fallback.
 
 Options:
   --repo <dir>      Repo to index / check / read source from  (default: .)
@@ -8566,6 +8875,10 @@ Options:
   --answer <file>   check/verify: the answer file whose citations to validate
   --apply <file>    verify: reduce a filled verdicts file to a pass/fail gate
   --max-verify <n>  verify: cap the claim\u2194citation worklist           (default: 40)
+  --phase <name>    orchestrate: emit one phase only \u2014 enrich | verify-answer
+  --eco             orchestrate: emit only RUNBOOK.md + agents/*.md (the explicit
+                    low-token sequential path)
+  --list            orchestrate: print the phases + readiness as JSON, emit nothing
   --force           embed: re-embed every module even if unchanged
   --json            Machine-readable output
   --quiet           check: print nothing, use the exit code only
@@ -8586,9 +8899,9 @@ Grounding:
   [path:start-end]. \`check\` (encyclopedia prose) and \`check --answer\` fail if a
   citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify"]);
-var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "quiet", "force", "semantic"]);
+var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify", "orchestrate"]);
+var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify", "phase"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "quiet", "force", "semantic", "eco", "list"]);
 var REASON_HINTS = {
   "missing-module": "a relative import's target file does not exist \u2014 usually a real broken import in the repo, worth reporting",
   "alias-unresolved": "a tsconfig path alias matched but its target file is missing \u2014 check the tsconfig paths or uncommitted build artifacts",
@@ -8662,10 +8975,10 @@ function splitList(s) {
 }
 function resolveOut(p, base) {
   if (p.values.out) return resolve(p.values.out);
-  const dotted = join14(base, ".ultraindex");
-  if (existsSync4(dotted)) return dotted;
-  const docs = join14(base, "docs", "ultraindex");
-  if (existsSync4(docs)) return docs;
+  const dotted = join16(base, ".ultraindex");
+  if (existsSync5(dotted)) return dotted;
+  const docs = join16(base, "docs", "ultraindex");
+  if (existsSync5(docs)) return docs;
   return dotted;
 }
 function resolveRepoRoot(p, out2) {
@@ -8674,8 +8987,8 @@ function resolveRepoRoot(p, out2) {
 }
 async function cmdBuild(p) {
   const repo = resolve(p.values.repo ?? ".");
-  if (!existsSync4(repo)) fail(`repo not found: ${repo}`);
-  const out2 = p.values.out ? resolve(p.values.out) : join14(repo, ".ultraindex");
+  if (!existsSync5(repo)) fail(`repo not found: ${repo}`);
+  const out2 = p.values.out ? resolve(p.values.out) : join16(repo, ".ultraindex");
   const maxBytes = p.values["max-bytes"] ? Number(p.values["max-bytes"]) : void 0;
   if (maxBytes !== void 0 && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
   const maxFiles = p.values["max-files"] ? Number(p.values["max-files"]) : void 0;
@@ -8775,7 +9088,7 @@ async function cmdEmbed(p) {
   const cfg = loadSemanticConfig(out2);
   if (!cfg) {
     fail(
-      `no semantic config \u2014 set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join14(out2, "semantic.json")} ({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`
+      `no semantic config \u2014 set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join16(out2, "semantic.json")} ({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`
     );
   }
   const report = await runEmbed(out2, cfg, p.bools.has("force"));
@@ -8980,7 +9293,7 @@ function cmdVerify(p) {
   const answer = p.values.answer;
   if (!answer) fail("missing --answer <file> \u2014 usage: ultraindex verify --answer <file> [--repo <dir>]");
   const answerPath = resolve(answer);
-  const dir = dirname5(answerPath);
+  const dir = dirname6(answerPath);
   if (p.values.apply) {
     let res;
     try {
@@ -8993,7 +9306,7 @@ function cmdVerify(p) {
     if (!res.ok) process.exit(1);
     return;
   }
-  if (!existsSync4(answerPath)) fail(`answer file not found: ${answerPath}`);
+  if (!existsSync5(answerPath)) fail(`answer file not found: ${answerPath}`);
   const out2 = resolveOut(p, resolve(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   const maxVerify = p.values["max-verify"] ? Number(p.values["max-verify"]) : VERIFY_MAX;
@@ -9008,6 +9321,36 @@ function cmdVerify(p) {
   adjudicate each verdict, save as verdicts.json, then: ultraindex verify --apply verdicts.json --answer ${answerPath}
 `
   );
+}
+function cmdOrchestrate(p) {
+  const base = resolve(p.values.repo ?? ".");
+  const out2 = resolveOut(p, base);
+  const repo = resolveRepoRoot(p, out2);
+  const engine = realpathSync2(fileURLToPath2(import.meta.url));
+  const ctx = { out: out2, repo, engine, answer: p.values.answer ? resolve(p.values.answer) : void 0 };
+  if (p.bools.has("list")) {
+    process.stdout.write(JSON.stringify({ phases: listPhases(ctx) }, null, 2) + "\n");
+    return;
+  }
+  const res = orchestrateRun(ctx, {
+    phase: p.values.phase,
+    eco: p.bools.has("eco")
+  });
+  if (res.exitCode !== 0) {
+    for (const e of res.errors) process.stderr.write(`ultraindex orchestrate: ${e}
+`);
+    process.exit(res.exitCode);
+  }
+  const lines = ["ultraindex: orchestration generated", ...res.written.map((w) => `  ${w}`)];
+  for (const n of res.notices) lines.push(`  note:     ${n}`);
+  const workflows = res.written.filter((w) => w.endsWith(".workflow.mjs"));
+  if (workflows.length) {
+    for (const w of workflows) lines.push(`  launch:   Workflow({ scriptPath: ${JSON.stringify(w)} })`);
+    lines.push(`  join:     one repo-wide \`check\` after all agents return \u2014 and no \`build\` or \`map\` while they run`);
+  } else {
+    lines.push(`  next:     follow ${join16(out2, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
+  }
+  process.stderr.write(lines.join("\n") + "\n");
 }
 async function main() {
   const p = parseArgs(process.argv.slice(2));
@@ -9036,6 +9379,8 @@ async function main() {
       return cmdCheck(p);
     case "verify":
       return cmdVerify(p);
+    case "orchestrate":
+      return cmdOrchestrate(p);
   }
 }
 function isInvokedDirectly() {
