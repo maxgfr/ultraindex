@@ -8,6 +8,8 @@ export interface NeighborLink {
   kind: string;
   weight: number;
   depth: number;
+  // Only present for a `call` edge — see Edge.confidence.
+  confidence?: "extracted" | "inferred";
 }
 
 export interface NeighborResult {
@@ -35,13 +37,13 @@ function bfs(edges: Edge[], start: string, depth: number): NeighborLink[] {
     for (const node of frontier) {
       for (const e of (out.get(node) ?? []).slice().sort((a, b) => byStr(a.to, b.to))) {
         if (seen.has(e.to)) continue;
-        links.push({ node: e.to, direction: "out", kind: e.kind, weight: e.weight, depth: d });
+        links.push({ node: e.to, direction: "out", kind: e.kind, weight: e.weight, depth: d, confidence: e.confidence });
         seen.add(e.to);
         next.push(e.to);
       }
       for (const e of (inn.get(node) ?? []).slice().sort((a, b) => byStr(a.from, b.from))) {
         if (seen.has(e.from)) continue;
-        links.push({ node: e.from, direction: "in", kind: e.kind, weight: e.weight, depth: d });
+        links.push({ node: e.from, direction: "in", kind: e.kind, weight: e.weight, depth: d, confidence: e.confidence });
         seen.add(e.from);
         next.push(e.from);
       }

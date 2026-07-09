@@ -240,6 +240,15 @@ async function cmdBuild(p: Parsed): Promise<void> {
 
   const danglingEdges = graph.fileEdges.filter((e) => e.dangling);
   const dangling = danglingEdges.length;
+  // Confidence breakdown of resolved call edges — surfaces how much of the call
+  // graph is import-corroborated (extracted) vs. name-only (inferred), since the
+  // latter is weaker evidence a reader may want to sanity-check.
+  const callEdges = graph.fileEdges.filter((e) => e.kind === "call");
+  const calls = {
+    total: callEdges.length,
+    extracted: callEdges.filter((e) => e.confidence === "extracted").length,
+    inferred: callEdges.filter((e) => e.confidence === "inferred").length,
+  };
   if (p.bools.has("json")) {
     const danglingByReason: Record<string, number> = {};
     for (const e of danglingEdges) {
@@ -260,6 +269,7 @@ async function cmdBuild(p: Parsed): Promise<void> {
           modules: graph.modules.length,
           edges: graph.fileEdges.length,
           dangling,
+          calls,
           ...(dangling ? { danglingByReason, reasonHints } : {}),
           ...(capped ? { truncated: true } : {}),
           orphaned: manifest.orphaned,
@@ -275,6 +285,8 @@ async function cmdBuild(p: Parsed): Promise<void> {
     `ultraindex: built index for ${graph.fileCount} files${capped ? " (PARTIAL — --max-files cap hit)" : ""}`,
     `  out:      ${out}${graph.commit ? `  (@ ${graph.commit})` : ""}`,
     `  modules:  ${graph.modules.length} · links: ${graph.fileEdges.length}${dangling ? ` · dangling: ${dangling}` : ""}`,
+    // Omitted on a repo with no call edges — no point flagging a zero.
+    ...(calls.total ? [`  calls:    ${calls.total} (${calls.extracted} extracted · ${calls.inferred} inferred)`] : []),
     ...(capped ? [`  WARNING:  scan hit --max-files — the index is partial; raise --max-files to index the whole repo`] : []),
     ...(manifest.orphaned.length ? [`  orphaned: ${manifest.orphaned.length} (see encyclopedia/_orphaned/)`] : []),
     ...(manifest.notes.length ? [`  notes:    ${manifest.notes.length} (see manifest.json)`] : []),
@@ -360,7 +372,9 @@ function cmdNeighbors(p: Parsed): void {
   if (res.links.length === 0) lines.push("  (no neighbours)");
   for (const l of res.links) {
     const arrow = l.direction === "out" ? "→" : "←";
-    lines.push(`  ${arrow} ${l.node}  (${l.kind}${l.weight > 1 ? ` ×${l.weight}` : ""}, depth ${l.depth})`);
+    // Only a `call` edge carries a confidence — surface it as one terse token.
+    const confidence = l.confidence ? ` ·${l.confidence}` : "";
+    lines.push(`  ${arrow} ${l.node}  (${l.kind}${l.weight > 1 ? ` ×${l.weight}` : ""}${confidence}, depth ${l.depth})`);
   }
   process.stdout.write(lines.join("\n") + "\n");
 }

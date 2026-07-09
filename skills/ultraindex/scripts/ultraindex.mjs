@@ -8052,13 +8052,13 @@ function bfs(edges, start2, depth) {
     for (const node of frontier) {
       for (const e of (out2.get(node) ?? []).slice().sort((a, b) => byStr(a.to, b.to))) {
         if (seen.has(e.to)) continue;
-        links.push({ node: e.to, direction: "out", kind: e.kind, weight: e.weight, depth: d });
+        links.push({ node: e.to, direction: "out", kind: e.kind, weight: e.weight, depth: d, confidence: e.confidence });
         seen.add(e.to);
         next.push(e.to);
       }
       for (const e of (inn.get(node) ?? []).slice().sort((a, b) => byStr(a.from, b.from))) {
         if (seen.has(e.from)) continue;
-        links.push({ node: e.from, direction: "in", kind: e.kind, weight: e.weight, depth: d });
+        links.push({ node: e.from, direction: "in", kind: e.kind, weight: e.weight, depth: d, confidence: e.confidence });
         seen.add(e.from);
         next.push(e.from);
       }
@@ -8088,7 +8088,7 @@ function runNeighbors(outDir, target, depth = 1) {
 function reverseClosure(edges, seeds, depth) {
   const dependents = /* @__PURE__ */ new Map();
   for (const e of edges) {
-    if (e.dangling || e.kind !== "import" && e.kind !== "use") continue;
+    if (e.dangling || e.kind !== "import" && e.kind !== "use" && e.kind !== "call") continue;
     let arr = dependents.get(e.to);
     if (!arr) dependents.set(e.to, arr = []);
     arr.push(e);
@@ -9049,6 +9049,12 @@ async function cmdBuild(p) {
   );
   const danglingEdges = graph.fileEdges.filter((e) => e.dangling);
   const dangling = danglingEdges.length;
+  const callEdges = graph.fileEdges.filter((e) => e.kind === "call");
+  const calls = {
+    total: callEdges.length,
+    extracted: callEdges.filter((e) => e.confidence === "extracted").length,
+    inferred: callEdges.filter((e) => e.confidence === "inferred").length
+  };
   if (p.bools.has("json")) {
     const danglingByReason = {};
     for (const e of danglingEdges) {
@@ -9067,6 +9073,7 @@ async function cmdBuild(p) {
           modules: graph.modules.length,
           edges: graph.fileEdges.length,
           dangling,
+          calls,
           ...dangling ? { danglingByReason, reasonHints } : {},
           ...capped ? { truncated: true } : {},
           orphaned: manifest.orphaned,
@@ -9082,6 +9089,8 @@ async function cmdBuild(p) {
     `ultraindex: built index for ${graph.fileCount} files${capped ? " (PARTIAL \u2014 --max-files cap hit)" : ""}`,
     `  out:      ${out2}${graph.commit ? `  (@ ${graph.commit})` : ""}`,
     `  modules:  ${graph.modules.length} \xB7 links: ${graph.fileEdges.length}${dangling ? ` \xB7 dangling: ${dangling}` : ""}`,
+    // Omitted on a repo with no call edges — no point flagging a zero.
+    ...calls.total ? [`  calls:    ${calls.total} (${calls.extracted} extracted \xB7 ${calls.inferred} inferred)`] : [],
     ...capped ? [`  WARNING:  scan hit --max-files \u2014 the index is partial; raise --max-files to index the whole repo`] : [],
     ...manifest.orphaned.length ? [`  orphaned: ${manifest.orphaned.length} (see encyclopedia/_orphaned/)`] : [],
     ...manifest.notes.length ? [`  notes:    ${manifest.notes.length} (see manifest.json)`] : [],
@@ -9162,7 +9171,8 @@ function cmdNeighbors(p) {
   if (res.links.length === 0) lines.push("  (no neighbours)");
   for (const l of res.links) {
     const arrow = l.direction === "out" ? "\u2192" : "\u2190";
-    lines.push(`  ${arrow} ${l.node}  (${l.kind}${l.weight > 1 ? ` \xD7${l.weight}` : ""}, depth ${l.depth})`);
+    const confidence = l.confidence ? ` \xB7${l.confidence}` : "";
+    lines.push(`  ${arrow} ${l.node}  (${l.kind}${l.weight > 1 ? ` \xD7${l.weight}` : ""}${confidence}, depth ${l.depth})`);
   }
   process.stdout.write(lines.join("\n") + "\n");
 }

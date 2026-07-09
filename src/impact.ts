@@ -16,14 +16,15 @@ export interface ImpactResult {
   modules: string[]; // distinct modules touched
 }
 
-// Reverse dependency closure: every file that transitively IMPORTS or USES one of
-// `seeds`, out to `depth` hops (default: the full closure). Only import/use edges
-// carry a real "depends on" relation — doc-links and mentions do not — so the
-// answer is "what breaks if I change this", not "what mentions it".
+// Reverse dependency closure: every file that transitively IMPORTS, USES, or
+// CALLS one of `seeds`, out to `depth` hops (default: the full closure).
+// Import/use/call edges are the only ones carrying a real "depends on"
+// relation — doc-links and mentions do not — so the answer is "what breaks if
+// I change this", not "what mentions it".
 function reverseClosure(edges: Edge[], seeds: string[], depth: number): Map<string, number> {
-  const dependents = new Map<string, Edge[]>(); // target file → incoming import/use edges
+  const dependents = new Map<string, Edge[]>(); // target file → incoming import/use/call edges
   for (const e of edges) {
-    if (e.dangling || (e.kind !== "import" && e.kind !== "use")) continue;
+    if (e.dangling || (e.kind !== "import" && e.kind !== "use" && e.kind !== "call")) continue;
     let arr = dependents.get(e.to);
     if (!arr) dependents.set(e.to, (arr = []));
     arr.push(e);

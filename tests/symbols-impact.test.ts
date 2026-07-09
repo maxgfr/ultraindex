@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runBuild } from "../src/build.js";
 import { runSymbols, lookupSymbols } from "../src/symbols.js";
-import { runImpact } from "../src/impact.js";
+import { runImpact, impactOf } from "../src/impact.js";
+import { neighborsOf } from "../src/neighbors.js";
 import { SCHEMA_VERSION, VERSION } from "../src/types.js";
 import type { Graph, SymbolIndex } from "../src/types.js";
 
@@ -124,5 +125,42 @@ describe("impact command", () => {
 
   it("returns undefined for an unknown target", () => {
     expect(runImpact(OUT, "no/such/file.ts")).toBeUndefined();
+  });
+
+  it("treats a `call` edge as a dependency even with no import/use between the files", () => {
+    // A calls B by a call edge alone (e.g. a same-language call resolved without
+    // a matching import) — a caller still breaks if the callee's signature
+    // changes, so this must surface exactly like an import/use dependent would.
+    const file = (rel: string): Graph["files"][number] => ({
+      id: rel, kind: "file", rel, fileKind: "code", lang: "typescript", module: "src", symbols: 0, lines: 1, degIn: 0, degOut: 0,
+    });
+    const graph: Graph = {
+      ...EMPTY_GRAPH,
+      files: [file("src/a.ts"), file("src/b.ts")],
+      fileEdges: [{ from: "src/a.ts", to: "src/b.ts", kind: "call", weight: 1, confidence: "extracted" }],
+    };
+    const res = impactOf(graph, "src/b.ts")!;
+    expect(res.files.some((f) => f.rel === "src/a.ts")).toBe(true);
+  });
+});
+
+describe("neighbors command", () => {
+  it("carries a call edge's confidence onto its link; a non-call edge has none", () => {
+    const file = (rel: string): Graph["files"][number] => ({
+      id: rel, kind: "file", rel, fileKind: "code", lang: "typescript", module: "src", symbols: 0, lines: 1, degIn: 0, degOut: 0,
+    });
+    const graph: Graph = {
+      ...EMPTY_GRAPH,
+      files: [file("src/a.ts"), file("src/b.ts"), file("src/c.ts")],
+      fileEdges: [
+        { from: "src/a.ts", to: "src/b.ts", kind: "call", weight: 1, confidence: "extracted" },
+        { from: "src/a.ts", to: "src/c.ts", kind: "import", weight: 1 },
+      ],
+    };
+    const res = neighborsOf(graph, "src/a.ts")!;
+    const call = res.links.find((l) => l.node === "src/b.ts")!;
+    expect(call.confidence).toBe("extracted");
+    const imp = res.links.find((l) => l.node === "src/c.ts")!;
+    expect(imp.confidence).toBeUndefined();
   });
 });

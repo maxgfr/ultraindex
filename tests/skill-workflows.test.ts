@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -17,15 +17,12 @@ const BUNDLE = fileURLToPath(new URL("../scripts/ultraindex.mjs", import.meta.ur
 const FIXED_TIME = "2026-01-01T00:00:00.000Z";
 
 // Spawn the bundle exactly as the skill instructs. Captures exit code + both
-// streams (some commands are gates that exit non-zero, which execFileSync throws on).
+// streams — spawnSync (unlike execFileSync) never throws on a non-zero exit and
+// always returns stdout/stderr regardless of outcome, so text reports written to
+// stderr on a SUCCESSFUL run (e.g. build's summary) are observable too.
 function run(args: string[]): { code: number; out: string; err: string } {
-  try {
-    const out = execFileSync(process.execPath, [BUNDLE, ...args], { encoding: "utf8" });
-    return { code: 0, out, err: "" };
-  } catch (e: unknown) {
-    const x = e as { status?: number; stdout?: Buffer | string; stderr?: Buffer | string };
-    return { code: typeof x.status === "number" ? x.status : 1, out: String(x.stdout ?? ""), err: String(x.stderr ?? "") };
-  }
+  const r = spawnSync(process.execPath, [BUNDLE, ...args], { encoding: "utf8" });
+  return { code: r.status ?? 1, out: r.stdout ?? "", err: r.stderr ?? "" };
 }
 
 function index(): string {
@@ -56,6 +53,31 @@ describe("generate workflow (shipped CLI)", () => {
     for (const reason of Object.keys(rep.danglingByReason)) {
       expect(typeof rep.reasonHints[reason]).toBe("string");
     }
+  });
+
+  it("build --json reports the call-edge confidence breakdown", () => {
+    // mini-repo has four call edges, all import-corroborated (extracted): two
+    // from src/client.ts, one in gopkg, one in pkg — see graph.test.ts's
+    // "resolves cross-file call edges..." for the per-pair detail.
+    const dir = mkdtempSync(join(tmpdir(), "ui-acc-"));
+    const r = run(["build", "--repo", REPO, "--out", join(dir, ".ui"), "--json", "--no-mermaid"]);
+    expect(r.code).toBe(0);
+    const rep = JSON.parse(r.out);
+    expect(rep.calls).toEqual({ total: 4, extracted: 4, inferred: 0 });
+  });
+
+  it("build (text) prints the calls line only when the repo has call edges", () => {
+    const withCalls = run(["build", "--repo", REPO, "--out", join(mkdtempSync(join(tmpdir(), "ui-acc-")), ".ui"), "--no-mermaid"]);
+    expect(withCalls.code).toBe(0);
+    expect(withCalls.err).toMatch(/calls:\s+4 \(4 extracted · 0 inferred\)/);
+
+    // A single file with no cross-file calls at all → the line is omitted, not
+    // printed as "calls: 0 (...)" noise.
+    const bare = mkdtempSync(join(tmpdir(), "ui-acc-nocall-"));
+    writeFileSync(join(bare, "a.ts"), "export const x = 1;\n");
+    const noCalls = run(["build", "--repo", bare, "--out", join(bare, ".ui"), "--no-mermaid"]);
+    expect(noCalls.code).toBe(0);
+    expect(noCalls.err).not.toMatch(/calls:/);
   });
 
   it("enrich → check passes; a non-resolving citation → check FAILS naming the entry", () => {
@@ -97,6 +119,17 @@ describe("navigate workflow (shipped CLI)", () => {
     expect(r.code).toBe(0);
     expect(r.out).toMatch(/open:/);
     expect(r.out).toMatch(/src\/util\.ts/);
+  });
+
+  it("neighbors marks a call edge's confidence; a non-call edge carries no marker", () => {
+    const dir = index();
+    // client.ts calls (and imports) backoff in util.ts — a `call` edge wins the
+    // same-pair tie over the `import` edge, so it prints with its confidence.
+    const r = run(["neighbors", "src/client.ts", "--out", dir]);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/→ src\/util\.ts\s+\(call ·extracted, depth 1\)/);
+    // index.ts→client.ts is a plain `import` — no confidence, so no marker.
+    expect(r.out).toMatch(/← src\/index\.ts\s+\(import, depth 1\)/);
   });
 
   it("check --answer gates Q&A: grounded passes; no citation / bad citation fail", () => {

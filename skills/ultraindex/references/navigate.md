@@ -35,7 +35,11 @@ workflow's job.
    path mentions it — so you can search the identifier directly, not just prose
    about it. With a semantic layer set up, results may also carry a
    `semanticRank` (see semantic.md). Use `neighbors <file|module>` to expand
-   along the graph ("what else touches this").
+   along the graph ("what else touches this") — its links now include `call`
+   edges (a resolved cross-file function/method call, not just imports/uses),
+   and a call link is marked `·extracted` (an import between the files
+   corroborates it) or `·inferred` (resolved by a unique name match with no
+   import evidence) so you can judge how solid the connection is.
 
    **Appended context rows.** Beyond the ranked hits, `find` may add a few
    rows flagged with a `via` marker: `via: term` is a module that ranked below
@@ -49,7 +53,7 @@ workflow's job.
    straight at every definition site (file:line, kind, owning module) and the
    files that reference it — no ranking, no guessing. Before you change a file
    or symbol, run `impact <file|module>` to see its reverse dependency closure
-   (everything that imports or uses it) so you know the blast radius.
+   (everything that imports, uses, or calls it) so you know the blast radius.
 
    **When `find` comes up empty or wrong, escalate in this order:**
    1. Re-query with synonyms and identifier-style terms (`auth login session`,
