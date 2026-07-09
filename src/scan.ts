@@ -19,6 +19,9 @@ export interface RepoScan {
   // them from disk (they were already read here). Docs only — bounding memory to
   // prose, never the whole source tree.
   docText: Map<string, string>;
+  // rel → last-modified ms for every kept file, so build.ts can persist the
+  // (size,mtime) fastpath key into cache.json for the next build.
+  mtimes: Map<string, number>;
   capped: boolean; // the walk hit --max-files and the index is partial
 }
 
@@ -28,9 +31,13 @@ export interface ScanOptions {
   maxBytes?: number;
   maxFiles?: number;
   out?: string; // absolute output dir to exclude from the scan (self-index guard)
-  // Previous build's extraction cache (rel → {hash, record}). A file whose
-  // content hash is unchanged reuses its record and skips re-extraction.
-  cache?: Map<string, { hash: string; record: FileRecord }>;
+  // Previous build's extraction cache (rel → {hash, record, size?, mtimeMs?}). A
+  // file whose (size,mtime) key matches skips read+hash entirely (the stat
+  // fastpath); one whose content hash is unchanged reuses its record and skips
+  // re-extraction.
+  cache?: Map<string, { hash: string; record: FileRecord; size?: number; mtimeMs?: number }>;
+  // Disable the stat fastpath: read and re-hash every file (see BuildOptions).
+  fullHash?: boolean;
 }
 
 function countLines(s: string): number {
@@ -53,6 +60,7 @@ export function scanRepo(root: string, opts: ScanOptions = {}): RepoScan {
   const files: FileRecord[] = [];
   const languages: Record<string, number> = {};
   const docText = new Map<string, string>();
+  const mtimes = new Map<string, number>();
 
   for (const f of walked) {
     if (outPrefix && (f.abs === opts.out || f.abs.startsWith(outPrefix))) continue;
@@ -62,14 +70,37 @@ export function scanRepo(root: string, opts: ScanOptions = {}): RepoScan {
     const kind = classify(f.rel, f.ext);
     const lang = extToLang(f.ext);
     languages[lang] = (languages[lang] ?? 0) + 1;
+    mtimes.set(f.rel, f.mtimeMs); // persist the fastpath key for the next build
 
-    // Read + hash every file every build (the staleness oracle stays exact);
-    // only EXTRACTION is cached. A cache hit reuses the previous record — content
-    // is byte-identical, so every derived field is too. classify()/extToLang()
-    // depend only on the path, so kind/lang are stable across the hit.
+    const cached = opts.cache?.get(f.rel);
+
+    // Stat fastpath: a NON-DOC file whose size AND mtime both match its cache
+    // entry is treated as unchanged and reuses its record WITHOUT a read or hash.
+    // Docs are EXEMPT — the graph's mention pass needs their raw content (docText)
+    // every build, so a doc is always read regardless. --full-hash disables the
+    // fastpath. The (size,mtime) pair is the heuristic here (not the exact content
+    // hash below): a real editor bumps mtime on every save, and --full-hash /
+    // --no-cache are the escape hatches for the astronomically-unlikely edit that
+    // preserves both.
+    if (
+      kind !== "doc" &&
+      !opts.fullHash &&
+      cached &&
+      cached.size !== undefined &&
+      cached.mtimeMs !== undefined &&
+      cached.size === f.size &&
+      cached.mtimeMs === f.mtimeMs
+    ) {
+      files.push(cached.record);
+      continue;
+    }
+
+    // Read + hash (the staleness oracle stays exact); only EXTRACTION is cached. A
+    // hash hit reuses the previous record — content is byte-identical, so every
+    // derived field is too. classify()/extToLang() depend only on the path, so
+    // kind/lang are stable across the hit.
     const content = readText(f.abs);
     const hash = sha1(content);
-    const cached = opts.cache?.get(f.rel);
     if (cached && cached.hash === hash) {
       files.push(cached.record);
       if (kind === "doc" && content) docText.set(f.rel, content);
@@ -124,5 +155,5 @@ export function scanRepo(root: string, opts: ScanOptions = {}): RepoScan {
   }
 
   files.sort(byKey((f) => f.rel));
-  return { root, commit: headCommit(root), files, languages, docText, capped };
+  return { root, commit: headCommit(root), files, languages, docText, mtimes, capped };
 }

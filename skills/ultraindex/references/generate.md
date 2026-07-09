@@ -10,8 +10,13 @@ node scripts/ultraindex.mjs build --repo <path-to-repo> --json
 
 Add `--out docs/ultraindex` if the team wants it committed and reviewed in PRs.
 Fast even on huge repos, and **incremental** — a rebuild reuses the extraction
-of files whose content is unchanged, so only edited files are re-parsed (pass
-`--no-cache` to force a full re-extract). The `--json` report is
+of files whose content is unchanged, so only edited files are re-parsed. A
+stat fastpath makes this cheaper still: a non-doc file whose size and
+modification time both match the previous build is treated as unchanged and
+skips the read+hash entirely (docs are always re-read, since their prose feeds
+the mention pass). Pass `--full-hash` to re-hash every file and disable that
+fastpath (use it if an edit might have preserved both size and mtime), or
+`--no-cache` to force a full re-extract. The `--json` report is
 self-diagnosing: if `dangling > 0`, read `danglingByReason` and its
 `reasonHints`, and check `notes` (unparseable tsconfig/package.json files are
 listed there). It also carries a `calls` breakdown (`{ total, extracted,

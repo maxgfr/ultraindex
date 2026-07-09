@@ -39,7 +39,12 @@ workflow's job.
    edges (a resolved cross-file function/method call, not just imports/uses),
    and a call link is marked `·extracted` (an import between the files
    corroborates it) or `·inferred` (resolved by a unique name match with no
-   import evidence) so you can judge how solid the connection is.
+   import evidence) so you can judge how solid the connection is. Pass
+   `--kind <k>` (a comma list of `import`, `call`, `use`, `doc-link`,
+   `mention`) to traverse only those edge kinds — e.g. `--kind import` to see
+   just the dependency graph, `--kind call` for the call graph. At `--depth 2`
+   or more, `neighbors` will surface a hyper-connected hub but not expand
+   through it, so one hub can't drag the whole repo into the result.
 
    **Appended context rows.** Beyond the ranked hits, `find` may add a few
    rows flagged with a `via` marker: `via: term` is a module that ranked below
@@ -83,7 +88,11 @@ from real code, not memory — and prove it:
    ```
    This finds the relevant modules and prints their **real source** (with line
    numbers) plus which files to open. Read it; open more files from the listed
-   ones if a thread is thin.
+   ones if a thread is thin. On a tight context window, add `--budget <n>` to
+   cap the inlined source at roughly `n` tokens: `ask`/`dossier` emit the
+   most-relevant files whole, then stop and print a truncation notice naming how
+   many trailing files the budget dropped (open those directly if you need
+   them). Without `--budget` the full evidence is printed as before.
 2. **Write the answer to `ANSWER.md`**, citing every claim with the evidence
    it rests on, in **bare brackets**: `[file]`, `[file:line]`, or
    `[file:start-end]` (e.g. `Retries use exponential backoff

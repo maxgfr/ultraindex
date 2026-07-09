@@ -271,6 +271,17 @@ export function pickSeeds(scored: { r: FindResult; degree: number }[], terms: Qu
 const EXPAND_DEPTH = 2;
 const HUB_FLOOR = 50;
 
+// The hub-gating threshold over a degree distribution: max(50, p99). p99 = the
+// degree at index min(n-1, floor(0.99n)) of the ASCENDING degree array (numeric
+// sort — deterministic without byStr). Exported so `neighbors`' BFS gates on the
+// exact same rule this module's `expandResults` applies to graph expansion.
+export function hubThreshold(degrees: number[]): number {
+  const sorted = degrees.slice().sort((a, b) => a - b);
+  const n = sorted.length;
+  const p99 = n === 0 ? 0 : sorted[Math.min(n - 1, Math.floor(0.99 * n))]!;
+  return Math.max(HUB_FLOOR, p99);
+}
+
 // Append graph context to the ranked top-k. Two kinds of rows are added after
 // `top` (unchanged, in order), deduped by slug, total length capped at k + 4:
 //   1. per-term-guarantee seeds not already shown — their REAL scored row from
@@ -306,12 +317,7 @@ export function expandResults(
     present.add(slug);
   }
 
-  // Hub threshold: max(50, p99). p99 = the degree at index min(n-1, floor(0.99n))
-  // of the ascending degree array. Numeric sort — deterministic without byStr.
-  const degrees = graph.modules.map((m) => m.degIn + m.degOut).sort((a, b) => a - b);
-  const n = degrees.length;
-  const p99 = n === 0 ? 0 : degrees[Math.min(n - 1, Math.floor(0.99 * n))]!;
-  const hubThreshold = Math.max(HUB_FLOOR, p99);
+  const threshold = hubThreshold(graph.modules.map((m) => m.degIn + m.degOut));
 
   // Undirected adjacency over resolved module edges only (a dangling edge points
   // at an unresolved spec, not a real module).
@@ -341,7 +347,7 @@ export function expandResults(
   }
   for (let i = 0; i < queue.length; i++) {
     const { slug, d } = queue[i]!;
-    const expand = d < EXPAND_DEPTH && (seedSet.has(slug) || degreeOf(slug) < hubThreshold);
+    const expand = d < EXPAND_DEPTH && (seedSet.has(slug) || degreeOf(slug) < threshold);
     if (!expand) continue;
     for (const nb of [...(adj.get(slug) ?? [])].sort(byStr)) {
       if (depth.has(nb)) continue;

@@ -95,13 +95,55 @@ function neighborLines(graph: Graph, slug: string): string[] {
   ];
 }
 
+// graphify's token↔char ratio — a token is ~3 chars of source, so a token budget
+// caps the rendered evidence at budget*3 chars.
+const CHARS_PER_TOKEN = 3;
+
+// Append each file's rendered block. With no budget this is the original
+// behavior (every file, in order). With one, files — which arrive
+// most-informative-first — are emitted whole until the NEXT would exceed
+// budget*CHARS_PER_TOKEN; that block is trimmed at the last newline that fits and
+// a terminal notice reports how many trailing files the budget dropped. The
+// orienting header/task/neighbour sections above the source loop are always kept.
+function pushEvidence(lines: string[], evidence: EvidenceFile[], budget?: number): void {
+  if (budget === undefined) {
+    for (const e of evidence) lines.push("", renderFile(e));
+    return;
+  }
+  const charBudget = budget * CHARS_PER_TOKEN;
+  let used = 0;
+  let i = 0;
+  let trimmedShown = false;
+  for (; i < evidence.length; i++) {
+    const block = renderFile(evidence[i]!);
+    if (used + block.length <= charBudget) {
+      lines.push("", block);
+      used += block.length;
+      continue;
+    }
+    // The next file overflows: keep only its prefix up to the last newline that
+    // fits, so a citation never lands on a half-truncated line.
+    const room = charBudget - used;
+    const nl = room > 0 ? block.lastIndexOf("\n", room) : -1;
+    if (nl > 0) {
+      lines.push("", block.slice(0, nl));
+      trimmedShown = true;
+    }
+    break;
+  }
+  if (i < evidence.length) {
+    const cut = evidence.length - i - (trimmedShown ? 1 : 0);
+    lines.push("", `… (truncated — ${cut} more file(s) cut by ~${budget}-token budget)`);
+  }
+}
+
 const CITE_HELP =
   "Cite every factual claim with the file it rests on, in brackets: `[path]`, `[path:line]`, or `[path:start-end]` " +
   "(e.g. `[src/api/client.ts:42-58]`). `ultraindex check` fails if a citation does not resolve to a real file/line.";
 
 // A grounding packet for ONE module — fed to the agent before it writes the
 // module's business analysis (the `ui:human` regions of its entry).
-export function renderModuleDossier(repo: string, graph: Graph, module: ModuleNode): string {
+export function renderModuleDossier(repo: string, graph: Graph, module: ModuleNode, budget?: number): string {
   const files = keyFiles(graph, module, 6);
   const evidence = gatherEvidence(repo, files);
   const neighbors = neighborLines(graph, module.slug);
@@ -117,7 +159,7 @@ export function renderModuleDossier(repo: string, graph: Graph, module: ModuleNo
     lines.push("", "## Graph neighbours", ...neighbors);
   }
   lines.push("", "## Key source");
-  if (evidence.length) for (const e of evidence) lines.push("", renderFile(e));
+  if (evidence.length) pushEvidence(lines, evidence, budget);
   else if (files.length)
     lines.push("", `⚠️ ${files.length} code file(s) in this module but none were readable under \`${repo}\` — pass \`--repo <repo-root>\` (the index records its root; this usually means a wrong working directory).`);
   else lines.push("", "_(no code files in this module — likely docs/config)_");
@@ -131,6 +173,7 @@ export function renderAskDossier(
   graph: Graph,
   question: string,
   modules: { slug: string; files: string[] }[],
+  budget?: number,
 ): string {
   const byId = new Map(graph.modules.map((m) => [m.slug, m]));
   const lines = [
@@ -147,7 +190,7 @@ export function renderAskDossier(
   const seen = new Set<string>();
   const rels = modules.flatMap((m) => m.files).filter((r) => (seen.has(r) ? false : (seen.add(r), true))).slice(0, ASK_FILE_CAP);
   const evidence = gatherEvidence(repo, rels);
-  if (evidence.length) for (const e of evidence) lines.push("", renderFile(e));
+  if (evidence.length) pushEvidence(lines, evidence, budget);
   else if (rels.length)
     lines.push("", `⚠️ matched ${rels.length} file(s) but none were readable under \`${repo}\` — pass \`--repo <repo-root>\` (the index records its root).`);
   else lines.push("", "_(no modules matched your question — try different keywords or \`ultraindex find\`)_");

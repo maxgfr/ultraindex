@@ -164,7 +164,7 @@ function walk(root, opts = {}) {
       const ext = extname(name2).toLowerCase();
       if (BINARY_EXT.has(ext)) continue;
       if (name2.endsWith(".min.js") || name2.endsWith(".min.css")) continue;
-      out2.push({ rel: relative(root, abs).split(sep).join("/"), abs, size: st.size, ext });
+      out2.push({ rel: relative(root, abs).split(sep).join("/"), abs, size: st.size, ext, mtimeMs: st.mtimeMs });
     }
   }
   return { files: out2, capped };
@@ -5609,6 +5609,7 @@ function scanRepo(root, opts = {}) {
   const files = [];
   const languages = {};
   const docText = /* @__PURE__ */ new Map();
+  const mtimes = /* @__PURE__ */ new Map();
   for (const f of walked) {
     if (outPrefix && (f.abs === opts.out || f.abs.startsWith(outPrefix))) continue;
     if (include && !include(f.rel)) continue;
@@ -5616,9 +5617,14 @@ function scanRepo(root, opts = {}) {
     const kind = classify(f.rel, f.ext);
     const lang = extToLang(f.ext);
     languages[lang] = (languages[lang] ?? 0) + 1;
+    mtimes.set(f.rel, f.mtimeMs);
+    const cached = opts.cache?.get(f.rel);
+    if (kind !== "doc" && !opts.fullHash && cached && cached.size !== void 0 && cached.mtimeMs !== void 0 && cached.size === f.size && cached.mtimeMs === f.mtimeMs) {
+      files.push(cached.record);
+      continue;
+    }
     const content = readText(f.abs);
     const hash = sha1(content);
-    const cached = opts.cache?.get(f.rel);
     if (cached && cached.hash === hash) {
       files.push(cached.record);
       if (kind === "doc" && content) docText.set(f.rel, content);
@@ -5665,7 +5671,7 @@ function scanRepo(root, opts = {}) {
     files.push(record);
   }
   files.sort(byKey((f) => f.rel));
-  return { root, commit: headCommit(root), files, languages, docText, capped };
+  return { root, commit: headCommit(root), files, languages, docText, mtimes, capped };
 }
 
 // src/resolve.ts
@@ -7545,7 +7551,8 @@ function runBuild(opts, builtAt) {
     maxBytes: opts.maxBytes,
     maxFiles: opts.maxFiles,
     out: opts.out,
-    cache
+    cache,
+    fullHash: opts.fullHash
   });
   const ctx = buildResolveContext(scan2);
   const { modules, moduleOf } = buildModules(scan2);
@@ -7588,7 +7595,7 @@ function runBuild(opts, builtAt) {
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
   if (!opts.noCache) {
     const files = {};
-    for (const f of scan2.files) files[f.rel] = { hash: f.hash, record: f };
+    for (const f of scan2.files) files[f.rel] = { hash: f.hash, record: f, size: f.size, mtimeMs: scan2.mtimes.get(f.rel) };
     const cacheOut = { schemaVersion: SCHEMA_VERSION, extractorVersion: EXTRACTOR_VERSION, files };
     writeFileIfChanged(paths.cache, JSON.stringify(cacheOut) + "\n");
   }
@@ -8147,6 +8154,12 @@ function pickSeeds(scored, terms) {
 }
 var EXPAND_DEPTH = 2;
 var HUB_FLOOR = 50;
+function hubThreshold(degrees) {
+  const sorted = degrees.slice().sort((a, b) => a - b);
+  const n = sorted.length;
+  const p99 = n === 0 ? 0 : sorted[Math.min(n - 1, Math.floor(0.99 * n))];
+  return Math.max(HUB_FLOOR, p99);
+}
 function expandResults(graph, top, fullScored, seeds, k) {
   const cap = k + 4;
   const out2 = [...top];
@@ -8165,10 +8178,7 @@ function expandResults(graph, top, fullScored, seeds, k) {
     out2.push({ ...r, via: "term" });
     present.add(slug);
   }
-  const degrees = graph.modules.map((m) => m.degIn + m.degOut).sort((a, b) => a - b);
-  const n = degrees.length;
-  const p99 = n === 0 ? 0 : degrees[Math.min(n - 1, Math.floor(0.99 * n))];
-  const hubThreshold = Math.max(HUB_FLOOR, p99);
+  const threshold = hubThreshold(graph.modules.map((m) => m.degIn + m.degOut));
   const adj = /* @__PURE__ */ new Map();
   const link = (a, b) => {
     let s = adj.get(a);
@@ -8191,7 +8201,7 @@ function expandResults(graph, top, fullScored, seeds, k) {
   }
   for (let i2 = 0; i2 < queue.length; i2++) {
     const { slug, d } = queue[i2];
-    const expand = d < EXPAND_DEPTH && (seedSet.has(slug) || degreeOf(slug) < hubThreshold);
+    const expand = d < EXPAND_DEPTH && (seedSet.has(slug) || degreeOf(slug) < threshold);
     if (!expand) continue;
     for (const nb of [...adj.get(slug) ?? []].sort(byStr)) {
       if (depth.has(nb)) continue;
@@ -8283,20 +8293,26 @@ async function runFindHybrid(outDir, query, k = DEFAULT_K) {
 }
 
 // src/neighbors.ts
-function bfs(edges, start2, depth) {
+function bfs(edges, start2, depth, kinds) {
   const out2 = /* @__PURE__ */ new Map();
   const inn = /* @__PURE__ */ new Map();
+  const degree3 = /* @__PURE__ */ new Map();
   for (const e of edges) {
     if (e.dangling) continue;
+    if (kinds && !kinds.has(e.kind)) continue;
     (out2.get(e.from) ?? out2.set(e.from, []).get(e.from)).push(e);
     (inn.get(e.to) ?? inn.set(e.to, []).get(e.to)).push(e);
+    degree3.set(e.from, (degree3.get(e.from) ?? 0) + 1);
+    degree3.set(e.to, (degree3.get(e.to) ?? 0) + 1);
   }
+  const threshold = hubThreshold([...degree3.values()]);
   const seen = /* @__PURE__ */ new Set([start2]);
   const links = [];
   let frontier = [start2];
   for (let d = 1; d <= depth; d++) {
     const next = [];
     for (const node of frontier) {
+      if (node !== start2 && (degree3.get(node) ?? 0) >= threshold) continue;
       for (const e of (out2.get(node) ?? []).slice().sort((a, b) => byStr(a.to, b.to))) {
         if (seen.has(e.to)) continue;
         links.push({ node: e.to, direction: "out", kind: e.kind, weight: e.weight, depth: d, confidence: e.confidence });
@@ -8314,21 +8330,21 @@ function bfs(edges, start2, depth) {
   }
   return links;
 }
-function neighborsOf(graph, target, depth = 1) {
+function neighborsOf(graph, target, depth = 1, kinds) {
   const mod = graph.modules.find((m) => m.slug === target);
   if (mod) {
-    return { target, scope: "module", links: bfs(graph.moduleEdges, target, depth), members: mod.members };
+    return { target, scope: "module", links: bfs(graph.moduleEdges, target, depth, kinds), members: mod.members };
   }
   const file = graph.files.find((f) => f.rel === target);
   if (file) {
-    return { target, scope: "file", links: bfs(graph.fileEdges, target, depth) };
+    return { target, scope: "file", links: bfs(graph.fileEdges, target, depth, kinds) };
   }
   return void 0;
 }
-function runNeighbors(outDir, target, depth = 1) {
+function runNeighbors(outDir, target, depth = 1, kinds) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
-  return neighborsOf(graph, target, depth);
+  return neighborsOf(graph, target, depth, kinds);
 }
 
 // src/impact.ts
@@ -9035,8 +9051,38 @@ function neighborLines(graph, slug) {
     ...side(graph.moduleEdges.filter((e) => e.to === slug).map((e) => e.from), "\u2190 used by")
   ];
 }
+var CHARS_PER_TOKEN = 3;
+function pushEvidence(lines, evidence, budget) {
+  if (budget === void 0) {
+    for (const e of evidence) lines.push("", renderFile(e));
+    return;
+  }
+  const charBudget = budget * CHARS_PER_TOKEN;
+  let used = 0;
+  let i2 = 0;
+  let trimmedShown = false;
+  for (; i2 < evidence.length; i2++) {
+    const block = renderFile(evidence[i2]);
+    if (used + block.length <= charBudget) {
+      lines.push("", block);
+      used += block.length;
+      continue;
+    }
+    const room = charBudget - used;
+    const nl = room > 0 ? block.lastIndexOf("\n", room) : -1;
+    if (nl > 0) {
+      lines.push("", block.slice(0, nl));
+      trimmedShown = true;
+    }
+    break;
+  }
+  if (i2 < evidence.length) {
+    const cut = evidence.length - i2 - (trimmedShown ? 1 : 0);
+    lines.push("", `\u2026 (truncated \u2014 ${cut} more file(s) cut by ~${budget}-token budget)`);
+  }
+}
 var CITE_HELP = "Cite every factual claim with the file it rests on, in brackets: `[path]`, `[path:line]`, or `[path:start-end]` (e.g. `[src/api/client.ts:42-58]`). `ultraindex check` fails if a citation does not resolve to a real file/line.";
-function renderModuleDossier(repo, graph, module2) {
+function renderModuleDossier(repo, graph, module2, budget) {
   const files = keyFiles(graph, module2, 6);
   const evidence = gatherEvidence(repo, files);
   const neighbors = neighborLines(graph, module2.slug);
@@ -9052,13 +9098,13 @@ function renderModuleDossier(repo, graph, module2) {
     lines.push("", "## Graph neighbours", ...neighbors);
   }
   lines.push("", "## Key source");
-  if (evidence.length) for (const e of evidence) lines.push("", renderFile(e));
+  if (evidence.length) pushEvidence(lines, evidence, budget);
   else if (files.length)
     lines.push("", `\u26A0\uFE0F ${files.length} code file(s) in this module but none were readable under \`${repo}\` \u2014 pass \`--repo <repo-root>\` (the index records its root; this usually means a wrong working directory).`);
   else lines.push("", "_(no code files in this module \u2014 likely docs/config)_");
   return lines.join("\n") + "\n";
 }
-function renderAskDossier(repo, graph, question, modules) {
+function renderAskDossier(repo, graph, question, modules, budget) {
   const byId = new Map(graph.modules.map((m) => [m.slug, m]));
   const lines = [
     `# Evidence dossier for: "${question}"`,
@@ -9074,7 +9120,7 @@ function renderAskDossier(repo, graph, question, modules) {
   const seen = /* @__PURE__ */ new Set();
   const rels = modules.flatMap((m) => m.files).filter((r) => seen.has(r) ? false : (seen.add(r), true)).slice(0, ASK_FILE_CAP);
   const evidence = gatherEvidence(repo, rels);
-  if (evidence.length) for (const e of evidence) lines.push("", renderFile(e));
+  if (evidence.length) pushEvidence(lines, evidence, budget);
   else if (rels.length)
     lines.push("", `\u26A0\uFE0F matched ${rels.length} file(s) but none were readable under \`${repo}\` \u2014 pass \`--repo <repo-root>\` (the index records its root).`);
   else lines.push("", "_(no modules matched your question \u2014 try different keywords or `ultraindex find`)_");
@@ -9082,21 +9128,21 @@ function renderAskDossier(repo, graph, question, modules) {
 }
 
 // src/explain.ts
-function runDossier(outDir, repo, slug) {
+function runDossier(outDir, repo, slug, budget) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
   const module2 = graph.modules.find((m) => m.slug === slug);
   if (!module2) return void 0;
-  return renderModuleDossier(repo, graph, module2);
+  return renderModuleDossier(repo, graph, module2, budget);
 }
-async function runAsk(outDir, repo, question, k = 5) {
+async function runAsk(outDir, repo, question, k = 5, budget) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
   const found = await runFindHybrid(outDir, question, k);
   if (!found) return void 0;
   const modules = found.results.map((r) => ({ slug: r.slug, files: r.files }));
   return {
-    content: renderAskDossier(repo, graph, question, modules),
+    content: renderAskDossier(repo, graph, question, modules, budget),
     modules: found.results.map((r) => r.slug),
     warning: found.warning
   };
@@ -9109,16 +9155,16 @@ Deterministically index a whole repo (code + docs) into a navigable encyclopedia
 huge codebases without filling its context window. Zero deps, no keys.
 
 Usage:
-  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--no-mermaid]
+  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid]
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex embed   [--out <dir>] [--force]
-  ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
+  ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>] [--kind <k>]
   ultraindex symbols "<name>" [--out <dir>] [--json]
   ultraindex impact  <file|module-slug> [--out <dir>] [--depth <n>] [--json]
   ultraindex map     [--out <dir>] [--module <slug>]
   ultraindex status  [--out <dir>]
-  ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
-  ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
+  ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
+  ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
 
@@ -9158,9 +9204,12 @@ Options:
   --max-bytes <n>   Skip files larger than n bytes                (default: 1 MiB)
   --max-files <n>   Stop the scan after n files; the index warns if hit (default: 20000)
   --no-cache        build: ignore cache.json and re-extract every file
+  --full-hash       build: re-hash every file, disabling the (size,mtime) fastpath
   --no-mermaid      Do not write graph.mmd
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
   --depth <n>       neighbors: hops to traverse                (default: 1)
+  --kind <k>        neighbors: only these edge kinds (comma list: import,call,use,doc-link,mention)
+  --budget <n>      ask/dossier: cap the source evidence at ~n tokens
   --module <slug>   map: print this module's entry instead of INDEX.md
   --answer <file>   check/verify: the answer file whose citations to validate
   --apply <file>    verify: reduce a filled verdicts file to a pass/fail gate
@@ -9186,8 +9235,8 @@ Grounding:
   citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
 var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify"]);
-var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "quiet", "force", "semantic"]);
+var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "full-hash", "quiet", "force", "semantic"]);
 var REASON_HINTS = {
   "missing-module": "a relative import's target file does not exist \u2014 usually a real broken import in the repo, worth reporting",
   "alias-unresolved": "a tsconfig path alias matched but its target file is missing \u2014 check the tsconfig paths or uncommitted build artifacts",
@@ -9289,6 +9338,7 @@ async function cmdBuild(p) {
       maxBytes,
       maxFiles,
       noCache: p.bools.has("no-cache"),
+      fullHash: p.bools.has("full-hash"),
       mermaid: !p.bools.has("no-mermaid"),
       json: p.bools.has("json")
     },
@@ -9407,13 +9457,20 @@ function cmdNeighbors(p) {
   if (!indexExists(out2)) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
   const depth = p.values.depth ? Number(p.values.depth) : 1;
   if (!Number.isFinite(depth) || depth <= 0) fail("invalid --depth");
-  const res = runNeighbors(out2, target, depth);
+  const KNOWN_KINDS = /* @__PURE__ */ new Set(["import", "call", "use", "doc-link", "mention"]);
+  const kindList = splitList(p.values.kind);
+  let kinds;
+  if (kindList) {
+    for (const kk of kindList) if (!KNOWN_KINDS.has(kk)) fail(`invalid --kind "${kk}" (known: ${[...KNOWN_KINDS].join(", ")})`);
+    kinds = new Set(kindList);
+  }
+  const res = runNeighbors(out2, target, depth, kinds);
   if (!res) fail(`"${target}" is not a module slug or file in the index`);
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     return;
   }
-  const lines = [`ultraindex: neighbours of ${res.scope} "${res.target}" (depth ${depth})`, ""];
+  const lines = [`ultraindex: neighbours of ${res.scope} "${res.target}" (depth ${depth}${kinds ? `, kind ${[...kinds].join("/")}` : ""})`, ""];
   if (res.members) lines.push(`  members: ${res.members.join("  ")}`, "");
   if (res.links.length === 0) lines.push("  (no neighbours)");
   for (const l of res.links) {
@@ -9521,7 +9578,9 @@ function cmdDossier(p) {
   const repo = resolveRepoRoot(p, out2);
   const slug = p.positional[0];
   if (!slug) fail("missing module slug \u2014 usage: ultraindex dossier <module-slug>");
-  const content = runDossier(out2, repo, slug);
+  const budget = p.values.budget ? Number(p.values.budget) : void 0;
+  if (budget !== void 0 && (!Number.isInteger(budget) || budget <= 0)) fail("invalid --budget");
+  const content = runDossier(out2, repo, slug, budget);
   if (content === void 0) {
     fail(indexExists(out2) ? `no module "${slug}" in the index (try \`ultraindex map\`)` : `no index at ${out2} \u2014 run \`ultraindex build\` first`);
   }
@@ -9534,7 +9593,9 @@ async function cmdAsk(p) {
   if (!question) fail('missing question \u2014 usage: ultraindex ask "<question>"');
   const k = p.values.k ? Number(p.values.k) : 5;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
-  const res = await runAsk(out2, repo, question, k);
+  const budget = p.values.budget ? Number(p.values.budget) : void 0;
+  if (budget !== void 0 && (!Number.isInteger(budget) || budget <= 0)) fail("invalid --budget");
+  const res = await runAsk(out2, repo, question, k, budget);
   if (res === void 0) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
   if (res.warning) process.stderr.write(`ultraindex: warning: ${res.warning}
 `);

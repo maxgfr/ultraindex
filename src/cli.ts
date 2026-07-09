@@ -24,16 +24,16 @@ Deterministically index a whole repo (code + docs) into a navigable encyclopedia
 huge codebases without filling its context window. Zero deps, no keys.
 
 Usage:
-  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--no-mermaid]
+  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid]
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex embed   [--out <dir>] [--force]
-  ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
+  ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>] [--kind <k>]
   ultraindex symbols "<name>" [--out <dir>] [--json]
   ultraindex impact  <file|module-slug> [--out <dir>] [--depth <n>] [--json]
   ultraindex map     [--out <dir>] [--module <slug>]
   ultraindex status  [--out <dir>]
-  ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
-  ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
+  ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
+  ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
 
@@ -73,9 +73,12 @@ Options:
   --max-bytes <n>   Skip files larger than n bytes                (default: 1 MiB)
   --max-files <n>   Stop the scan after n files; the index warns if hit (default: 20000)
   --no-cache        build: ignore cache.json and re-extract every file
+  --full-hash       build: re-hash every file, disabling the (size,mtime) fastpath
   --no-mermaid      Do not write graph.mmd
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
   --depth <n>       neighbors: hops to traverse                (default: 1)
+  --kind <k>        neighbors: only these edge kinds (comma list: import,call,use,doc-link,mention)
+  --budget <n>      ask/dossier: cap the source evidence at ~n tokens
   --module <slug>   map: print this module's entry instead of INDEX.md
   --answer <file>   check/verify: the answer file whose citations to validate
   --apply <file>    verify: reduce a filled verdicts file to a pass/fail gate
@@ -102,8 +105,8 @@ Grounding:
 `;
 
 const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify"]);
-const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "module", "answer", "q", "question", "apply", "max-verify"]);
-const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "quiet", "force", "semantic"]);
+const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify"]);
+const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "quiet", "force", "semantic"]);
 
 // What each dangling reason means and what to do about it — emitted in
 // `build --json` so the report is self-diagnosing.
@@ -232,6 +235,7 @@ async function cmdBuild(p: Parsed): Promise<void> {
       maxBytes,
       maxFiles,
       noCache: p.bools.has("no-cache"),
+      fullHash: p.bools.has("full-hash"),
       mermaid: !p.bools.has("no-mermaid"),
       json: p.bools.has("json"),
     },
@@ -360,14 +364,23 @@ function cmdNeighbors(p: Parsed): void {
   if (!indexExists(out)) fail(`no index at ${out} — run \`ultraindex build\` first`);
   const depth = p.values.depth ? Number(p.values.depth) : 1;
   if (!Number.isFinite(depth) || depth <= 0) fail("invalid --depth");
+  // Explicit edge-kind filter only — no question-word inference. Validate against
+  // the traversable kinds so a typo fails loudly instead of silently matching none.
+  const KNOWN_KINDS = new Set(["import", "call", "use", "doc-link", "mention"]);
+  const kindList = splitList(p.values.kind);
+  let kinds: Set<string> | undefined;
+  if (kindList) {
+    for (const kk of kindList) if (!KNOWN_KINDS.has(kk)) fail(`invalid --kind "${kk}" (known: ${[...KNOWN_KINDS].join(", ")})`);
+    kinds = new Set(kindList);
+  }
 
-  const res = runNeighbors(out, target, depth);
+  const res = runNeighbors(out, target, depth, kinds);
   if (!res) fail(`"${target}" is not a module slug or file in the index`);
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     return;
   }
-  const lines = [`ultraindex: neighbours of ${res.scope} "${res.target}" (depth ${depth})`, ""];
+  const lines = [`ultraindex: neighbours of ${res.scope} "${res.target}" (depth ${depth}${kinds ? `, kind ${[...kinds].join("/")}` : ""})`, ""];
   if (res.members) lines.push(`  members: ${res.members.join("  ")}`, "");
   if (res.links.length === 0) lines.push("  (no neighbours)");
   for (const l of res.links) {
@@ -482,7 +495,9 @@ function cmdDossier(p: Parsed): void {
   const repo = resolveRepoRoot(p, out);
   const slug = p.positional[0];
   if (!slug) fail("missing module slug — usage: ultraindex dossier <module-slug>");
-  const content = runDossier(out, repo, slug);
+  const budget = p.values.budget ? Number(p.values.budget) : undefined;
+  if (budget !== undefined && (!Number.isInteger(budget) || budget <= 0)) fail("invalid --budget");
+  const content = runDossier(out, repo, slug, budget);
   if (content === undefined) {
     fail(indexExists(out) ? `no module "${slug}" in the index (try \`ultraindex map\`)` : `no index at ${out} — run \`ultraindex build\` first`);
   }
@@ -496,7 +511,9 @@ async function cmdAsk(p: Parsed): Promise<void> {
   if (!question) fail('missing question — usage: ultraindex ask "<question>"');
   const k = p.values.k ? Number(p.values.k) : 5;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
-  const res = await runAsk(out, repo, question, k);
+  const budget = p.values.budget ? Number(p.values.budget) : undefined;
+  if (budget !== undefined && (!Number.isInteger(budget) || budget <= 0)) fail("invalid --budget");
+  const res = await runAsk(out, repo, question, k, budget);
   if (res === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
   if (res.warning) process.stderr.write(`ultraindex: warning: ${res.warning}\n`);
   if (p.bools.has("json")) {

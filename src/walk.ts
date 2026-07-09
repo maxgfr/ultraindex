@@ -37,6 +37,7 @@ export interface WalkedFile {
   abs: string;
   size: number;
   ext: string;
+  mtimeMs: number; // last-modified ms — the stat fastpath's freshness key with size
 }
 
 export interface WalkResult {
@@ -100,7 +101,7 @@ export function walk(root: string, opts: WalkOptions = {}): WalkResult {
       const ext = extname(name).toLowerCase();
       if (BINARY_EXT.has(ext)) continue;
       if (name.endsWith(".min.js") || name.endsWith(".min.css")) continue;
-      out.push({ rel: relative(root, abs).split(sep).join("/"), abs, size: st.size, ext });
+      out.push({ rel: relative(root, abs).split(sep).join("/"), abs, size: st.size, ext, mtimeMs: st.mtimeMs });
     }
   }
   return { files: out, capped };

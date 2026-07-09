@@ -4,12 +4,12 @@ import { runFindHybrid } from "./find.js";
 
 // Per-module grounding packet for the enrichment pass. Returns undefined when the
 // index is missing or the slug is unknown.
-export function runDossier(outDir: string, repo: string, slug: string): string | undefined {
+export function runDossier(outDir: string, repo: string, slug: string, budget?: number): string | undefined {
   const graph = loadGraph(outDir);
   if (!graph) return undefined;
   const module = graph.modules.find((m) => m.slug === slug);
   if (!module) return undefined;
-  return renderModuleDossier(repo, graph, module);
+  return renderModuleDossier(repo, graph, module, budget);
 }
 
 // Question-driven grounding packet for the Q&A workflow. Uses the SAME hybrid
@@ -21,6 +21,7 @@ export async function runAsk(
   repo: string,
   question: string,
   k = 5,
+  budget?: number,
 ): Promise<{ content: string; modules: string[]; warning?: string } | undefined> {
   const graph = loadGraph(outDir);
   if (!graph) return undefined;
@@ -28,7 +29,7 @@ export async function runAsk(
   if (!found) return undefined;
   const modules = found.results.map((r) => ({ slug: r.slug, files: r.files }));
   return {
-    content: renderAskDossier(repo, graph, question, modules),
+    content: renderAskDossier(repo, graph, question, modules, budget),
     modules: found.results.map((r) => r.slug),
     warning: found.warning,
   };

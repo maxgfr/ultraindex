@@ -8,7 +8,7 @@ import { runSymbols, lookupSymbols } from "../src/symbols.js";
 import { runImpact, impactOf } from "../src/impact.js";
 import { neighborsOf } from "../src/neighbors.js";
 import { SCHEMA_VERSION, VERSION } from "../src/types.js";
-import type { Graph, SymbolIndex } from "../src/types.js";
+import type { Edge, Graph, SymbolIndex } from "../src/types.js";
 
 // Build a synthetic symbol table for the ranking tests: each name maps to one
 // def site at the given file path (the rest of the site is filler).
@@ -162,5 +162,61 @@ describe("neighbors command", () => {
     expect(call.confidence).toBe("extracted");
     const imp = res.links.find((l) => l.node === "src/c.ts")!;
     expect(imp.confidence).toBeUndefined();
+  });
+});
+
+const fnode = (rel: string): Graph["files"][number] => ({
+  id: rel, kind: "file", rel, fileKind: "code", lang: "typescript", module: "src", symbols: 0, lines: 1, degIn: 0, degOut: 0,
+});
+
+describe("neighbors --kind filter", () => {
+  it("traverses only edges of the requested kind(s); undefined keeps all kinds", () => {
+    const graph: Graph = {
+      ...EMPTY_GRAPH,
+      files: [fnode("src/a.ts"), fnode("src/b.ts"), fnode("src/c.ts")],
+      fileEdges: [
+        { from: "src/a.ts", to: "src/b.ts", kind: "call", weight: 1, confidence: "extracted" },
+        { from: "src/a.ts", to: "src/c.ts", kind: "import", weight: 1 },
+      ],
+    };
+    const onlyCall = neighborsOf(graph, "src/a.ts", 1, new Set(["call"]))!;
+    expect(onlyCall.links.map((l) => l.node)).toEqual(["src/b.ts"]);
+    expect(onlyCall.links.every((l) => l.kind === "call")).toBe(true);
+    const all = neighborsOf(graph, "src/a.ts", 1)!;
+    expect(all.links.map((l) => l.node).sort()).toEqual(["src/b.ts", "src/c.ts"]);
+  });
+});
+
+describe("neighbors hub-gating (mirrors find's expandResults rule)", () => {
+  it("emits a hub at depth 1 but does not expand THROUGH it to depth 2", () => {
+    const files = [fnode("src/start.ts"), fnode("src/hub.ts"), fnode("src/far.ts")];
+    const edges: Edge[] = [
+      { from: "src/start.ts", to: "src/hub.ts", kind: "import", weight: 1 },
+      { from: "src/hub.ts", to: "src/far.ts", kind: "import", weight: 1 },
+    ];
+    // Push hub's degree past the max(50, p99) floor with 60 extra incident edges.
+    for (let i = 0; i < 60; i++) {
+      const leaf = `src/leaf${i}.ts`;
+      files.push(fnode(leaf));
+      edges.push({ from: "src/hub.ts", to: leaf, kind: "import", weight: 1 });
+    }
+    const graph: Graph = { ...EMPTY_GRAPH, files, fileEdges: edges };
+    const res = neighborsOf(graph, "src/start.ts", 2)!;
+    const nodes = res.links.map((l) => l.node);
+    expect(nodes).toContain("src/hub.ts"); // the hub itself surfaces (depth 1)
+    expect(nodes).not.toContain("src/far.ts"); // depth 2 through the gated hub → unreached
+  });
+
+  it("never gates on a small graph — depth 2 reaches through a low-degree node", () => {
+    const graph: Graph = {
+      ...EMPTY_GRAPH,
+      files: [fnode("src/a.ts"), fnode("src/mid.ts"), fnode("src/far.ts")],
+      fileEdges: [
+        { from: "src/a.ts", to: "src/mid.ts", kind: "import", weight: 1 },
+        { from: "src/mid.ts", to: "src/far.ts", kind: "import", weight: 1 },
+      ],
+    };
+    const res = neighborsOf(graph, "src/a.ts", 2)!;
+    expect(res.links.map((l) => l.node)).toContain("src/far.ts");
   });
 });

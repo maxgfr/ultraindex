@@ -180,6 +180,9 @@ export interface BuildOptions {
   maxBytes?: number;
   maxFiles?: number;
   noCache?: boolean;
+  // Re-read and re-hash every file, disabling the (size,mtime) stat fastpath — the
+  // escape hatch when a content edit might have preserved both size and mtime.
+  fullHash?: boolean;
   mermaid: boolean;
   json: boolean;
 }
@@ -192,7 +195,11 @@ export interface BuildOptions {
 export interface ExtractionCache {
   schemaVersion: number;
   extractorVersion: number;
-  files: Record<string, { hash: string; record: FileRecord }>;
+  // `size`/`mtimeMs` are the stat fastpath's key: on the next build a NON-DOC file
+  // whose size AND mtime both match its cache entry reuses `record` without being
+  // read or hashed. OPTIONAL/additive — a cache written before the fastpath (or an
+  // entry missing either field) simply falls through to the content-hash check.
+  files: Record<string, { hash: string; record: FileRecord; size?: number; mtimeMs?: number }>;
 }
 
 // One result row from `find`: the module, why it matched, and — crucially — the

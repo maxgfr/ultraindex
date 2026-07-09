@@ -35,6 +35,7 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
     maxFiles: opts.maxFiles,
     out: opts.out,
     cache,
+    fullHash: opts.fullHash,
   });
   const ctx = buildResolveContext(scan);
   const { modules, moduleOf } = buildModules(scan);
@@ -98,7 +99,7 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
   // state, not part of the index.
   if (!opts.noCache) {
     const files: ExtractionCache["files"] = {};
-    for (const f of scan.files) files[f.rel] = { hash: f.hash, record: f };
+    for (const f of scan.files) files[f.rel] = { hash: f.hash, record: f, size: f.size, mtimeMs: scan.mtimes.get(f.rel) };
     const cacheOut: ExtractionCache = { schemaVersion: SCHEMA_VERSION, extractorVersion: EXTRACTOR_VERSION, files };
     writeFileIfChanged(paths.cache, JSON.stringify(cacheOut) + "\n");
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runBuild } from "../src/build.js";
@@ -67,6 +67,47 @@ describe("incremental build (cache.json)", () => {
     runBuild({ repo: root, out, mermaid: false, json: false }, TIME);
     const fileNode = loadGraph(out)!.files.find((f) => f.rel === "src/a.ts")!;
     expect(fileNode.symbols).toBe(3); // alpha, Widget, beta — the edit was re-extracted
+  });
+
+  // A fixed whole-second mtime so the (size,mtime) fastpath key round-trips
+  // through utimesSync/statSync exactly on any filesystem.
+  const MT = new Date("2026-06-01T00:00:00.000Z");
+
+  it("stat fastpath: an unchanged (size,mtime) NON-DOC file reuses its stale record; --full-hash catches the edit", () => {
+    const root = repo({ "src/a.ts": "export function alpha() {}\n" });
+    const out = outDir();
+    const a = join(root, "src", "a.ts");
+    utimesSync(a, MT, MT);
+    runBuild({ repo: root, out, mermaid: false, json: false }, TIME); // cold — cache carries size+mtime
+    expect(JSON.parse(read(out, "symbols.json")).defs.alpha).toBeTruthy();
+
+    // Edit the content but keep the SAME byte size (alpha→gamma) and restore mtime,
+    // so the fastpath's (size,mtime) key still matches and skips the re-hash.
+    writeFileSync(a, "export function gamma() {}\n");
+    utimesSync(a, MT, MT);
+    runBuild({ repo: root, out, mermaid: false, json: false }, TIME); // warm — fastpath reuses stale record
+    const stale = JSON.parse(read(out, "symbols.json")).defs;
+    expect(stale.alpha).toBeTruthy(); // proves no re-hash happened
+    expect(stale.gamma).toBeUndefined();
+
+    // --full-hash disables the fastpath, re-reads, and catches the change.
+    runBuild({ repo: root, out, fullHash: true, mermaid: false, json: false }, TIME);
+    const fresh = JSON.parse(read(out, "symbols.json")).defs;
+    expect(fresh.gamma).toBeTruthy();
+    expect(fresh.alpha).toBeUndefined();
+  });
+
+  it("docs are EXEMPT from the fastpath — a size/mtime-preserving doc edit is still re-read", () => {
+    const root = repo({ "README.md": "# Alpha\n", "src/x.ts": "export const x = 1;\n" });
+    const out = outDir();
+    const rd = join(root, "README.md");
+    utimesSync(rd, MT, MT);
+    runBuild({ repo: root, out, mermaid: false, json: false }, TIME);
+    writeFileSync(rd, "# Bravo\n"); // same byte length as "# Alpha\n"
+    utimesSync(rd, MT, MT);
+    runBuild({ repo: root, out, mermaid: false, json: false }, TIME);
+    const title = loadGraph(out)!.files.find((f) => f.rel === "README.md")!.title;
+    expect(title).toBe("Bravo"); // re-read despite an unchanged (size,mtime) key
   });
 
   it("discards a cache written by a different extractor version", () => {
