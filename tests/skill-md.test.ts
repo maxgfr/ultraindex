@@ -59,7 +59,7 @@ describe("SKILL.md is installable", () => {
 });
 
 // Content guards: the docs must not drift from the CLI they describe.
-const CLI_COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify"]);
+const CLI_COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify", "orchestrate"]);
 
 describe("skill docs stay in sync with the CLI", () => {
   const docs: [string, string][] = [["SKILL.md", body], ...Object.entries(refBodies)];
