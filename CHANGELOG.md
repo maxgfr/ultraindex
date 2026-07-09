@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [4.1.1](https://github.com/maxgfr/ultraindex/compare/v4.1.0...v4.1.1) (2026-07-09)
+
+
+### Bug Fixes
+
+* **orchestrate:** reject foreign answer worklists; derive CLI join line per phase ([#3](https://github.com/maxgfr/ultraindex/issues/3)) ([24a3a5f](https://github.com/maxgfr/ultraindex/commit/24a3a5f49f7605618bb19b43dbc0affb57d23c70))
+
+# [4.1.0](https://github.com/maxgfr/ultraindex/compare/v4.0.0...v4.1.0) (2026-07-09)
+
+
+### Features
+
+* **orchestrate:** emit the enrich fan-out workflow + contracts + runbook ([#2](https://github.com/maxgfr/ultraindex/issues/2)) ([2e3a2db](https://github.com/maxgfr/ultraindex/commit/2e3a2db5b22a34d6866ca264d5b17f23bcc8500d))
+
 # [4.0.0](https://github.com/maxgfr/ultraindex/compare/v3.0.0...v4.0.0) (2026-07-08)
 
 

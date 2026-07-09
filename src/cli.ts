@@ -15,6 +15,8 @@ import { runStatus } from "./status.js";
 import { runCheck, checkAnswer } from "./check.js";
 import { runVerify, applyVerdicts, formatVerifyReport, VERIFY_MAX } from "./verify.js";
 import { runDossier, runAsk } from "./explain.js";
+import { listPhases, orchestrateRun } from "./orchestrate.js";
+import { phaseSpec } from "./orchestrate-templates.js";
 import { indexExists, loadGraph, loadManifest } from "./store.js";
 import { ensureGrammars, allGrammarKeys } from "./ast/loader.js";
 
@@ -36,6 +38,7 @@ Usage:
   ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
+  ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -64,6 +67,10 @@ Commands:
              add --semantic to also fail on a claim its cited excerpt doesn't support.
   verify     Emit a claim↔citation worklist for adversarial support-checking of
              an answer, then (--apply <verdicts.json>) gate on refuted/unsupported.
+  orchestrate  Emit the index's multi-agent fan-out from its CURRENT state into
+             <out>/orchestration/: one workflow script per ready phase (enrich =
+             the status work-queue; verify-answer = the claim↔citation worklist),
+             the dispatch contracts, and a sequential RUNBOOK fallback.
 
 Options:
   --repo <dir>      Repo to index / check / read source from  (default: .)
@@ -83,6 +90,10 @@ Options:
   --answer <file>   check/verify: the answer file whose citations to validate
   --apply <file>    verify: reduce a filled verdicts file to a pass/fail gate
   --max-verify <n>  verify: cap the claim↔citation worklist           (default: 40)
+  --phase <name>    orchestrate: emit one phase only — enrich | verify-answer
+  --eco             orchestrate: emit only RUNBOOK.md + agents/*.md (the explicit
+                    low-token sequential path)
+  --list            orchestrate: print the phases + readiness as JSON, emit nothing
   --force           embed: re-embed every module even if unchanged
   --json            Machine-readable output
   --quiet           check: print nothing, use the exit code only
@@ -104,9 +115,9 @@ Grounding:
   citation does not resolve to a real file/line — the anti-hallucination guard.
 `;
 
-const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify"]);
-const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify"]);
-const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "quiet", "force", "semantic"]);
+const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify", "orchestrate"]);
+const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase"]);
+const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "quiet", "force", "semantic", "eco", "list"]);
 
 // What each dangling reason means and what to do about it — emitted in
 // `build --json` so the report is self-diagnosing.
@@ -603,6 +614,52 @@ function cmdVerify(p: Parsed): void {
   );
 }
 
+function cmdOrchestrate(p: Parsed): void {
+  const base = resolve(p.values.repo ?? ".");
+  const out = resolveOut(p, base);
+  const repo = resolveRepoRoot(p, out);
+  // The emitted commands/contracts must survive any cwd, so the engine path is
+  // the canonical absolute path of this very script.
+  const engine = realpathSync(fileURLToPath(import.meta.url));
+  const ctx = { out, repo, engine, answer: p.values.answer ? resolve(p.values.answer) : undefined };
+
+  if (p.bools.has("list")) {
+    process.stdout.write(JSON.stringify({ phases: listPhases(ctx) }, null, 2) + "\n");
+    return;
+  }
+
+  const res = orchestrateRun(ctx, {
+    phase: p.values.phase,
+    eco: p.bools.has("eco"),
+  });
+  if (res.exitCode !== 0) {
+    for (const e of res.errors) process.stderr.write(`ultraindex orchestrate: ${e}\n`);
+    process.exit(res.exitCode);
+  }
+  const lines = ["ultraindex: orchestration generated", ...res.written.map((w) => `  ${w}`)];
+  for (const n of res.notices) lines.push(`  note:     ${n}`);
+  const workflows = res.written.filter((w) => w.endsWith(".workflow.mjs"));
+  if (workflows.length) {
+    // The join step is per phase — each phase's spec already knows its joinHint
+    // (enrich: the repo-wide check + no-rebuild guard; verify-answer: the
+    // fail-closed fold, where no build warning applies).
+    for (const ph of res.phases) {
+      const w = workflows.find((x) => x === join(out, "orchestration", `${ph.name}.workflow.mjs`));
+      if (!w) continue;
+      lines.push(`  launch:   Workflow({ scriptPath: ${JSON.stringify(w)} })`);
+      lines.push(
+        `  join:     ${phaseSpec(ph.name).joinHint(ctx, ph)}` +
+          (ph.name === "enrich"
+            ? ` — after all agents return; no \`build\` or \`map\` while they run`
+            : ` — fold the agents' returned fragments into <verdicts.json> first`),
+      );
+    }
+  } else {
+    lines.push(`  next:     follow ${join(out, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
+  }
+  process.stderr.write(lines.join("\n") + "\n");
+}
+
 async function main(): Promise<void> {
   const p = parseArgs(process.argv.slice(2));
   switch (p.command) {
@@ -630,6 +687,8 @@ async function main(): Promise<void> {
       return cmdCheck(p);
     case "verify":
       return cmdVerify(p);
+    case "orchestrate":
+      return cmdOrchestrate(p);
   }
 }
 

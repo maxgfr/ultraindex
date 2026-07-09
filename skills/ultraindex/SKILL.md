@@ -3,7 +3,7 @@ name: ultraindex
 description: "Use when a repo is too large to hold in context — to BUILD a compact, navigable, AI-analyzed map of it AND to NAVIGATE that map for any later task or question. One skill, auto-routed: if no index exists it builds one; if the index is stale it rebuilds; if the user has a task/question it navigates. A deterministic zero-dependency engine scans the WHOLE repo (code + markdown) — no API keys, no LLM read of the repo — and emits a layered artifact: a small always-loadable INDEX.md (the map), per-module encyclopedia entries (business 'why/links' + code 'what/where'), a typed link-graph (graph.json + Mermaid), and a manifest for staleness. You then write grounded, citation-checked analysis per module (`dossier` hands you real source; `check` REJECTS citations that don't resolve — anti-hallucination), and later answer questions over the index with `find`/`neighbors`/`ask`, loading only the handful of files a task needs. Optional semantic search via a local docker-compose embeddings provider. Triggers: 'index/map/analyze this codebase', 'build the encyclopedia', 'where is X handled', 'what touches Y', 'how does Z work in this repo', 'which files do I change for Z', 'this repo is too big for context'."
 license: MIT
 metadata:
-  version: 4.0.0
+  version: 4.1.1
 ---
 
 # ultraindex — build and navigate an AI-analyzed encyclopedia of a whole repo
@@ -61,7 +61,8 @@ reference for the detailed workflow:
    unenriched hubs and you have budget** — run the status-driven enrichment
    loop (dossier → write cited analysis → check). On a large repo this
    parallelizes: one subagent per module from the queue, if your host supports
-   subagents — read [references/generate.md](references/generate.md).
+   subagents — `orchestrate` emits that fan-out for you (see **Orchestration —
+   route by harness** below) — read [references/generate.md](references/generate.md).
 
 6. **`find` keeps missing, or the user wants semantic/better search** — set up
    the optional embeddings layer (docker compose, `embed`, hybrid `find`):
@@ -84,6 +85,35 @@ high-assurance answer adds → 4.
 - `check [--answer <file>] [--semantic]` — staleness + integrity + **grounding** (citations must resolve). Non-zero exit ⇒ stale, broken, or ungrounded. `--semantic` also folds the verify gate (fails a claim whose cited excerpt refutes it, or that is fully adjudicated with no support); it re-reduces the verdict from the raw `verdicts[]` and re-reads every adjudicated excerpt from the live repo — a doctored summary or drifted source fails, never passes.
 - `verify --answer <file> [--apply <verdicts.json>] [--max-verify <n>]` — the high-assurance gate **above** `check --answer`: emit a claim↔citation worklist for adversarial support-checking, then `--apply` reduces your verdicts to a pass/fail gate. See [references/verify.md](references/verify.md).
 - `embed [--force]` — build/refresh vectors.json for semantic `find` (needs a provider — see [references/semantic.md](references/semantic.md)).
+- `orchestrate [--phase enrich|verify-answer] [--answer <file>] [--eco] [--list]` — emit the multi-agent fan-out (workflow scripts + dispatch contracts + a sequential RUNBOOK) into `<index>/orchestration/` from the CURRENT enrichment queue / verify worklist. See **Orchestration — route by harness**.
+
+## Orchestration — route by harness
+
+The judgment work fans out: the enrichment queue `status --json` reports is one
+independent dossier→prose unit per module, and `VERIFY.todo.json` (one pair per
+claim↔citation, written by `verify --answer` next to the answer) fans out the same
+way. The engine manages the fan-out — `orchestrate` emits the orchestration from the
+CURRENT index state, with absolute paths and the real module slugs baked in:
+
+```
+node scripts/ultraindex.mjs orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase enrich|verify-answer] [--eco] [--list]
+```
+
+| Your harness | How to run each phase |
+|---|---|
+| Has the Workflow tool | `orchestrate --phase <p>`, then `Workflow({ scriptPath: "<index>/orchestration/<p>.workflow.mjs" })`. Enrichers WRITE their own `encyclopedia/<slug>.md` entries (the sanctioned disjoint-write exception) and return what they wrote; refuters only RETURN verdict fragments you fold and `verify --apply` yourself. |
+| Subagents but no Workflow tool | Same `orchestrate`; dispatch one subagent per batch following `<index>/orchestration/agents/<role>.md` (the workflow script shows batches + prompts). |
+| Eco mode, or no subagents | `orchestrate --eco` → follow `<index>/orchestration/RUNBOOK.md` sequentially, playing each role yourself. Correctness-identical; only wall-clock differs. |
+
+Fan-out is an optimization, never a requirement — the gates (`check`,
+`verify --apply`) are harness-independent and every phase has a sequential fallback
+with identical artifacts. The one hard rule: **no `build` or `map` runs while a
+fan-out is in flight** — `build` rewrites every entry, so a mid-fan-out rebuild
+races and clobbers the agents' writes; the orchestrator runs one repo-wide `check`
+after the join and routes each grounding failure back to the entry that caused it.
+Re-run `orchestrate` whenever the queue changes (emission is deterministic and
+idempotent); `--phase <p>` before its input exists fails and names the command that
+produces it.
 
 ## Scope notes
 
