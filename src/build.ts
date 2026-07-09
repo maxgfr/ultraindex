@@ -6,6 +6,7 @@ import { DEFAULT_MAX_FILES } from "./walk.js";
 import { buildResolveContext } from "./resolve.js";
 import { buildModules } from "./modules.js";
 import { buildGraph } from "./graph.js";
+import { detectCommunities } from "./community.js";
 import { renderEntrySpec, buildEntryEdgeIndex } from "./render/encyclopedia.js";
 import { renderIndex } from "./render/index-md.js";
 import { renderMermaid } from "./render/mermaid.js";
@@ -46,6 +47,17 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
   // Entries: render each module's region spec, then merge against existing prose.
   // The edge index is built once so each entry costs O(its own links), not O(E).
   const prev = loadManifest(opts.out);
+
+  // Cluster modules into navigation communities (display-only: never affects find
+  // ranking or slugs). Computed here — after the graph and the previous manifest —
+  // so graph.json, INDEX.md and the manifest all serialize the same ids, and a
+  // rebuild can reuse the prior ids for an unchanged partition.
+  const communities = detectCommunities(graph.modules, graph.moduleEdges, prev?.communities);
+  for (const m of graph.modules) {
+    const id = communities.get(m.slug);
+    if (id !== undefined) m.community = id;
+  }
+
   const edgeIndex = buildEntryEdgeIndex(graph, moduleOf);
   const entryInputs: EntryInput[] = graph.modules.map((m) => ({
     slug: m.slug,

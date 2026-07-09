@@ -111,6 +111,10 @@ export interface ModuleNode {
   symbols: number; // total declared symbols across members
   degIn: number;
   degOut: number;
+  // Navigation community (a Louvain cluster of related modules), 0-based; id 0 is
+  // the largest cluster. OPTIONAL/additive: display-only, never affects `find` or
+  // slugs. Absent only on graphs built before communities existed.
+  community?: number;
 }
 
 // A directed edge. For a resolved edge `to` is a node id; for a dangling edge
@@ -158,6 +162,10 @@ export interface Manifest {
   modules: Record<string, { members: string[]; humanKeys: string[] }>;
   orphaned: string[]; // module slugs whose prose was moved to _orphaned/
   notes: string[]; // merge conflicts and other build-time warnings
+  // Navigation communities from the last build: community-id string → sorted
+  // member slugs. OPTIONAL/additive; the next build reads it to keep community ids
+  // stable across small edits (see detectCommunities' remap-to-previous rule).
+  communities?: Record<string, string[]>;
   // The file-selection filters the build applied, when any — so `check` can hash
   // the SAME file set and not report a filtered build as perpetually stale.
   scan?: { include?: string[]; exclude?: string[]; maxBytes?: number; maxFiles?: number };

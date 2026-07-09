@@ -31,6 +31,18 @@ export function buildManifest(
     modules[m.slug] = { members: m.members, humanKeys: (sync.humanKeys[m.slug] ?? []).slice().sort(byStr) };
   }
 
+  // Navigation communities: community-id string → sorted member slugs. Recorded so
+  // the next build can remap ids and keep them stable across a small edit. Only
+  // emitted when a community was actually assigned (keeps a pre-community manifest
+  // shape when none exist).
+  const communityMembers = new Map<number, string[]>();
+  for (const m of graph.modules) {
+    if (m.community === undefined) continue;
+    (communityMembers.get(m.community) ?? communityMembers.set(m.community, []).get(m.community)!).push(m.slug);
+  }
+  const communities: Record<string, string[]> = {};
+  for (const [id, members] of communityMembers) communities[String(id)] = members.slice().sort(byStr);
+
   // Only record the filters when the build actually applied some, so the common
   // unfiltered manifest stays byte-stable.
   const scanFilters: Manifest["scan"] = {};
@@ -50,6 +62,7 @@ export function buildManifest(
     modules: sortedRecord(modules),
     orphaned: sync.orphaned.slice().sort(byStr),
     notes: [...extraNotes, ...sync.notes],
+    ...(Object.keys(communities).length ? { communities: sortedRecord(communities) } : {}),
     ...(Object.keys(scanFilters!).length ? { scan: scanFilters } : {}),
   };
 }

@@ -6658,6 +6658,220 @@ function buildGraph(scan2, ctx, modules, moduleOf) {
   };
 }
 
+// src/community.ts
+var GAMMA = 1;
+var MAX_SWEEPS = 20;
+var MAX_PASSES = 10;
+var EPS = 1e-12;
+var OVERSIZE_FRACTION = 0.25;
+var OVERSIZE_MIN = 10;
+function buildAdjacency(slugs, edges) {
+  const n = slugs.length;
+  const idx = new Map(slugs.map((s, i2) => [s, i2]));
+  const adj = Array.from({ length: n }, () => /* @__PURE__ */ new Map());
+  for (const e of edges) {
+    if (e.dangling) continue;
+    const a = idx.get(e.from);
+    const b = idx.get(e.to);
+    if (a === void 0 || b === void 0 || a === b) continue;
+    adj[a].set(b, (adj[a].get(b) ?? 0) + e.weight);
+    adj[b].set(a, (adj[b].get(a) ?? 0) + e.weight);
+  }
+  const k = adj.map((m) => {
+    let s = 0;
+    for (const w of m.values()) s += w;
+    return s;
+  });
+  const twoM = k.reduce((a, b) => a + b, 0);
+  return { n, adj, k, twoM };
+}
+function canonicalize(comm) {
+  const remap = /* @__PURE__ */ new Map();
+  const out2 = new Array(comm.length);
+  for (let i2 = 0; i2 < comm.length; i2++) {
+    let id = remap.get(comm[i2]);
+    if (id === void 0) {
+      id = remap.size;
+      remap.set(comm[i2], id);
+    }
+    out2[i2] = id;
+  }
+  return { comm: out2, count: remap.size };
+}
+function localMove(g) {
+  const { n, adj, k, twoM } = g;
+  const comm = Array.from({ length: n }, (_, i2) => i2);
+  if (twoM === 0) return canonicalize(comm);
+  const commTot = k.slice();
+  let moved = true;
+  let sweeps = 0;
+  while (moved && sweeps < MAX_SWEEPS) {
+    moved = false;
+    sweeps++;
+    for (let i2 = 0; i2 < n; i2++) {
+      const cOld = comm[i2];
+      commTot[cOld] -= k[i2];
+      const nb = /* @__PURE__ */ new Map();
+      for (const [j, wij] of adj[i2]) {
+        if (j === i2) continue;
+        const cj = comm[j];
+        nb.set(cj, (nb.get(cj) ?? 0) + wij);
+      }
+      let bestC = cOld;
+      let bestScore = (nb.get(cOld) ?? 0) - GAMMA * k[i2] * commTot[cOld] / twoM;
+      for (const c2 of [...nb.keys()].sort((a, b) => a - b)) {
+        if (c2 === cOld) continue;
+        const score = nb.get(c2) - GAMMA * k[i2] * commTot[c2] / twoM;
+        if (score > bestScore + EPS) {
+          bestScore = score;
+          bestC = c2;
+        }
+      }
+      commTot[bestC] += k[i2];
+      if (bestC !== cOld) {
+        comm[i2] = bestC;
+        moved = true;
+      }
+    }
+  }
+  return canonicalize(comm);
+}
+function aggregate(g, comm, count) {
+  const adj = Array.from({ length: count }, () => /* @__PURE__ */ new Map());
+  for (let i2 = 0; i2 < g.n; i2++) {
+    const ci = comm[i2];
+    for (const [j, wij] of g.adj[i2]) {
+      const cj = comm[j];
+      adj[ci].set(cj, (adj[ci].get(cj) ?? 0) + wij);
+    }
+  }
+  const k = adj.map((m) => {
+    let s = 0;
+    for (const w of m.values()) s += w;
+    return s;
+  });
+  const twoM = k.reduce((a, b) => a + b, 0);
+  return { n: count, adj, k, twoM };
+}
+function louvain(g) {
+  if (g.n === 0) return [];
+  let level = g;
+  const mapping = Array.from({ length: g.n }, (_, i2) => i2);
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    const { comm, count } = localMove(level);
+    for (let i2 = 0; i2 < mapping.length; i2++) mapping[i2] = comm[mapping[i2]];
+    if (count === level.n) break;
+    level = aggregate(level, comm, count);
+  }
+  return canonicalize(mapping).comm;
+}
+function groupByLabel(labels) {
+  const groups = [];
+  for (let i2 = 0; i2 < labels.length; i2++) {
+    (groups[labels[i2]] ??= []).push(i2);
+  }
+  return groups.filter((g) => g && g.length > 0);
+}
+function louvainInduced(g, members) {
+  const m = members.length;
+  const local = /* @__PURE__ */ new Map();
+  members.forEach((b, li) => local.set(b, li));
+  const adj = Array.from({ length: m }, () => /* @__PURE__ */ new Map());
+  for (let li = 0; li < m; li++) {
+    for (const [nb, w] of g.adj[members[li]]) {
+      const lj = local.get(nb);
+      if (lj === void 0) continue;
+      adj[li].set(lj, w);
+    }
+  }
+  const k = adj.map((mp) => {
+    let s = 0;
+    for (const w of mp.values()) s += w;
+    return s;
+  });
+  const twoM = k.reduce((a, b) => a + b, 0);
+  const labels = louvain({ n: m, adj, k, twoM });
+  return groupByLabel(labels).map((grp) => grp.map((li) => members[li]));
+}
+function splitOversized(groups, g, n) {
+  const out2 = [];
+  for (const grp of groups) {
+    if (grp.length > OVERSIZE_FRACTION * n && grp.length >= OVERSIZE_MIN) {
+      const sub = louvainInduced(g, grp);
+      if (sub.length > 1) {
+        out2.push(...sub);
+        continue;
+      }
+    }
+    out2.push(grp);
+  }
+  return out2;
+}
+function compareCommunities(a, b) {
+  if (a.length !== b.length) return b.length - a.length;
+  for (let i2 = 0; i2 < a.length; i2++) {
+    const c2 = byStr(a[i2], b[i2]);
+    if (c2) return c2;
+  }
+  return 0;
+}
+function assignIds(ordered, previous) {
+  const n = ordered.length;
+  const ids = new Array(n).fill(-1);
+  if (!previous || Object.keys(previous).length === 0) {
+    for (let i2 = 0; i2 < n; i2++) ids[i2] = i2;
+    return ids;
+  }
+  const prevSets = Object.entries(previous).map(([id, members]) => ({
+    id: Number(id),
+    set: new Set(members)
+  }));
+  const pairs = [];
+  ordered.forEach((comm, ni) => {
+    for (const prev of prevSets) {
+      let inter = 0;
+      for (const s of comm) if (prev.set.has(s)) inter++;
+      if (inter > 0) pairs.push({ ni, prevId: prev.id, inter });
+    }
+  });
+  pairs.sort((a, b) => b.inter - a.inter || a.ni - b.ni || a.prevId - b.prevId);
+  const matched = /* @__PURE__ */ new Map();
+  const usedPrev = /* @__PURE__ */ new Set();
+  for (const p of pairs) {
+    if (matched.has(p.ni) || usedPrev.has(p.prevId)) continue;
+    matched.set(p.ni, p.prevId);
+    usedPrev.add(p.prevId);
+  }
+  const taken = /* @__PURE__ */ new Set();
+  for (let ni = 0; ni < n; ni++) {
+    const pid = matched.get(ni);
+    if (pid !== void 0 && pid >= 0 && pid < n && !taken.has(pid)) {
+      ids[ni] = pid;
+      taken.add(pid);
+    }
+  }
+  const free = [];
+  for (let id = 0; id < n; id++) if (!taken.has(id)) free.push(id);
+  let fi = 0;
+  for (let ni = 0; ni < n; ni++) if (ids[ni] === -1) ids[ni] = free[fi++];
+  return ids;
+}
+function detectCommunities(modules, edges, previous) {
+  const out2 = /* @__PURE__ */ new Map();
+  if (modules.length === 0) return out2;
+  const slugs = modules.map((m) => m.slug).sort(byStr);
+  const g = buildAdjacency(slugs, edges);
+  const labels = louvain(g);
+  const split = splitOversized(groupByLabel(labels), g, slugs.length);
+  const communities = split.map((grp) => grp.map((i2) => slugs[i2]).sort(byStr));
+  communities.sort(compareCommunities);
+  const ids = assignIds(communities, previous);
+  communities.forEach((comm, ni) => {
+    for (const s of comm) out2.set(s, ids[ni]);
+  });
+  return out2;
+}
+
 // src/merge.ts
 var ENRICH_MARKER = "<!-- ui:enrich -->";
 function isEnrichedBody(body2) {
@@ -6916,6 +7130,8 @@ function renderEntrySpec(m, edgeIndex, records) {
 var TIER_LABEL2 = { 0: "Foundations", 1: "Features", 2: "Tail" };
 var HUB_CAP = 12;
 var MODULE_CAP = 120;
+var ARCH_CAP = 12;
+var ARCH_MEMBER_CAP = 12;
 var degree = (m) => m.degIn + m.degOut;
 function histogram(languages) {
   return Object.entries(languages).sort((a, b) => b[1] - a[1] || byStr(a[0], b[0])).slice(0, 8).map(([k, v]) => `${k}:${v}`).join(" \xB7 ");
@@ -6946,6 +7162,24 @@ function renderIndex(graph, opts) {
     for (const m of hubs) {
       const d = degree(m);
       lines.push(`- [\`${m.slug}\`](encyclopedia/${m.slug}.md) (${d} link${d === 1 ? "" : "s"}) \u2014 ${clip(m.summary, 100).split("\n")[0]}`);
+    }
+  }
+  const byCommunity = /* @__PURE__ */ new Map();
+  for (const m of graph.modules) {
+    if (m.community === void 0) continue;
+    (byCommunity.get(m.community) ?? byCommunity.set(m.community, []).get(m.community)).push(m);
+  }
+  if (byCommunity.size > 1) {
+    lines.push("");
+    lines.push("## Architecture");
+    lines.push("");
+    const groups = [...byCommunity.entries()].sort((a, b) => b[1].length - a[1].length || a[0] - b[0]).slice(0, ARCH_CAP);
+    for (const [, members] of groups) {
+      const label = members.slice().sort((a, b) => degree(b) - degree(a) || byStr(a.slug, b.slug))[0].path;
+      const slugs = members.map((m) => m.slug).sort(byStr);
+      const shown2 = slugs.slice(0, ARCH_MEMBER_CAP).map((s) => `\`${s}\``).join(", ");
+      const overflow = slugs.length > ARCH_MEMBER_CAP ? ` _(+${slugs.length - ARCH_MEMBER_CAP} more)_` : "";
+      lines.push(`- \`${label}\` \u2014 ${shown2}${overflow}`);
     }
   }
   lines.push("");
@@ -7107,6 +7341,13 @@ function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = [], fil
   for (const m of graph.modules) {
     modules[m.slug] = { members: m.members, humanKeys: (sync.humanKeys[m.slug] ?? []).slice().sort(byStr) };
   }
+  const communityMembers = /* @__PURE__ */ new Map();
+  for (const m of graph.modules) {
+    if (m.community === void 0) continue;
+    (communityMembers.get(m.community) ?? communityMembers.set(m.community, []).get(m.community)).push(m.slug);
+  }
+  const communities = {};
+  for (const [id, members] of communityMembers) communities[String(id)] = members.slice().sort(byStr);
   const scanFilters = {};
   if (filters.include?.length) scanFilters.include = filters.include;
   if (filters.exclude?.length) scanFilters.exclude = filters.exclude;
@@ -7123,6 +7364,7 @@ function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = [], fil
     modules: sortedRecord(modules),
     orphaned: sync.orphaned.slice().sort(byStr),
     notes: [...extraNotes, ...sync.notes],
+    ...Object.keys(communities).length ? { communities: sortedRecord(communities) } : {},
     ...Object.keys(scanFilters).length ? { scan: scanFilters } : {}
   };
 }
@@ -7312,6 +7554,11 @@ function runBuild(opts, builtAt) {
   const paths = indexPaths(opts.out);
   ensureDir(opts.out);
   const prev = loadManifest(opts.out);
+  const communities = detectCommunities(graph.modules, graph.moduleEdges, prev?.communities);
+  for (const m of graph.modules) {
+    const id = communities.get(m.slug);
+    if (id !== void 0) m.community = id;
+  }
   const edgeIndex = buildEntryEdgeIndex(graph, moduleOf);
   const entryInputs = graph.modules.map((m) => ({
     slug: m.slug,

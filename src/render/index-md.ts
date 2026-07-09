@@ -6,6 +6,8 @@ import { clip } from "../util.js";
 const TIER_LABEL: Record<Tier, string> = { 0: "Foundations", 1: "Features", 2: "Tail" };
 const HUB_CAP = 12;
 const MODULE_CAP = 120; // keep INDEX.md always-loadable on huge repos
+const ARCH_CAP = 12; // communities shown in the Architecture section
+const ARCH_MEMBER_CAP = 12; // member slugs listed per community before overflow
 
 const degree = (m: ModuleNode): number => m.degIn + m.degOut;
 
@@ -60,6 +62,30 @@ export function renderIndex(
     for (const m of hubs) {
       const d = degree(m);
       lines.push(`- [\`${m.slug}\`](encyclopedia/${m.slug}.md) (${d} link${d === 1 ? "" : "s"}) — ${clip(m.summary, 100).split("\n")[0]}`);
+    }
+  }
+
+  // Architecture — the module communities (a coarse clustering into subsystems),
+  // for navigation only. Each is labelled by its highest-degree member's path.
+  // Omitted when there is a single community (tiny repos): no signal.
+  const byCommunity = new Map<number, ModuleNode[]>();
+  for (const m of graph.modules) {
+    if (m.community === undefined) continue;
+    (byCommunity.get(m.community) ?? byCommunity.set(m.community, []).get(m.community)!).push(m);
+  }
+  if (byCommunity.size > 1) {
+    lines.push("");
+    lines.push("## Architecture");
+    lines.push("");
+    const groups = [...byCommunity.entries()]
+      .sort((a, b) => b[1].length - a[1].length || a[0] - b[0])
+      .slice(0, ARCH_CAP);
+    for (const [, members] of groups) {
+      const label = members.slice().sort((a, b) => degree(b) - degree(a) || byStr(a.slug, b.slug))[0]!.path;
+      const slugs = members.map((m) => m.slug).sort(byStr);
+      const shown = slugs.slice(0, ARCH_MEMBER_CAP).map((s) => `\`${s}\``).join(", ");
+      const overflow = slugs.length > ARCH_MEMBER_CAP ? ` _(+${slugs.length - ARCH_MEMBER_CAP} more)_` : "";
+      lines.push(`- \`${label}\` — ${shown}${overflow}`);
     }
   }
 
