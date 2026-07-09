@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
@@ -98,6 +98,68 @@ describe("orchestrate — listPhases", () => {
     expect(phases[1]).toMatchObject({ name: "verify-answer", ready: true, items: 2 });
     expect(phases[1]!.worklist).toBe(join(dirname(ans), "VERIFY.todo.json"));
     expect(phases[1]!.ids).toEqual(["1", "2"]);
+  });
+});
+
+describe("orchestrate — foreign/stale answer worklist", () => {
+  /** VERIFY.todo.json written for answer A, orchestrate called for answer B in the SAME dir. */
+  function mismatch(c: OrchestrateContext): { ansA: string; ansB: string } {
+    const ansA = makeAnswer(c.repo);
+    const ansB = join(dirname(ansA), "OTHER.md");
+    writeFileSync(ansB, "Constants are exported [src/util.ts:1].\n");
+    return { ansA, ansB };
+  }
+
+  it("listPhases reports verify-answer NOT ready when the worklist belongs to another answer", () => {
+    const c = makeCtx();
+    const { ansA, ansB } = mismatch(c);
+    const ph = listPhases({ ...c, answer: ansB })[1]!;
+    expect(ph.ready).toBe(false);
+    expect(ph.items).toBe(0);
+    expect(ph.ids).toEqual([]);
+    // The reason names the worklist's recorded owner AND the re-run that repairs it.
+    expect(ph.reason).toContain(ansA);
+    expect(ph.reason).toMatch(/verify --answer/);
+    expect(ph.reason).toContain(ansB);
+  });
+
+  it("a full run does NOT fan out the foreign worklist, and says why", () => {
+    const c = makeCtx();
+    const { ansA, ansB } = mismatch(c);
+    const res = orchestrateRun({ ...c, answer: ansB });
+    expect(res.exitCode).toBe(0);
+    expect(existsSync(wf(c.out, "verify-answer"))).toBe(false);
+    expect(res.notices.some((n) => n.includes("verify-answer") && n.includes(ansA))).toBe(true);
+  });
+
+  it("--phase verify-answer on a foreign worklist exits 2 naming the owner and the fix", () => {
+    const c = makeCtx();
+    const { ansA, ansB } = mismatch(c);
+    const res = orchestrateRun({ ...c, answer: ansB }, { phase: "verify-answer" });
+    expect(res.exitCode).toBe(2);
+    expect(existsSync(wf(c.out, "verify-answer"))).toBe(false);
+    expect(res.errors.some((e) => e.includes(ansA) && e.includes(`verify --answer ${ansB}`))).toBe(true);
+  });
+
+  it("re-running verify for the caller's answer repairs the mismatch", () => {
+    const c = makeCtx();
+    const { ansB } = mismatch(c);
+    runVerify(ansB, c.repo, {});
+    const ph = listPhases({ ...c, answer: ansB })[1]!;
+    expect(ph.ready).toBe(true);
+    expect(ph.reason).toBeUndefined();
+    expect(ph.items).toBeGreaterThan(0);
+  });
+
+  it("no caller answer set → the repo-root worklist is accepted as before (no comparison)", () => {
+    const repo = wideRepo(2);
+    const c = makeCtx(repo);
+    const ans = join(repo, "ANSWER.md");
+    writeFileSync(ans, "Value one is exported [mod01/index.ts:1].\n");
+    runVerify(ans, repo, {});
+    const ph = listPhases(c)[1]!;
+    expect(ph.ready).toBe(true);
+    expect(ph.reason).toBeUndefined();
   });
 });
 
@@ -231,14 +293,12 @@ describe("orchestrate — emitted workflow", () => {
     }
   });
 
-  it("workflows collect fragments and never execute a write step; the no-build hard rule is stated", () => {
+  it("workflows collect fragments and never execute a write step; the clobber hard rule is enrich-only", () => {
     const c = makeCtx();
     orchestrateRun({ ...c, answer: makeAnswer(c.repo) });
     for (const phase of ["enrich", "verify-answer"]) {
       const src = readWf(c.out, phase);
       expect(src).toMatch(/^return \{/m);
-      // The mid-fan-out rebuild race is called out where the orchestrator will read it.
-      expect(src).toMatch(/no `build` or `map`/);
       // build / --apply may appear only in comments (the orchestrator's own next step),
       // never as executed code.
       const code = src
@@ -249,6 +309,12 @@ describe("orchestrate — emitted workflow", () => {
       expect(code).not.toMatch(/\bbuild\b/);
       expect(code).not.toMatch(/\bmap\b/);
     }
+    // The mid-fan-out rebuild race is called out where the orchestrator will read it —
+    // but its clobber rationale only applies to the disjoint-WRITE enrich fan-out.
+    expect(readWf(c.out, "enrich")).toMatch(/no `build` or `map`/);
+    const verifySrc = readWf(c.out, "verify-answer");
+    expect(verifySrc).not.toContain("HARD RULE");
+    expect(verifySrc).not.toMatch(/clobbers/);
   });
 });
 
@@ -346,14 +412,11 @@ describe("orchestrate — eco mode & phase gating", () => {
 });
 
 describe("orchestrate — CLI wiring (parser + shipped bundle)", () => {
+  // spawnSync (not execFileSync): the success path prints to stderr too, and
+  // execFileSync only surfaces stderr on failure.
   function run(args: string[]): { code: number; out: string; err: string } {
-    try {
-      const out = execFileSync(process.execPath, [BUNDLE, ...args], { encoding: "utf8" });
-      return { code: 0, out, err: "" };
-    } catch (e: unknown) {
-      const x = e as { status?: number; stdout?: Buffer | string; stderr?: Buffer | string };
-      return { code: typeof x.status === "number" ? x.status : 1, out: String(x.stdout ?? ""), err: String(x.stderr ?? "") };
-    }
+    const r = spawnSync(process.execPath, [BUNDLE, ...args], { encoding: "utf8" });
+    return { code: r.status ?? 1, out: r.stdout ?? "", err: r.stderr ?? "" };
   }
 
   it("parseArgs accepts orchestrate with --phase/--eco/--list/--answer", () => {
@@ -370,6 +433,23 @@ describe("orchestrate — CLI wiring (parser + shipped bundle)", () => {
     const r = run(["orchestrate", "--out", out, "--repo", MINI]);
     expect(r.code).toBe(2);
     expect(r.err).toMatch(/build --repo/);
+  });
+
+  it("success output derives the join line from the emitted phase (enrich vs verify-answer)", () => {
+    const out = join(mkdtempSync(join(tmpdir(), "ui-orch-cli-")), ".ultraindex");
+    expect(run(["build", "--repo", MINI, "--out", out, "--no-mermaid"]).code).toBe(0);
+    const ans = makeAnswer(MINI);
+    // enrich: the join is the repo-wide check, with the no-rebuild guard.
+    const enrich = run(["orchestrate", "--out", out, "--repo", MINI, "--phase", "enrich"]);
+    expect(enrich.code).toBe(0);
+    expect(enrich.err).toMatch(/join:\s+node \S+ check --out /);
+    expect(enrich.err).toMatch(/no `build` or `map`/);
+    // verify-answer: the join is the fail-closed fold — no build warning applies.
+    const va = run(["orchestrate", "--out", out, "--repo", MINI, "--answer", ans, "--phase", "verify-answer"]);
+    expect(va.code).toBe(0);
+    expect(va.err).toMatch(/join:\s+node \S+ verify --apply <verdicts\.json> --answer /);
+    expect(va.err).toContain(ans);
+    expect(va.err).not.toMatch(/no `build` or `map`/);
   });
 
   it("orchestrate --list prints {phases:[...]} JSON; a full run emits and exits 0", () => {

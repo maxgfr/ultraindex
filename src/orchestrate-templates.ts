@@ -110,10 +110,17 @@ export function phaseWorkflowScript(ph: PhaseInfo, ctx: OrchestrateContext, batc
     `// NOT a plain Node script: launch via the Workflow tool — Workflow({ scriptPath: ${JSON.stringify(scriptPath)} }).`,
     `// Emitted by \`ultraindex orchestrate\` from ${source}. The index is the`,
     `// source of truth: if it changes, re-run \`orchestrate --phase ${ph.name}\` before launching.`,
-    `//`,
-    `// HARD RULE: no \`build\` or \`map\` runs while this fan-out is in flight — \`build\``,
-    `// rewrites every encyclopedia entry, so a mid-fan-out rebuild races and clobbers`,
-    `// the agents' writes. Build once before; never during.`,
+    // The clobber rationale only holds where agents WRITE (the enrich
+    // disjoint-write fan-out); refuters are read-only, so the verify-answer
+    // workflow must not carry it.
+    ...(ph.name === "enrich"
+      ? [
+          `//`,
+          `// HARD RULE: no \`build\` or \`map\` runs while this fan-out is in flight — \`build\``,
+          `// rewrites every encyclopedia entry, so a mid-fan-out rebuild races and clobbers`,
+          `// the agents' writes. Build once before; never during.`,
+        ]
+      : []),
     ``,
     `// Constants for THIS index (injected at emit time; no Date.now/Math.random in this harness).`,
     `const OUT = ${JSON.stringify(ctx.out)}`,

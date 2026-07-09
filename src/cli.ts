@@ -16,6 +16,7 @@ import { runCheck, checkAnswer } from "./check.js";
 import { runVerify, applyVerdicts, formatVerifyReport, VERIFY_MAX } from "./verify.js";
 import { runDossier, runAsk } from "./explain.js";
 import { listPhases, orchestrateRun } from "./orchestrate.js";
+import { phaseSpec } from "./orchestrate-templates.js";
 import { indexExists, loadGraph, loadManifest } from "./store.js";
 import { ensureGrammars, allGrammarKeys } from "./ast/loader.js";
 
@@ -608,8 +609,20 @@ function cmdOrchestrate(p: Parsed): void {
   for (const n of res.notices) lines.push(`  note:     ${n}`);
   const workflows = res.written.filter((w) => w.endsWith(".workflow.mjs"));
   if (workflows.length) {
-    for (const w of workflows) lines.push(`  launch:   Workflow({ scriptPath: ${JSON.stringify(w)} })`);
-    lines.push(`  join:     one repo-wide \`check\` after all agents return — and no \`build\` or \`map\` while they run`);
+    // The join step is per phase — each phase's spec already knows its joinHint
+    // (enrich: the repo-wide check + no-rebuild guard; verify-answer: the
+    // fail-closed fold, where no build warning applies).
+    for (const ph of res.phases) {
+      const w = workflows.find((x) => x === join(out, "orchestration", `${ph.name}.workflow.mjs`));
+      if (!w) continue;
+      lines.push(`  launch:   Workflow({ scriptPath: ${JSON.stringify(w)} })`);
+      lines.push(
+        `  join:     ${phaseSpec(ph.name).joinHint(ctx, ph)}` +
+          (ph.name === "enrich"
+            ? ` — after all agents return; no \`build\` or \`map\` while they run`
+            : ` — fold the agents' returned fragments into <verdicts.json> first`),
+      );
+    }
   } else {
     lines.push(`  next:     follow ${join(out, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
   }

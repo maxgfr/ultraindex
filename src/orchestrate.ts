@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { agentContracts, phaseWorkflowScript, runbookMd } from "./orchestrate-templates.js";
 import { runStatus } from "./status.js";
 import { indexPaths } from "./store.js";
@@ -49,6 +49,8 @@ export interface PhaseInfo {
   ids: string[];
   /** The engine command that produces the phase's input when it is missing. */
   prerequisite: string;
+  /** Why the phase is blocked, when more specific than a missing worklist (e.g. the on-disk worklist belongs to another answer). */
+  reason?: string;
 }
 
 export function listPhases(ctx: OrchestrateContext): PhaseInfo[] {
@@ -61,12 +63,22 @@ export function listPhases(ctx: OrchestrateContext): PhaseInfo[] {
   // verify-answer — file-backed by the VERIFY.todo.json `verify --answer`
   // writes next to the answer file; --answer anchors it (default: repo root).
   const verifyWl = join(ctx.answer ? dirname(ctx.answer) : ctx.repo, "VERIFY.todo.json");
+  const verifyPrereq =
+    `node ${ctx.engine} verify --answer ${ctx.answer ?? "<answer.md>"} --repo ${ctx.repo}` +
+    (ctx.answer ? "" : ` (then re-run orchestrate with --answer <answer.md>)`);
   let verifyIds: string[] = [];
   let verifyReady = false;
+  let verifyReason: string | undefined;
   if (existsSync(verifyWl)) {
     try {
-      const todo = JSON.parse(readFileSync(verifyWl, "utf8")) as { pairs?: unknown };
-      if (todo && Array.isArray(todo.pairs)) {
+      const todo = JSON.parse(readFileSync(verifyWl, "utf8")) as { answer?: unknown; pairs?: unknown };
+      // `runVerify` records the answer the worklist was built FOR. A worklist
+      // written for ANOTHER answer in the same dir (foreign or stale) must not
+      // be fanned out: its pairs are A's while the join folds into B.
+      const owner = todo && typeof todo.answer === "string" ? todo.answer : undefined;
+      if (ctx.answer !== undefined && owner !== undefined && resolve(owner) !== resolve(ctx.answer)) {
+        verifyReason = `its worklist ${verifyWl} belongs to ${owner} — re-run: ${verifyPrereq}`;
+      } else if (todo && Array.isArray(todo.pairs)) {
         verifyReady = true;
         verifyIds = todo.pairs.map((_, i) => String(i + 1));
       }
@@ -90,9 +102,8 @@ export function listPhases(ctx: OrchestrateContext): PhaseInfo[] {
       worklist: verifyWl,
       items: verifyIds.length,
       ids: verifyIds,
-      prerequisite:
-        `node ${ctx.engine} verify --answer ${ctx.answer ?? "<answer.md>"} --repo ${ctx.repo}` +
-        (ctx.answer ? "" : ` (then re-run orchestrate with --answer <answer.md>)`),
+      prerequisite: verifyPrereq,
+      ...(verifyReason === undefined ? {} : { reason: verifyReason }),
     },
   ];
 }
@@ -144,7 +155,10 @@ export function orchestrateRun(ctx: OrchestrateContext, opts: OrchestrateOptions
         exitCode: 2,
         written: [],
         notices: [],
-        errors: [`phase "${ph.name}" is not ready — its worklist ${ph.worklist} does not exist yet. Produce it first: ${ph.prerequisite}`],
+        errors: [
+          `phase "${ph.name}" is not ready — ` +
+            (ph.reason ?? `its worklist ${ph.worklist} does not exist yet. Produce it first: ${ph.prerequisite}`),
+        ],
         phases,
       };
     }
@@ -158,6 +172,13 @@ export function orchestrateRun(ctx: OrchestrateContext, opts: OrchestrateOptions
 
   const written: string[] = [];
   const notices: string[] = [];
+
+  // A phase blocked for a SPECIFIC reason (not merely a missing worklist) is
+  // called out even when it just drops out of the default emission — silence
+  // here would look like "nothing to verify".
+  for (const ph of phases) {
+    if (!ph.ready && ph.reason) notices.push(`phase "${ph.name}": ${ph.reason}`);
+  }
 
   // Contracts: every role, every call (idempotent overwrite) — they double as the
   // RUNBOOK's self-pass checklists, so eco mode needs them too.
