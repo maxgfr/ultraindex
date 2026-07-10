@@ -5357,6 +5357,10 @@ var DIRECTIVE_RE = /^(eslint\b|eslint-|prettier\b|prettier-|tslint\b|jshint\b|js
 function isDirective(line) {
   return DIRECTIVE_RE.test(line.trim());
 }
+var BANNER_RE = /^((?:mit|isc|bsd|apache|gnu|gpl|mpl|lgpl|agpl)\s+licen[sc]ed?\b|licen[sc]ed\b|(?:released|distributed)\s+under\b|all rights reserved\b|https?:\/\/|www\.)/i;
+function isBanner(line) {
+  return BANNER_RE.test(line.trim());
+}
 function topDocComment(content) {
   const lines = content.split(/\r?\n/);
   const collected = [];
@@ -5365,7 +5369,7 @@ function topDocComment(content) {
     const raw = lines[i2];
     const line = raw.trim();
     if (inBlock === "c") {
-      collected.push(line.replace(/^\*+/, "").replace(/\*+\/\s*$/, "").trim());
+      collected.push(line.replace(/\*+\/\s*$/, "").replace(/^\*+/, "").trim());
       if (line.includes("*/")) inBlock = null;
       continue;
     }
@@ -5387,7 +5391,7 @@ function topDocComment(content) {
       continue;
     }
     if (line.startsWith("/*")) {
-      collected.push(line.replace(/^\/\*+/, "").replace(/\*+\/\s*$/, "").trim());
+      collected.push(line.replace(/^\/\*+!?/, "").replace(/\*+\/\s*$/, "").trim());
       if (!line.includes("*/")) inBlock = "c";
       continue;
     }
@@ -5402,7 +5406,7 @@ function topDocComment(content) {
     }
     break;
   }
-  const text = collected.filter((l) => l && !isDirective(l)).join(" ").replace(/\s+/g, " ").trim();
+  const text = collected.filter((l) => l && !isDirective(l) && !isBanner(l)).join(" ").replace(/\s+/g, " ").trim();
   if (text.length < 8) return void 0;
   const sentence = /^(.*?[.!?])(\s|$)/.exec(text);
   return (sentence ? sentence[1] : text).slice(0, 200);
@@ -10129,3 +10133,4 @@ if (isInvokedDirectly()) {
 export {
   parseArgs
 };
+// "Copyright" and "@license" are already caught by DIRECTIVE_RE.

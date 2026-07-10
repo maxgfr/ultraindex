@@ -25,6 +25,17 @@ function isDirective(line: string): boolean {
   return DIRECTIVE_RE.test(line.trim());
 }
 
+// License / banner boilerplate common in minified-library preambles (the `/*!`
+// "preserve" banner of Express, jQuery, Bootstrap, Lodash, moment, …): a license
+// name or a "released under"/URL line, not a description of what the file does.
+// "Copyright" and "@license" are already caught by DIRECTIVE_RE.
+const BANNER_RE =
+  /^((?:mit|isc|bsd|apache|gnu|gpl|mpl|lgpl|agpl)\s+licen[sc]ed?\b|licen[sc]ed\b|(?:released|distributed)\s+under\b|all rights reserved\b|https?:\/\/|www\.)/i;
+
+function isBanner(line: string): boolean {
+  return BANNER_RE.test(line.trim());
+}
+
 // The leading comment block of a file, turned into one summary line. Handles
 // `//`, `#`, and `/* … */` / `""" … """` openers. Stops at the first code line.
 function topDocComment(content: string): string | undefined {
@@ -35,7 +46,9 @@ function topDocComment(content: string): string | undefined {
     const raw = lines[i]!;
     const line = raw.trim();
     if (inBlock === "c") {
-      collected.push(line.replace(/^\*+/, "").replace(/\*+\/\s*$/, "").trim());
+      // Strip the closing `*/` BEFORE the leading `*`s, so a lone `*/` (or a line
+      // ending in `*/`) doesn't leave a stray "/" once the leading star is gone.
+      collected.push(line.replace(/\*+\/\s*$/, "").replace(/^\*+/, "").trim());
       if (line.includes("*/")) inBlock = null;
       continue;
     }
@@ -57,7 +70,10 @@ function topDocComment(content: string): string | undefined {
       continue;
     }
     if (line.startsWith("/*")) {
-      collected.push(line.replace(/^\/\*+/, "").replace(/\*+\/\s*$/, "").trim());
+      // Drop the opener, INCLUDING the `!` of a `/*!` "preserve" banner — else the
+      // stripped text is just "!", which the first-sentence regex then treats as a
+      // whole sentence, yielding the garbage summary "!".
+      collected.push(line.replace(/^\/\*+!?/, "").replace(/\*+\/\s*$/, "").trim());
       if (!line.includes("*/")) inBlock = "c";
       continue;
     }
@@ -73,7 +89,7 @@ function topDocComment(content: string): string | undefined {
     break; // first real code line
   }
   const text = collected
-    .filter((l) => l && !isDirective(l))
+    .filter((l) => l && !isDirective(l) && !isBanner(l))
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
