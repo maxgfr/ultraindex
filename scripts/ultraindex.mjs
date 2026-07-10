@@ -7062,26 +7062,34 @@ function codeViewRegion(m, records) {
     lines.push("");
     lines.push(`**Languages:** ${langs.sort(byStr).join(", ")}`);
   }
-  const apiBlocks = [];
-  for (const rel of m.members) {
-    const rec = records.get(rel);
-    if (!rec || rec.kind !== "code") continue;
-    const exported = rec.symbols.filter((s) => s.exported).sort((a, b) => a.line - b.line);
-    const shown = exported.slice(0, MAX_SYMBOLS_PER_FILE);
-    if (!shown.length) continue;
+  const renderBlock = (rel, syms) => {
+    const shown = syms.slice(0, MAX_SYMBOLS_PER_FILE);
     const block = [`- \`${rel}\``];
     for (const s of shown) {
       const sig = s.signature ? ` \u2014 \`${clip(s.signature, 100).split("\n")[0]}\`` : "";
       block.push(`  - \`${s.kind} ${s.name}\`${sig}`);
     }
-    if (exported.length > shown.length) block.push(`  - _\u2026and ${exported.length - shown.length} more_`);
-    apiBlocks.push(block.join("\n"));
+    if (syms.length > shown.length) block.push(`  - _\u2026and ${syms.length - shown.length} more_`);
+    return block.join("\n");
+  };
+  const apiBlocks = [];
+  const internalBlocks = [];
+  for (const rel of m.members) {
+    const rec = records.get(rel);
+    if (!rec || rec.kind !== "code" || !rec.symbols.length) continue;
+    const exported = rec.symbols.filter((s) => s.exported).sort((a, b) => a.line - b.line);
+    if (exported.length) apiBlocks.push(renderBlock(rel, exported));
+    else internalBlocks.push(renderBlock(rel, rec.symbols.slice().sort((a, b) => a.line - b.line)));
   }
   lines.push("");
   if (apiBlocks.length) {
     lines.push("**Exported API:**");
     lines.push("");
     lines.push(apiBlocks.join("\n"));
+  } else if (internalBlocks.length) {
+    lines.push("**Symbols** (none marked exported \u2014 a CommonJS/script module, or the export is dynamic):");
+    lines.push("");
+    lines.push(internalBlocks.join("\n"));
   } else {
     lines.push("_No exported symbols detected (the module is docs/config, or its language has no extractor)._");
   }
