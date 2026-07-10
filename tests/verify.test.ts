@@ -288,6 +288,68 @@ describe("checkAnswer content-level grounding (digest re-validation)", () => {
   });
 });
 
+// A partially-covered ledger must FAIL closed unless the shortfall is explained
+// by the worklist cap. Two real fail-opens (wave-1 class watch on sibling
+// skills): a verdict deleted for one cited claim, and a claim added/edited AFTER
+// `verify --apply` (a stale ledger). Both leave a claim genuinely unadjudicated
+// while the reducer stays green — an unadjudicated claim is NOT verified.
+describe("checkAnswer --semantic coverage: unadjudicated claims fail closed", () => {
+  function greenChain(): { repo: string; out: string; ans: string } {
+    const repo = miniRepo();
+    const out = join(repo, ".ultraindex");
+    runBuild({ repo, out, mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
+    const ans = join(repo, "ANSWER.md");
+    writeFileSync(ans, ANSWER); // two claims, each one citation
+    runVerify(ans, repo);
+    applyVerdicts(repo, writeVerdicts(repo, {})); // all supported
+    expect(checkAnswer(out, ans, { semantic: true }).ok).toBe(true); // baseline green
+    return { repo, out, ans };
+  }
+
+  it("fails closed when ALL verdict rows for one cited claim are deleted (uncapped)", () => {
+    const { repo, out, ans } = greenChain();
+    // Delete every verdict row for claim C1 (cites src/retry.ts:2). The reducer
+    // is now blind to C1, but C1 is still an unadjudicated claim in the answer.
+    const vPath = join(repo, "VERIFY.json");
+    const v = JSON.parse(readFileSync(vPath, "utf8"));
+    v.verdicts = v.verdicts.filter((r: any) => r.citation !== "src/retry.ts:2");
+    writeFileSync(vPath, JSON.stringify(v, null, 2));
+    const r = checkAnswer(out, ans, { semantic: true });
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => /adjudicated|no verdict|not.*verified/i.test(e))).toBe(true);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("fails closed when a new cited claim is appended AFTER verify --apply (stale ledger)", () => {
+    const { repo, out, ans } = greenChain();
+    // Append a never-verified cited claim. Its pair is uncovered; the ledger is
+    // stale, so the high-assurance gate must not pass on the old coverage.
+    writeFileSync(ans, ANSWER + "\n\nThe retry entry point is a function [src/retry.ts:1].\n");
+    const r = checkAnswer(out, ans, { semantic: true });
+    expect(r.ok).toBe(false);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("keeps partial coverage a WARNING (not a failure) only when the worklist cap truncated a large answer", () => {
+    const repo = mkdtempSync(join(tmpdir(), "ui-cap-"));
+    mkdirSync(join(repo, "src"), { recursive: true });
+    // 45 distinct exports → 45 verifiable claim↔citation pairs, above VERIFY_MAX=40.
+    const src = Array.from({ length: 45 }, (_, i) => `export const v${i} = ${i};`).join("\n") + "\n";
+    writeFileSync(join(repo, "src/many.ts"), src);
+    const out = join(repo, ".ultraindex");
+    runBuild({ repo, out, mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
+    const body = Array.from({ length: 45 }, (_, i) => `Constant number ${i} is exported [src/many.ts:${i + 1}].`).join("\n\n");
+    const ans = join(repo, "ANSWER.md");
+    writeFileSync(ans, "# Answer\n\n" + body + "\n");
+    runVerify(ans, repo); // caps the worklist at 40
+    applyVerdicts(repo, writeVerdicts(repo, {})); // 40 supported
+    const r = checkAnswer(out, ans, { semantic: true });
+    expect(r.ok).toBe(true); // capping is a legitimate, documented truncation
+    expect(r.warnings?.some((w) => /cap|capped|truncat/i.test(w))).toBe(true);
+    rmSync(repo, { recursive: true, force: true });
+  });
+});
+
 describe("runVerify claim digest (display vs parse decoupling)", () => {
   function repoWith(answer: string): { repo: string; ans: string } {
     const repo = miniRepo();

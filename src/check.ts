@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import type { CheckResult, Manifest, VerifyResult } from "./types.js";
-import { loadVerify, buildClaimPairs, citationlessClaims, reduceVerdicts, revalidateVerdicts } from "./verify.js";
+import { loadVerify, buildClaimPairs, citationlessClaims, reduceVerdicts, revalidateVerdicts, VERIFY_MAX } from "./verify.js";
 import { walk, readText } from "./walk.js";
 import { sha1 } from "./hash.js";
 import { compileGlobs } from "./glob.js";
@@ -241,9 +241,25 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
           `--semantic: none of the answer's ${expected} verifiable claim↔citation pair(s) match the adjudicated verdicts — the answer was not actually verified (stale or foreign VERIFY.json); re-run \`verify\` on a fresh worklist`,
         );
       } else if (covered < expected) {
-        warnings.push(
-          `--semantic: VERIFY.json covers ${covered} of ${expected} verifiable pair(s) — coverage may be stale or worklist-capped; re-run \`verify\` if the answer changed`,
-        );
+        // A shortfall the worklist cap CANNOT explain (the answer has no more
+        // verifiable pairs than one uncapped worklist, so an honest verify would
+        // have adjudicated ALL of them) means a claim is genuinely unadjudicated:
+        // a verdict was deleted, or a claim was added/edited AFTER `verify
+        // --apply` (a stale ledger). An unadjudicated claim is NOT verified, so
+        // the high-assurance gate FAILS CLOSED — never a pass-with-warning that a
+        // reader must catch. Only a large answer that genuinely exceeds the cap
+        // has a legitimate reason for partial coverage (capping truncates); there
+        // it stays a warning with the remedy of raising `--max-verify`.
+        if (expected <= VERIFY_MAX) {
+          result.ok = false;
+          errors.push(
+            `--semantic: only ${covered} of the answer's ${expected} verifiable claim↔citation pair(s) are adjudicated — ${expected - covered} claim(s) carry no verdict (a deleted verdict, or a claim added/edited after \`verify --apply\`); re-run \`verify\` on a fresh worklist and re-adjudicate before gating`,
+          );
+        } else {
+          warnings.push(
+            `--semantic: VERIFY.json covers ${covered} of ${expected} verifiable pair(s) — the worklist cap (${VERIFY_MAX}) truncated it; raise \`--max-verify\` and re-run \`verify\` to adjudicate every pair`,
+          );
+        }
       }
       if (recomputed.unadjudicated.length) warnings.push(`${recomputed.unadjudicated.length} claim(s) not fully adjudicated by verify`);
     }

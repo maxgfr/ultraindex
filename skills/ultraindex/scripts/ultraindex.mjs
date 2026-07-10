@@ -951,7 +951,7 @@ import { readFileSync as readFileSync2, existsSync } from "fs";
 import { dirname, join as join2 } from "path";
 import { fileURLToPath } from "url";
 
-// ../../../../../../../Users/maxime/Downloads/ultraindex/node_modules/.pnpm/web-tree-sitter@0.26.10/node_modules/web-tree-sitter/web-tree-sitter.js
+// node_modules/.pnpm/web-tree-sitter@0.26.10/node_modules/web-tree-sitter/web-tree-sitter.js
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 var Edit = class {
@@ -8977,9 +8977,16 @@ function checkAnswer(outDir, answerPath, opts = {}) {
           `--semantic: none of the answer's ${expected} verifiable claim\u2194citation pair(s) match the adjudicated verdicts \u2014 the answer was not actually verified (stale or foreign VERIFY.json); re-run \`verify\` on a fresh worklist`
         );
       } else if (covered < expected) {
-        warnings.push(
-          `--semantic: VERIFY.json covers ${covered} of ${expected} verifiable pair(s) \u2014 coverage may be stale or worklist-capped; re-run \`verify\` if the answer changed`
-        );
+        if (expected <= VERIFY_MAX) {
+          result.ok = false;
+          errors.push(
+            `--semantic: only ${covered} of the answer's ${expected} verifiable claim\u2194citation pair(s) are adjudicated \u2014 ${expected - covered} claim(s) carry no verdict (a deleted verdict, or a claim added/edited after \`verify --apply\`); re-run \`verify\` on a fresh worklist and re-adjudicate before gating`
+          );
+        } else {
+          warnings.push(
+            `--semantic: VERIFY.json covers ${covered} of ${expected} verifiable pair(s) \u2014 the worklist cap (${VERIFY_MAX}) truncated it; raise \`--max-verify\` and re-run \`verify\` to adjudicate every pair`
+          );
+        }
       }
       if (recomputed.unadjudicated.length) warnings.push(`${recomputed.unadjudicated.length} claim(s) not fully adjudicated by verify`);
     }
