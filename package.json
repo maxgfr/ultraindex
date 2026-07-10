@@ -1,6 +1,6 @@
 {
   "name": "ultraindex",
-  "version": "4.1.1",
+  "version": "5.0.0",
   "description": "Deterministically scan a whole repo (code + docs), build a typed link-graph between files, and emit a layered, navigable encyclopedia so an AI can work in huge codebases without filling its context window. A skills.sh agent skill, with optional hybrid (lexical + semantic) search.",
   "type": "module",
   "packageManager": "pnpm@10.33.0",

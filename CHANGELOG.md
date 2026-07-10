@@ -2,6 +2,39 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [5.0.0](https://github.com/maxgfr/ultraindex/compare/v4.1.1...v5.0.0) (2026-07-10)
+
+
+* feat(graph)!: resolve cross-file call edges with import-evidence confidence ([f1b23db](https://github.com/maxgfr/ultraindex/commit/f1b23db1ad8f016b0175efe0d87ecfe369f0de99))
+
+
+### Bug Fixes
+
+* address whole-branch review (schema comment, call-edge tests, via/budget polish) ([ed0de38](https://github.com/maxgfr/ultraindex/commit/ed0de38d7c38a182cd03bd27ed8ff3d9d2e38450))
+* **check:** fail closed on unadjudicated claims in the --semantic coverage gate ([0e3a2b7](https://github.com/maxgfr/ultraindex/commit/0e3a2b700ed820e0d5d4576ebe3bdbd6f9d4c1ac)), closes [hi#assurance](https://github.com/hi/issues/assurance)
+* **extract:** stop deriving the summary "!" from a `/*!` preserve banner ([93a68ce](https://github.com/maxgfr/ultraindex/commit/93a68ce07675e2bb8b6079d1bbacb21f03c9b489))
+* **render:** don't claim "No exported symbols detected" when the module has symbols ([3066b57](https://github.com/maxgfr/ultraindex/commit/3066b574d266f6cc04d31149bd533e1ec1be7ea2))
+* **verify:** backfill the worklist pair for digest-less skeptic verdicts ([8870420](https://github.com/maxgfr/ultraindex/commit/887042064ae2d781a92a6fd62639a652566ceb82))
+
+
+### Features
+
+* budget-capped evidence, neighbors --kind + hub-gating, stat fastpath ([b1b6609](https://github.com/maxgfr/ultraindex/commit/b1b66096820332a207d87bb72b6e7ea8647238ed))
+* **find:** fold diacritics, square coverage, add full-query tier + tiered symbol ranking ([f12ea6f](https://github.com/maxgfr/ultraindex/commit/f12ea6f11645b4a92ed4b9004d59e12ab56f57ac))
+* **find:** index exported symbol names and expand seed hits over the module graph ([8045d01](https://github.com/maxgfr/ultraindex/commit/8045d01411ead39c7cf167244b2fadb020d07017))
+* **graph:** cluster modules into communities for navigation ([bd660bb](https://github.com/maxgfr/ultraindex/commit/bd660bb13ee815791f8f35ceeea8262cff7790fa))
+* **impact,neighbors:** traverse call edges and surface their confidence ([de738e1](https://github.com/maxgfr/ultraindex/commit/de738e145def899c03b09e923811c0bbf3a3115b))
+
+
+### BREAKING CHANGES
+
+* the on-disk artifact grows a `call` edge kind and an optional
+`Edge.confidence`, and the extraction record grows `FileRecord.calls` /
+`importedNames` — SCHEMA_VERSION and EXTRACTOR_VERSION both bump 2 → 3, so an
+index or cache written by an older engine is rejected and rebuilt.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
 ## [4.1.1](https://github.com/maxgfr/ultraindex/compare/v4.1.0...v4.1.1) (2026-07-09)
 
 
