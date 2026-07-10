@@ -231,6 +231,33 @@ function renderWorklistMd(wl: VerifyWorklist, total: number, kept: number): stri
   return out.join("\n");
 }
 
+// Load the pairs `verify` captured in VERIFY.todo.json, keyed by claimId+citation,
+// so an incoming verdict row that omits the worklist fields can be reunited with the
+// evidence the worklist recorded. Absent/corrupt todo ⇒ undefined (no backfill).
+function loadTodoPairs(dir: string): Map<string, ClaimEvidencePair> | undefined {
+  const p = join(dir, "VERIFY.todo.json");
+  if (!existsSync(p)) return undefined;
+  let todo: any;
+  try {
+    todo = JSON.parse(readFileSync(p, "utf8"));
+  } catch {
+    return undefined;
+  }
+  const pairs: any[] = Array.isArray(todo?.pairs) ? todo.pairs : [];
+  const map = new Map<string, ClaimEvidencePair>();
+  for (const p2 of pairs) {
+    if (!p2 || typeof p2.claimId !== "string" || typeof p2.citation !== "string") continue;
+    map.set(`${p2.claimId} ${p2.citation}`, {
+      claimId: p2.claimId,
+      claim: typeof p2.claim === "string" ? p2.claim : "",
+      citation: p2.citation,
+      path: typeof p2.path === "string" ? p2.path : "",
+      digest: typeof p2.digest === "string" ? p2.digest : "",
+    });
+  }
+  return map;
+}
+
 // Phase B — read an agent-filled verdicts file (a `{ pairs: Verdict[] }` object
 // or a bare `Verdict[]`), validate it, reduce to a VerifyResult, and persist
 // VERIFY.json in `dir` (the answer's directory) for `check --semantic` / render.
@@ -242,6 +269,21 @@ export function applyVerdicts(dir: string, verdictsPath: string): VerifyResult {
     throw new Error(`verdicts file is not valid JSON (${(e as Error).message})`);
   }
   const list: any[] = Array.isArray(raw) ? raw : Array.isArray((raw as any)?.pairs) ? (raw as any).pairs : [];
+  // The documented parallel skeptic-subagent contract has skeptics RETURN
+  // { claimId, citation, verdict, note } — no digest/claim/path. An orchestrator
+  // that writes those returns as-is would persist EMPTY digests, and
+  // `check --semantic` would then false-fail every pair (digest re-validation and
+  // identity coverage both compare against an empty digest). Reunite each such row
+  // with the pair `verify` captured in VERIFY.todo.json (match on claimId+citation):
+  // the backfilled digest/claim are EXACTLY what filling VERIFY.todo.json in place
+  // persists, so the gate is unchanged in strength — a genuinely drifted or doctored
+  // excerpt still fails re-validation. If the todo is absent or has no matching pair
+  // we backfill nothing, so today's fail-closed behavior is preserved.
+  const todoPairs = loadTodoPairs(dir);
+  const backfill = (row: any, field: keyof ClaimEvidencePair, src: ClaimEvidencePair | undefined): string => {
+    if (typeof row[field] === "string" && row[field] !== "") return row[field] as string;
+    return src ? (src[field] as string) : "";
+  };
   const verdicts: Verdict[] = [];
   // A malformed row or a misspelled verdict token is a HARD error, not a silent
   // drop/coercion — a "pass" must never rest on a verdict the tool couldn't read.
@@ -255,12 +297,13 @@ export function applyVerdicts(dir: string, verdictsPath: string): VerifyResult {
       errors.push(`${v.claimId} (${v.citation}): invalid verdict ${JSON.stringify(v.verdict)} — use exactly one of ${VALID_VERDICTS.join(", ")}`);
       return;
     }
+    const src = todoPairs?.get(`${v.claimId} ${v.citation}`);
     verdicts.push({
       claimId: v.claimId,
-      claim: typeof v.claim === "string" ? v.claim : "",
+      claim: backfill(v, "claim", src),
       citation: v.citation,
-      path: typeof v.path === "string" ? v.path : "",
-      digest: typeof v.digest === "string" ? v.digest : "",
+      path: backfill(v, "path", src),
+      digest: backfill(v, "digest", src),
       verdict: v.verdict as VerdictKind,
       note: typeof v.note === "string" ? v.note : "",
     });

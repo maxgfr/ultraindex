@@ -95,7 +95,11 @@ fan-out when your host supports subagents (e.g. Claude Code's Task/Workflow):
    to *refute* each claim from its excerpt, and **returns** its verdicts as data —
    `{ claimId, citation, verdict, note }`. A skeptic writes nothing shared.
 3. The orchestrator merges every returned verdict into **one** `verdicts.json`, then
-   runs `verify --apply` and `check --answer --semantic` as above.
+   runs `verify --apply` and `check --answer --semantic` as above. `verify --apply`
+   re-attaches each row's `digest` (and `claim`) from `VERIFY.todo.json` by
+   `claimId`+`citation`, so returning `{ claimId, citation, verdict, note }` without a
+   digest is enough — the gate still re-reads the live excerpt, so a drifted source
+   fails all the same.
 
 Keep the reduction in the orchestrator's hands: a single claim's citations can land
 in different batches, so whether a claim passes is decided only after the merge — no

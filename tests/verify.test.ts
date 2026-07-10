@@ -350,6 +350,89 @@ describe("checkAnswer --semantic coverage: unadjudicated claims fail closed", ()
   });
 });
 
+// The documented parallel skeptic-subagent contract (references/verify.md) has
+// skeptics RETURN { claimId, citation, verdict, note } — no digest, no claim, no
+// path. An orchestrator that writes verdicts.json from those returns as-is would
+// persist empty digests, and `check --semantic` would then FALSE-FAIL every pair
+// (digest re-validation + identity coverage both compare against an empty digest).
+// applyVerdicts must reunite each such row with the pair verify captured in
+// VERIFY.todo.json (match on claimId+citation) — WITHOUT weakening the gate.
+describe("applyVerdicts backfills the worklist pair for digest-less skeptic returns", () => {
+  // Build a verdicts.json exactly as the documented skeptic contract emits it:
+  // { claimId, citation, verdict, note } — no digest/claim/path.
+  function writeSkepticVerdicts(dir: string, map: Record<string, string> = {}): string {
+    const todo = JSON.parse(readFileSync(join(dir, "VERIFY.todo.json"), "utf8"));
+    const pairs = todo.pairs.map((p: any) => ({
+      claimId: p.claimId,
+      citation: p.citation,
+      verdict: map[p.citation] ?? "supported",
+      note: "read only its excerpt",
+    }));
+    const f = join(dir, "verdicts.json");
+    writeFileSync(f, JSON.stringify({ pairs }));
+    return f;
+  }
+
+  function greenChain(): { repo: string; out: string; ans: string } {
+    const repo = miniRepo();
+    const out = join(repo, ".ultraindex");
+    runBuild({ repo, out, mermaid: false, json: false }, "2026-01-01T00:00:00.000Z");
+    const ans = join(repo, "ANSWER.md");
+    writeFileSync(ans, ANSWER);
+    runVerify(ans, repo);
+    return { repo, out, ans };
+  }
+
+  it("a digest-less verdicts.json (documented skeptic contract) gates GREEN after backfill", () => {
+    const { repo, out, ans } = greenChain();
+    applyVerdicts(repo, writeSkepticVerdicts(repo)); // rows carry NO digest/claim/path
+    const r = checkAnswer(out, ans, { semantic: true });
+    expect(r.ok).toBe(true);
+    expect(r.errors).toEqual([]);
+    // The persisted rows now carry the digest verify captured — same as an in-place fill.
+    const v = JSON.parse(readFileSync(join(repo, "VERIFY.json"), "utf8"));
+    expect(v.verdicts.length).toBe(2);
+    expect(v.verdicts.every((row: any) => typeof row.digest === "string" && row.digest.length > 0)).toBe(true);
+    expect(v.verdicts.find((row: any) => row.citation === "src/retry.ts:2").digest).toContain("exponential backoff");
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("does NOT weaken the gate: a drifted/doctored excerpt STILL fails after backfill", () => {
+    const { repo, out, ans } = greenChain();
+    applyVerdicts(repo, writeSkepticVerdicts(repo)); // backfills the verify-captured digest
+    // Doctor the cited source AFTER adjudication. The backfilled digest is the one
+    // verify captured, so the gate re-reads the live file and catches the drift —
+    // backfill re-attaches evidence, it never launders a changed source into a pass.
+    writeFileSync(
+      join(repo, "src/retry.ts"),
+      "export function retry() {\n  // linear backoff waits a fixed delay\n  return backoff();\n}\n",
+    );
+    const r = checkAnswer(out, ans, { semantic: true });
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => /no longer matches/.test(e))).toBe(true);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("stays fail-safe when VERIFY.todo.json is absent (no backfill source → fail closed)", () => {
+    const { repo, out, ans } = greenChain();
+    const skeptic = writeSkepticVerdicts(repo); // reads the todo to shape the rows
+    rmSync(join(repo, "VERIFY.todo.json")); // remove the only backfill source
+    applyVerdicts(repo, skeptic); // digests stay empty — today's behavior unchanged
+    const r = checkAnswer(out, ans, { semantic: true });
+    expect(r.ok).toBe(false);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("a refuted digest-less row still fails (backfill re-attaches evidence, not the verdict)", () => {
+    const { repo, out, ans } = greenChain();
+    applyVerdicts(repo, writeSkepticVerdicts(repo, { "src/retry.ts:2": "refuted" }));
+    const r = checkAnswer(out, ans, { semantic: true });
+    expect(r.ok).toBe(false);
+    expect(r.semantic?.failures.some((f) => f.verdict === "refuted")).toBe(true);
+    rmSync(repo, { recursive: true, force: true });
+  });
+});
+
 describe("runVerify claim digest (display vs parse decoupling)", () => {
   function repoWith(answer: string): { repo: string; ans: string } {
     const repo = miniRepo();

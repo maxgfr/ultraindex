@@ -8697,6 +8697,29 @@ _Showing ${kept} of ${total} pair(s) \u2014 capped._`);
   }
   return out2.join("\n");
 }
+function loadTodoPairs(dir) {
+  const p = join11(dir, "VERIFY.todo.json");
+  if (!existsSync3(p)) return void 0;
+  let todo;
+  try {
+    todo = JSON.parse(readFileSync4(p, "utf8"));
+  } catch {
+    return void 0;
+  }
+  const pairs = Array.isArray(todo?.pairs) ? todo.pairs : [];
+  const map = /* @__PURE__ */ new Map();
+  for (const p2 of pairs) {
+    if (!p2 || typeof p2.claimId !== "string" || typeof p2.citation !== "string") continue;
+    map.set(`${p2.claimId}\0${p2.citation}`, {
+      claimId: p2.claimId,
+      claim: typeof p2.claim === "string" ? p2.claim : "",
+      citation: p2.citation,
+      path: typeof p2.path === "string" ? p2.path : "",
+      digest: typeof p2.digest === "string" ? p2.digest : ""
+    });
+  }
+  return map;
+}
 function applyVerdicts(dir, verdictsPath) {
   let raw;
   try {
@@ -8705,6 +8728,11 @@ function applyVerdicts(dir, verdictsPath) {
     throw new Error(`verdicts file is not valid JSON (${e.message})`);
   }
   const list = Array.isArray(raw) ? raw : Array.isArray(raw?.pairs) ? raw.pairs : [];
+  const todoPairs = loadTodoPairs(dir);
+  const backfill = (row2, field, src) => {
+    if (typeof row2[field] === "string" && row2[field] !== "") return row2[field];
+    return src ? src[field] : "";
+  };
   const verdicts = [];
   const errors = [];
   list.forEach((v, i2) => {
@@ -8716,12 +8744,13 @@ function applyVerdicts(dir, verdictsPath) {
       errors.push(`${v.claimId} (${v.citation}): invalid verdict ${JSON.stringify(v.verdict)} \u2014 use exactly one of ${VALID_VERDICTS.join(", ")}`);
       return;
     }
+    const src = todoPairs?.get(`${v.claimId}\0${v.citation}`);
     verdicts.push({
       claimId: v.claimId,
-      claim: typeof v.claim === "string" ? v.claim : "",
+      claim: backfill(v, "claim", src),
       citation: v.citation,
-      path: typeof v.path === "string" ? v.path : "",
-      digest: typeof v.digest === "string" ? v.digest : "",
+      path: backfill(v, "path", src),
+      digest: backfill(v, "digest", src),
       verdict: v.verdict,
       note: typeof v.note === "string" ? v.note : ""
     });
