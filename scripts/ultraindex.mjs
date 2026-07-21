@@ -7259,6 +7259,8 @@ function renderEntrySpec(m, edgeIndex, records) {
 // src/render/index-md.ts
 var TIER_LABEL2 = { 0: "Foundations", 1: "Features", 2: "Tail" };
 var HUB_CAP = 12;
+var BRIDGE_CAP = 8;
+var BRIDGE_MIN_MODULES = 8;
 var MODULE_CAP = 120;
 var ARCH_CAP = 12;
 var ARCH_MEMBER_CAP = 12;
@@ -7284,14 +7286,36 @@ function renderIndex(graph, opts) {
   lines.push(
     '**Navigate:** `ultraindex find "<task>"` lists the exact files to open \xB7 `ultraindex neighbors <file|module>` walks the graph \xB7 entries are in `encyclopedia/` \xB7 the module diagram is in `graph.mmd`.'
   );
-  const hubs = graph.modules.slice().filter((m) => degree(m) > 0).sort((a, b) => degree(b) - degree(a) || byStr(a.slug, b.slug)).slice(0, HUB_CAP);
+  const hasPagerank = graph.modules.some((m) => m.pagerank !== void 0);
+  const hubs = graph.modules.slice().filter((m) => degree(m) > 0).sort(
+    (a, b) => hasPagerank ? (b.pagerank ?? 0) - (a.pagerank ?? 0) || degree(b) - degree(a) || byStr(a.slug, b.slug) : degree(b) - degree(a) || byStr(a.slug, b.slug)
+  ).slice(0, HUB_CAP);
   if (hubs.length) {
     lines.push("");
     lines.push("## Hubs");
     lines.push("");
     for (const m of hubs) {
       const d = degree(m);
-      lines.push(`- [\`${m.slug}\`](encyclopedia/${m.slug}.md) (${d} link${d === 1 ? "" : "s"}) \u2014 ${clip(m.summary, 100).split("\n")[0]}`);
+      const links = `${d} link${d === 1 ? "" : "s"}`;
+      const metrics = hasPagerank ? `pr ${(m.pagerank ?? 0).toFixed(2)} \xB7 ${links}` : links;
+      lines.push(`- [\`${m.slug}\`](encyclopedia/${m.slug}.md) (${metrics}) \u2014 ${clip(m.summary, 100).split("\n")[0]}`);
+    }
+  }
+  if (graph.modules.length >= BRIDGE_MIN_MODULES) {
+    const hubSet = new Set(hubs.map((m) => m.slug));
+    const bridges = graph.modules.filter((m) => (m.betweenness ?? 0) > 0 && !hubSet.has(m.slug)).sort((a, b) => b.betweenness - a.betweenness || degree(b) - degree(a) || byStr(a.slug, b.slug)).slice(0, BRIDGE_CAP);
+    if (bridges.length) {
+      lines.push("");
+      lines.push("## Bridges");
+      lines.push("");
+      lines.push("Connectors between subsystems \u2014 few alternative paths route around these; review changes here with extra care.");
+      lines.push("");
+      for (const m of bridges) {
+        const d = degree(m);
+        lines.push(
+          `- [\`${m.slug}\`](encyclopedia/${m.slug}.md) (betweenness ${m.betweenness.toFixed(2)} \xB7 ${d} link${d === 1 ? "" : "s"}) \u2014 ${clip(m.summary, 100).split("\n")[0]}`
+        );
+      }
     }
   }
   const byCommunity = /* @__PURE__ */ new Map();

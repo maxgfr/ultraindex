@@ -61,3 +61,67 @@ describe("renderIndex budget", () => {
     expect(md.split("\n").length).toBeLessThan(200);
   });
 });
+
+// Extract the body of one `## name` section (up to the next heading).
+function section(md: string, name: string): string {
+  const m = md.match(new RegExp(`## ${name}\\n([\\s\\S]*?)(?=\\n## |$)`));
+  return m ? m[1]! : "";
+}
+
+describe("renderIndex centrality", () => {
+  it("ranks Hubs by pagerank when present and shows both metrics", () => {
+    const graph = bigGraph(9);
+    // Ascending pagerank by index: the chain's LAST module outranks the rest,
+    // the opposite of the degree ordering (mod001 has the top degree).
+    graph.modules.forEach((m, i) => {
+      m.pagerank = Number((1 + i * 0.1).toFixed(4));
+    });
+    const hubs = section(renderIndex(graph, { repoName: "big" }), "Hubs");
+    const lines = hubs.split("\n").filter((l) => l.startsWith("- ["));
+    expect(lines[0]).toContain("mod008");
+    expect(lines[0]).toMatch(/pr 1\.8/);
+    expect(lines[0]).toMatch(/1 link/);
+  });
+
+  it("falls back to degree ranking when no module carries pagerank", () => {
+    const hubs = section(renderIndex(bigGraph(9), { repoName: "big" }), "Hubs");
+    const lines = hubs.split("\n").filter((l) => l.startsWith("- ["));
+    expect(lines[0]).toContain("mod001");
+    expect(lines[0]).toMatch(/\(2 links\)/);
+    expect(hubs).not.toContain("pr ");
+  });
+
+  it("lists high-betweenness non-hub modules under Bridges, excluding hub slugs", () => {
+    const graph = bigGraph(20);
+    // Descending pagerank by index: hubs are mod000..mod011.
+    graph.modules.forEach((m, i) => {
+      m.pagerank = Number((20 - i).toFixed(4));
+      m.betweenness = 0;
+    });
+    graph.modules[0]!.betweenness = 0.9; // a hub — must NOT appear under Bridges
+    graph.modules[15]!.betweenness = 0.5;
+    graph.modules[13]!.betweenness = 0.25;
+    const md = renderIndex(graph, { repoName: "big" });
+    const bridges = section(md, "Bridges");
+    const lines = bridges.split("\n").filter((l) => l.startsWith("- ["));
+    expect(lines[0]).toContain("mod015");
+    expect(lines[0]).toMatch(/betweenness 0\.5/);
+    expect(lines[1]).toContain("mod013");
+    expect(bridges).not.toContain("mod000");
+  });
+
+  it("omits Bridges when betweenness is absent or the repo is small", () => {
+    const withPr = bigGraph(20);
+    withPr.modules.forEach((m, i) => {
+      m.pagerank = Number((20 - i).toFixed(4));
+    });
+    expect(renderIndex(withPr, { repoName: "big" })).not.toContain("## Bridges");
+
+    const small = bigGraph(5);
+    small.modules.forEach((m) => {
+      m.pagerank = 1;
+      m.betweenness = 0.4;
+    });
+    expect(renderIndex(small, { repoName: "small" })).not.toContain("## Bridges");
+  });
+});

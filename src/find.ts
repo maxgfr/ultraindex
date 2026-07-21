@@ -275,6 +275,11 @@ const HUB_FLOOR = 50;
 // degree at index min(n-1, floor(0.99n)) of the ASCENDING degree array (numeric
 // sort — deterministic without byStr). Exported so `neighbors`' BFS gates on the
 // exact same rule this module's `expandResults` applies to graph expansion.
+// Deliberately DEGREE-based even though the graph carries pagerank/betweenness:
+// the gate exists to bound traversal fan-out, and degree IS the fan-out cost —
+// a high-pagerank/low-degree node is safe to expand through. `neighbors` also
+// computes this at query time on kind-filtered subgraphs, where no precomputed
+// metric applies.
 export function hubThreshold(degrees: number[]): number {
   const sorted = degrees.slice().sort((a, b) => a - b);
   const n = sorted.length;

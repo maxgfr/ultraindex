@@ -5,6 +5,8 @@ import { clip } from "../util.js";
 
 const TIER_LABEL: Record<Tier, string> = { 0: "Foundations", 1: "Features", 2: "Tail" };
 const HUB_CAP = 12;
+const BRIDGE_CAP = 8;
+const BRIDGE_MIN_MODULES = 8; // below this, everything is trivially a bridge — no signal
 const MODULE_CAP = 120; // keep INDEX.md always-loadable on huge repos
 const ARCH_CAP = 12; // communities shown in the Architecture section
 const ARCH_MEMBER_CAP = 12; // member slugs listed per community before overflow
@@ -49,11 +51,19 @@ export function renderIndex(
       "the module diagram is in `graph.mmd`.",
   );
 
-  // Hubs — the most-connected modules, where understanding usually starts.
+  // Hubs — the most important modules, where understanding usually starts.
+  // Ranked by pagerank (what the graph structurally depends on) when the build
+  // stamped it; graphs without centrality (older or hand-built) fall back to the
+  // original degree ranking so the section never disappears.
+  const hasPagerank = graph.modules.some((m) => m.pagerank !== undefined);
   const hubs = graph.modules
     .slice()
     .filter((m) => degree(m) > 0)
-    .sort((a, b) => degree(b) - degree(a) || byStr(a.slug, b.slug))
+    .sort((a, b) =>
+      hasPagerank
+        ? (b.pagerank ?? 0) - (a.pagerank ?? 0) || degree(b) - degree(a) || byStr(a.slug, b.slug)
+        : degree(b) - degree(a) || byStr(a.slug, b.slug),
+    )
     .slice(0, HUB_CAP);
   if (hubs.length) {
     lines.push("");
@@ -61,7 +71,32 @@ export function renderIndex(
     lines.push("");
     for (const m of hubs) {
       const d = degree(m);
-      lines.push(`- [\`${m.slug}\`](encyclopedia/${m.slug}.md) (${d} link${d === 1 ? "" : "s"}) — ${clip(m.summary, 100).split("\n")[0]}`);
+      const links = `${d} link${d === 1 ? "" : "s"}`;
+      const metrics = hasPagerank ? `pr ${(m.pagerank ?? 0).toFixed(2)} · ${links}` : links;
+      lines.push(`- [\`${m.slug}\`](encyclopedia/${m.slug}.md) (${metrics}) — ${clip(m.summary, 100).split("\n")[0]}`);
+    }
+  }
+
+  // Bridges — high-betweenness connectors between subsystems that the Hubs list
+  // (pagerank/degree) misses. A change here has few alternative paths around it.
+  if (graph.modules.length >= BRIDGE_MIN_MODULES) {
+    const hubSet = new Set(hubs.map((m) => m.slug));
+    const bridges = graph.modules
+      .filter((m) => (m.betweenness ?? 0) > 0 && !hubSet.has(m.slug))
+      .sort((a, b) => b.betweenness! - a.betweenness! || degree(b) - degree(a) || byStr(a.slug, b.slug))
+      .slice(0, BRIDGE_CAP);
+    if (bridges.length) {
+      lines.push("");
+      lines.push("## Bridges");
+      lines.push("");
+      lines.push("Connectors between subsystems — few alternative paths route around these; review changes here with extra care.");
+      lines.push("");
+      for (const m of bridges) {
+        const d = degree(m);
+        lines.push(
+          `- [\`${m.slug}\`](encyclopedia/${m.slug}.md) (betweenness ${m.betweenness!.toFixed(2)} · ${d} link${d === 1 ? "" : "s"}) — ${clip(m.summary, 100).split("\n")[0]}`,
+        );
+      }
     }
   }
 
