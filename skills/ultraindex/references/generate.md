@@ -34,8 +34,12 @@ it.
 ## 2. Skim the map
 
 `node scripts/ultraindex.mjs map` prints `INDEX.md`: project summary, the
-**hub** modules (highest-connected), and the module table. Read it once to
-understand the shape of the repo.
+**hub** modules (ranked by PageRank — what the graph structurally depends on),
+the **bridges** (high-betweenness connectors between subsystems that raw
+connectivity misses), a **Tests** line naming the most load-bearing untested
+modules, the architecture communities with any **unusual couplings** (a
+dependency that is one of at most two links between two subsystems), and the
+module table. Read it once to understand the shape of the repo.
 
 ## 3. Enrich under a budget — let `status` drive
 

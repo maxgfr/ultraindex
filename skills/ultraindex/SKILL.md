@@ -1,6 +1,6 @@
 ---
 name: ultraindex
-description: "Use when a repo is too big to hold in context — to BUILD a compact, navigable, AI-analyzed map of it AND to NAVIGATE that map for later tasks or questions. Auto-routed: no index → it builds one; stale → it rebuilds; a task/question → it navigates. A deterministic zero-dependency engine scans the WHOLE repo (code + markdown) — no API keys, no LLM read of the repo — and emits a layered artifact: a small always-loadable INDEX.md, per-module encyclopedia entries, a typed link-graph, and a staleness manifest. You write grounded, citation-checked analysis per module (`dossier` hands you real source; `check`/`verify` REJECT citations that don't resolve — anti-hallucination), then answer questions with `find`/`neighbors`/`ask`, loading only the files a task needs. Optional local semantic search. Triggers: 'index/map/analyze this codebase', 'where is X handled', 'how does Z work in this repo', 'which files do I change for Z / impact of changing Z', 'this repo is too big for context'."
+description: "Use when a repo is too big to hold in context — to BUILD a compact, navigable, AI-analyzed map of it AND to NAVIGATE that map for later tasks or questions. Auto-routed: no index → it builds one; stale → it rebuilds; a task/question → it navigates. A deterministic zero-dependency engine scans the WHOLE repo (code + markdown) — no API keys, no LLM read of the repo — and emits a layered artifact: a small always-loadable INDEX.md, per-module encyclopedia entries, a typed link-graph, and a staleness manifest. You write grounded, citation-checked analysis per module (`dossier` hands you real source; `check`/`verify` REJECT citations that don't resolve — anti-hallucination), then answer questions with `find`/`neighbors`/`ask`, loading only the files a task needs. Optional local semantic search. Triggers: 'index/map/analyze this codebase', 'where is X handled', 'how does Z work in this repo', 'which files do I change for Z', 'review this branch/PR', 'this repo is too big for context'."
 license: MIT
 metadata:
   version: 5.0.0
@@ -51,25 +51,30 @@ reference for the detailed workflow:
    points at, ground answers with verified citations:
    read [references/navigate.md](references/navigate.md).
 
-4. **The answer must be high-assurance** (audit, security, a correctness-critical
+4. **The user asks to review a branch, PR, or staged changes** — build (fresh
+   index is a hard precondition), then `delta` for the risk-ranked worklist
+   (changed symbols → blast radius → explained reasons), then ground each risky
+   item: read [references/review.md](references/review.md).
+
+5. **The answer must be high-assurance** (audit, security, a correctness-critical
    claim), or the user asks you to *verify*/adjudicate an answer — after
    `check --answer` passes (citations resolve), escalate to the semantic verify
    gate so each cited excerpt is proven to *support* its claim, not just exist:
    read [references/verify.md](references/verify.md).
 
-5. **The user asked to index/analyze/document, or `status --json` shows
+6. **The user asked to index/analyze/document, or `status --json` shows
    unenriched hubs and you have budget** — run the status-driven enrichment
    loop (dossier → write cited analysis → check). On a large repo this
    parallelizes: one subagent per module from the queue, if your host supports
    subagents — `orchestrate` emits that fan-out for you (see **Orchestration —
    route by harness** below) — read [references/generate.md](references/generate.md).
 
-6. **`find` keeps missing, or the user wants semantic/better search** — set up
+7. **`find` keeps missing, or the user wants semantic/better search** — set up
    the optional embeddings layer (docker compose, `embed`, hybrid `find`):
    read [references/semantic.md](references/semantic.md).
 
-A typical first visit chains 1 → 5 → 3; a return visit is usually 2 → 3; a
-high-assurance answer adds → 4.
+A typical first visit chains 1 → 6 → 3; a return visit is usually 2 → 3; a
+review of a branch is 2 → 4; a high-assurance answer adds → 5.
 
 ## Command cheat-sheet
 
@@ -79,6 +84,7 @@ high-assurance answer adds → 4.
 - `neighbors <file|module> [--depth <n>]` — what links to / from it.
 - `symbols "<name>" [--json]` — where a symbol is **defined** (file:line, kind, owning module) and which files reference it. Fuzzy by identifier sub-token.
 - `impact <file|module> [--depth <n>] [--json]` — the **reverse dependency closure**: everything that imports or uses the target. "What breaks if I change this."
+- `delta [--base <ref>] [--staged] [--depth <n>] [--json]` — map the git diff onto the index: changed files → enclosing symbols → blast radius → a **risk-scored review panel** with explained reasons (exported API, hub centrality, blast size, test gap, surprising coupling, dangling imports). Needs a fresh index (fails closed on drift). See [references/review.md](references/review.md).
 - `status` — the enrichment **work-queue**, in the exact order to enrich.
 - `dossier <slug>` — a module's grounding packet (real source + neighbours; a docs/config-only module, e.g. `root`, shows no code — enrich it by citing its README/config instead).
 - `ask "<question>"` — assemble grounded evidence to answer from.

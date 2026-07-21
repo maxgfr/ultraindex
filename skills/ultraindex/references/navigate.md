@@ -19,7 +19,11 @@ workflow's job.
    - **Fresh:** continue.
 
 2. **Orient (once, cheap).** `node scripts/ultraindex.mjs map --out <index-dir>`
-   prints `INDEX.md` — project summary, hub modules, module table.
+   prints `INDEX.md` — project summary, hub modules (PageRank-ranked), the
+   **Bridges** list (connectors between subsystems — treat changes there with
+   extra care), the tests line, and the module table. Entries list which test
+   files cover each module (**Tested by**), so you can see at a glance whether
+   a change there has a safety net.
 
 3. **Find the relevant files for the task.**
    ```
@@ -59,6 +63,8 @@ workflow's job.
    files that reference it — no ranking, no guessing. Before you change a file
    or symbol, run `impact <file|module>` to see its reverse dependency closure
    (everything that imports, uses, or calls it) so you know the blast radius.
+   To review a whole diff (branch, PR, staged changes) instead of one target,
+   use `delta` — the risk-scored review workflow in [review.md](review.md).
 
    **When `find` comes up empty or wrong, escalate in this order:**
    1. Re-query with synonyms and identifier-style terms (`auth login session`,

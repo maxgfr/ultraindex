@@ -11,7 +11,7 @@ artifact you load piece by piece:
 
 ```
 .ultraindex/
-  INDEX.md              # the map — always-loadable: summary, hubs, module table
+  INDEX.md              # the map — always-loadable: summary, hubs, bridges, tests, module table
   encyclopedia/
     <module>.md         # per-module entry: business view + code view + links + sources
   graph.json            # the full typed link-graph (file + module level)
@@ -50,6 +50,7 @@ ultraindex embed   [--out <dir>] [--force]
 ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
 ultraindex symbols "<name>" [--out <dir>] [--json]
 ultraindex impact  <file|module-slug> [--out <dir>] [--depth <n>] [--json]
+ultraindex delta   [--base <ref>] [--staged] [--out <dir>] [--repo <dir>] [--depth <n>] [--json]
 ultraindex map     [--out <dir>] [--module <slug>]
 ultraindex status  [--out <dir>]
 ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
@@ -73,6 +74,12 @@ ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--m
   match, no repo re-scan.
 - **impact** — the reverse dependency closure over import/use edges: everything
   that transitively depends on a file or module ("what breaks if I change this").
+- **delta** — map the git diff (merge-base of `--base` vs the worktree, or
+  `--staged`) onto the index: changed files → enclosing symbols → blast radius →
+  a **risk-scored review panel** with explained reasons (exported API changed,
+  PageRank-percentile hub, blast size, test gap, surprising cross-community
+  coupling, dangling imports). Needs a fresh index — fails closed when a
+  changed file drifted since the build. Empty diff exits 0.
 - **embed** — build/refresh `vectors.json` for semantic `find` (optional, needs
   a provider — see below). Incremental: unchanged modules keep their vectors.
 - **neighbors** — walk the graph from a file or module.
@@ -118,7 +125,10 @@ A **deterministic engine** (no model, no network) does the mechanical work:
   **dangling** edges (surfaced, never silently dropped); third-party/stdlib and
   asset imports are external (no edge).
 - **Graph** — typed edges (`doc-link`, `import`, conservative `mention`),
-  file-level and lifted to module level; degree centrality picks the hubs.
+  file-level and lifted to module level; deterministic **PageRank** ranks the
+  hubs and **Brandes betweenness** finds the bridges between subsystems, a
+  derived **tests→code** map records which tests cover each module, and Louvain
+  communities flag **surprising** near-unique cross-community couplings.
 - **Render** — a budgeted `INDEX.md`, per-module entries split into tool-owned
   `ui:gen` regions and author-owned `ui:human` regions, plus `graph.json` /
   `graph.mmd` / `manifest.json`.

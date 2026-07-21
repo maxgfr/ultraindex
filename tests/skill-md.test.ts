@@ -59,7 +59,7 @@ describe("SKILL.md is installable", () => {
 });
 
 // Content guards: the docs must not drift from the CLI they describe.
-const CLI_COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify", "orchestrate"]);
+const CLI_COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate"]);
 
 describe("skill docs stay in sync with the CLI", () => {
   const docs: [string, string][] = [["SKILL.md", body], ...Object.entries(refBodies)];
@@ -88,8 +88,8 @@ describe("skill docs stay in sync with the CLI", () => {
 });
 
 describe("SKILL.md routes to the references (progressive disclosure)", () => {
-  it("ships the four workflow references", () => {
-    expect(refFiles.sort()).toEqual(["generate.md", "navigate.md", "semantic.md", "verify.md"]);
+  it("ships the five workflow references", () => {
+    expect(refFiles.sort()).toEqual(["generate.md", "navigate.md", "review.md", "semantic.md", "verify.md"]);
   });
 
   it("mentions every reference file that exists", () => {
