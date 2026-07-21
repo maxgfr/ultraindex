@@ -101,22 +101,26 @@ describe("CLI json surfaces (committed bundle)", () => {
     const dir = freshIndex();
     const modules = JSON.parse(run(["map", "--out", dir, "--json"])) as {
       slug: string; path: string; tier: number; degree: number; files: number; summary: string;
+      pagerank: number; tested: boolean;
     }[];
     expect(modules.length).toBeGreaterThan(0);
     for (const m of modules) {
       expect(typeof m.slug).toBe("string");
       expect(typeof m.degree).toBe("number");
       expect(typeof m.files).toBe("number");
+      expect(typeof m.pagerank).toBe("number");
+      expect(typeof m.tested).toBe("boolean");
     }
   });
 
   it("status --json emits the work-queue", () => {
     const dir = freshIndex();
     const res = JSON.parse(run(["status", "--out", dir, "--json"])) as {
-      enriched: number; total: number; suggestedNext: string[]; modules: unknown[];
+      enriched: number; total: number; untested: number; suggestedNext: string[]; modules: unknown[];
     };
     expect(res.enriched).toBe(0);
     expect(res.modules.length).toBe(res.total);
+    expect(typeof res.untested).toBe("number");
   });
 
   it("build --json includes reasonHints only when something dangles", () => {

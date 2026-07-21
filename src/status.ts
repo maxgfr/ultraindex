@@ -11,12 +11,14 @@ export interface ModuleStatus {
   tier: Tier;
   degree: number; // degIn + degOut — how load-bearing the module is
   enriched: boolean; // at least one human region carries real prose
+  tested: boolean; // at least one test file covers a member (testedBy stamped)
   regions: { enriched: number; total: number }; // human regions filled / declared
 }
 
 export interface StatusResult {
   enriched: number; // modules with at least one enriched region
   total: number;
+  untested: number; // testable modules (tier ≤ 1, code, symbols) with no covering test
   suggestedNext: string[]; // first unenriched slugs, in enrichment order
   modules: ModuleStatus[]; // ALL modules, sorted in the order an agent should enrich
 }
@@ -51,9 +53,20 @@ export function runStatus(outDir: string): StatusResult | undefined {
       tier: m.tier,
       degree: m.degIn + m.degOut,
       enriched: filled > 0,
+      tested: Boolean(m.testedBy?.length),
       regions: { enriched: filled, total },
     };
   });
+
+  // Same "testable" rule as the INDEX.md Tests line, from the stamped fields:
+  // tier ≤ 1, declared symbols, and at least one non-test code member.
+  const nonTestCode = new Set<string>();
+  for (const f of graph.files) {
+    if (f.fileKind === "code" && !f.testFile) nonTestCode.add(f.module);
+  }
+  const untested = graph.modules.filter(
+    (m) => m.tier <= 1 && m.symbols > 0 && nonTestCode.has(m.slug) && !m.testedBy?.length,
+  ).length;
 
   modules.sort(
     (a, b) =>
@@ -67,6 +80,7 @@ export function runStatus(outDir: string): StatusResult | undefined {
   return {
     enriched,
     total: modules.length,
+    untested,
     suggestedNext: modules.filter((m) => !m.enriched).slice(0, 5).map((m) => m.slug),
     modules,
   };

@@ -7,6 +7,7 @@ const TIER_LABEL: Record<Tier, string> = { 0: "Foundations", 1: "Features", 2: "
 const HUB_CAP = 12;
 const BRIDGE_CAP = 8;
 const BRIDGE_MIN_MODULES = 8; // below this, everything is trivially a bridge — no signal
+const UNTESTED_CAP = 6; // untested modules named on the Tests line before overflow
 const MODULE_CAP = 120; // keep INDEX.md always-loadable on huge repos
 const ARCH_CAP = 12; // communities shown in the Architecture section
 const ARCH_MEMBER_CAP = 12; // member slugs listed per community before overflow
@@ -44,6 +45,33 @@ export function renderIndex(
   );
   lines.push("");
   lines.push(`**Languages:** ${histogram(graph.languages)}`);
+
+  // Tests — one line from the stamped tests→code fields: how much of the code
+  // is covered at all, and the most load-bearing uncovered modules. "Testable"
+  // means tier ≤ 1 with at least one non-test code member and declared symbols.
+  const nonTestCode = new Set<string>();
+  for (const f of graph.files) {
+    if (f.fileKind === "code" && !f.testFile) nonTestCode.add(f.module);
+  }
+  const testable = graph.modules.filter((m) => m.tier <= 1 && m.symbols > 0 && nonTestCode.has(m.slug));
+  if (testable.length) {
+    const testFileCount = graph.files.filter((f) => f.testFile).length;
+    const untested = testable.filter((m) => !m.testedBy?.length);
+    const top = untested
+      .slice()
+      .sort((a, b) => (b.pagerank ?? 0) - (a.pagerank ?? 0) || byStr(a.slug, b.slug))
+      .slice(0, UNTESTED_CAP);
+    let line =
+      `**Tests:** ${testFileCount} test file${testFileCount === 1 ? "" : "s"} · ` +
+      `${testable.length - untested.length}/${testable.length} code modules tested`;
+    if (top.length) {
+      const overflow = untested.length > top.length ? ` _(+${untested.length - top.length} more)_` : "";
+      line += ` · untested: ${top.map((m) => `\`${m.slug}\``).join(", ")}${overflow}`;
+    }
+    lines.push("");
+    lines.push(line);
+  }
+
   lines.push("");
   lines.push(
     "**Navigate:** `ultraindex find \"<task>\"` lists the exact files to open · " +

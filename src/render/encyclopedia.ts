@@ -37,6 +37,7 @@ const TIER_LABEL: Record<Tier, string> = { 0: "Foundations", 1: "Features", 2: "
 const MAX_SYMBOLS_PER_FILE = 15;
 const MAX_DANGLING = 12;
 const MAX_LINKS = 30; // cap per direction so a hub's entry stays readable / diffable
+const MAX_TESTED_BY = 15; // covering tests listed per entry before overflow
 
 function headerRegion(m: ModuleNode): Region {
   const where = m.path === "(root)" ? "Repository root" : m.path;
@@ -147,6 +148,13 @@ function linksRegion(m: ModuleNode, edgeIndex: EntryEdgeIndex): Region {
   lines.push("");
   lines.push("**Used by / linked from:**");
   lines.push(...bulletList(inc));
+  const testedBy = m.testedBy ?? [];
+  if (testedBy.length) {
+    lines.push("");
+    lines.push("**Tested by:**");
+    for (const t of testedBy.slice(0, MAX_TESTED_BY)) lines.push(`- \`${t}\``);
+    if (testedBy.length > MAX_TESTED_BY) lines.push(`- …and ${testedBy.length - MAX_TESTED_BY} more`);
+  }
   if (dangling.length) {
     lines.push("");
     lines.push("**Dangling references:**");

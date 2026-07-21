@@ -467,6 +467,10 @@ function cmdMap(p: Parsed): void {
       path: m.path,
       tier: m.tier,
       degree: m.degIn + m.degOut,
+      pagerank: m.pagerank,
+      betweenness: m.betweenness,
+      community: m.community,
+      tested: Boolean(m.testedBy?.length),
       files: m.members.length,
       summary: m.summary,
     }));

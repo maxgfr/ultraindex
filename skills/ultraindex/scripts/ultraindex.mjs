@@ -6994,6 +6994,57 @@ function applyCentrality(graph) {
   return notes;
 }
 
+// src/tests-map.ts
+var BASENAME_PATTERNS = [
+  /^test_.*\.py$/i,
+  /_test\.py$/i,
+  /_test\.go$/,
+  /(Test|Tests|IT)\.java$/,
+  /(Test|Tests)\.kt$/,
+  /_spec\.rb$/,
+  /_test\.rb$/,
+  /Test\.php$/,
+  /(Test|Tests)\.cs$/,
+  /_test\.exs$/
+];
+var TEST_DIR = /(^|\/)(tests?|__tests?__|spec|specs|e2e)(\/|$)/i;
+function isTestPath(rel) {
+  if (TEST_DIR.test(rel)) return true;
+  if (isTestFile(rel)) return true;
+  const base = rel.split("/").pop();
+  return BASENAME_PATTERNS.some((p) => p.test(base));
+}
+function computeTestMap(graph) {
+  const testFiles = /* @__PURE__ */ new Set();
+  const moduleOf = /* @__PURE__ */ new Map();
+  for (const f of graph.files) {
+    moduleOf.set(f.rel, f.module);
+    if (f.fileKind === "code" && isTestPath(f.rel)) testFiles.add(f.rel);
+  }
+  const byFile = /* @__PURE__ */ new Map();
+  const byModule = /* @__PURE__ */ new Map();
+  for (const e of graph.fileEdges) {
+    if (e.dangling) continue;
+    if (e.kind !== "import" && e.kind !== "use" && e.kind !== "call") continue;
+    if (!testFiles.has(e.from) || testFiles.has(e.to)) continue;
+    let set = byFile.get(e.to);
+    if (!set) byFile.set(e.to, set = /* @__PURE__ */ new Set());
+    set.add(e.from);
+    const slug = moduleOf.get(e.to);
+    if (slug !== void 0) {
+      let mset = byModule.get(slug);
+      if (!mset) byModule.set(slug, mset = /* @__PURE__ */ new Set());
+      mset.add(e.from);
+    }
+  }
+  const sortSets = (m) => {
+    const out2 = /* @__PURE__ */ new Map();
+    for (const key of [...m.keys()].sort(byStr)) out2.set(key, [...m.get(key)].sort(byStr));
+    return out2;
+  };
+  return { testFiles, testedByFile: sortSets(byFile), testedByModule: sortSets(byModule) };
+}
+
 // src/merge.ts
 var ENRICH_MARKER = "<!-- ui:enrich -->";
 function isEnrichedBody(body2) {
@@ -7142,6 +7193,7 @@ var TIER_LABEL = { 0: "Foundations", 1: "Features", 2: "Tail" };
 var MAX_SYMBOLS_PER_FILE = 15;
 var MAX_DANGLING = 12;
 var MAX_LINKS = 30;
+var MAX_TESTED_BY = 15;
 function headerRegion(m) {
   const where = m.path === "(root)" ? "Repository root" : m.path;
   const body2 = [
@@ -7228,6 +7280,13 @@ function linksRegion(m, edgeIndex) {
   lines.push("");
   lines.push("**Used by / linked from:**");
   lines.push(...bulletList(inc));
+  const testedBy = m.testedBy ?? [];
+  if (testedBy.length) {
+    lines.push("");
+    lines.push("**Tested by:**");
+    for (const t of testedBy.slice(0, MAX_TESTED_BY)) lines.push(`- \`${t}\``);
+    if (testedBy.length > MAX_TESTED_BY) lines.push(`- \u2026and ${testedBy.length - MAX_TESTED_BY} more`);
+  }
   if (dangling.length) {
     lines.push("");
     lines.push("**Dangling references:**");
@@ -7261,6 +7320,7 @@ var TIER_LABEL2 = { 0: "Foundations", 1: "Features", 2: "Tail" };
 var HUB_CAP = 12;
 var BRIDGE_CAP = 8;
 var BRIDGE_MIN_MODULES = 8;
+var UNTESTED_CAP = 6;
 var MODULE_CAP = 120;
 var ARCH_CAP = 12;
 var ARCH_MEMBER_CAP = 12;
@@ -7282,6 +7342,23 @@ function renderIndex(graph, opts) {
   );
   lines.push("");
   lines.push(`**Languages:** ${histogram(graph.languages)}`);
+  const nonTestCode = /* @__PURE__ */ new Set();
+  for (const f of graph.files) {
+    if (f.fileKind === "code" && !f.testFile) nonTestCode.add(f.module);
+  }
+  const testable = graph.modules.filter((m) => m.tier <= 1 && m.symbols > 0 && nonTestCode.has(m.slug));
+  if (testable.length) {
+    const testFileCount = graph.files.filter((f) => f.testFile).length;
+    const untested = testable.filter((m) => !m.testedBy?.length);
+    const top = untested.slice().sort((a, b) => (b.pagerank ?? 0) - (a.pagerank ?? 0) || byStr(a.slug, b.slug)).slice(0, UNTESTED_CAP);
+    let line = `**Tests:** ${testFileCount} test file${testFileCount === 1 ? "" : "s"} \xB7 ${testable.length - untested.length}/${testable.length} code modules tested`;
+    if (top.length) {
+      const overflow = untested.length > top.length ? ` _(+${untested.length - top.length} more)_` : "";
+      line += ` \xB7 untested: ${top.map((m) => `\`${m.slug}\``).join(", ")}${overflow}`;
+    }
+    lines.push("");
+    lines.push(line);
+  }
   lines.push("");
   lines.push(
     '**Navigate:** `ultraindex find "<task>"` lists the exact files to open \xB7 `ultraindex neighbors <file|module>` walks the graph \xB7 entries are in `encyclopedia/` \xB7 the module diagram is in `graph.mmd`.'
@@ -7716,6 +7793,14 @@ function runBuild(opts, builtAt) {
     if (id !== void 0) m.community = id;
   }
   const centralityNotes = applyCentrality(graph);
+  const testMap = computeTestMap(graph);
+  for (const f of graph.files) {
+    if (testMap.testFiles.has(f.rel)) f.testFile = true;
+  }
+  for (const m of graph.modules) {
+    const t = testMap.testedByModule.get(m.slug);
+    if (t?.length) m.testedBy = t;
+  }
   const edgeIndex = buildEntryEdgeIndex(graph, moduleOf);
   const entryInputs = graph.modules.map((m) => ({
     slug: m.slug,
@@ -8577,9 +8662,17 @@ function runStatus(outDir) {
       tier: m.tier,
       degree: m.degIn + m.degOut,
       enriched: filled > 0,
+      tested: Boolean(m.testedBy?.length),
       regions: { enriched: filled, total }
     };
   });
+  const nonTestCode = /* @__PURE__ */ new Set();
+  for (const f of graph.files) {
+    if (f.fileKind === "code" && !f.testFile) nonTestCode.add(f.module);
+  }
+  const untested = graph.modules.filter(
+    (m) => m.tier <= 1 && m.symbols > 0 && nonTestCode.has(m.slug) && !m.testedBy?.length
+  ).length;
   modules.sort(
     (a, b) => Number(a.enriched) - Number(b.enriched) || // work first, done last
     Number(a.tier === 2) - Number(b.tier === 2) || // tail enriches last
@@ -8590,6 +8683,7 @@ function runStatus(outDir) {
   return {
     enriched,
     total: modules.length,
+    untested,
     suggestedNext: modules.filter((m) => !m.enriched).slice(0, 5).map((m) => m.slug),
     modules
   };
@@ -10059,6 +10153,10 @@ function cmdMap(p) {
       path: m.path,
       tier: m.tier,
       degree: m.degIn + m.degOut,
+      pagerank: m.pagerank,
+      betweenness: m.betweenness,
+      community: m.community,
+      tested: Boolean(m.testedBy?.length),
       files: m.members.length,
       summary: m.summary
     }));

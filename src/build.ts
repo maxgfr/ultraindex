@@ -8,6 +8,7 @@ import { buildModules } from "./modules.js";
 import { buildGraph } from "./graph.js";
 import { detectCommunities } from "./community.js";
 import { applyCentrality } from "./centrality.js";
+import { computeTestMap } from "./tests-map.js";
 import { renderEntrySpec, buildEntryEdgeIndex } from "./render/encyclopedia.js";
 import { renderIndex } from "./render/index-md.js";
 import { renderMermaid } from "./render/mermaid.js";
@@ -63,6 +64,18 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
   // Centrality (pagerank/betweenness) stamped after communities so both layers
   // serialize from the same node arrays in one fixed order.
   const centralityNotes = applyCentrality(graph);
+
+  // tests→code: classify test files and project the dependency edges through
+  // that classification. Stamped before entries render so the links region can
+  // list "Tested by".
+  const testMap = computeTestMap(graph);
+  for (const f of graph.files) {
+    if (testMap.testFiles.has(f.rel)) f.testFile = true;
+  }
+  for (const m of graph.modules) {
+    const t = testMap.testedByModule.get(m.slug);
+    if (t?.length) m.testedBy = t;
+  }
 
   const edgeIndex = buildEntryEdgeIndex(graph, moduleOf);
   const entryInputs: EntryInput[] = graph.modules.map((m) => ({

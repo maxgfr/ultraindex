@@ -9,9 +9,11 @@ export const VERSION = "5.0.0";
 // extraction cache; v3 adds the `call` edge kind, `Edge.confidence`,
 // `ModuleNode.community` (graph.json), and `Manifest.communities` (manifest.json)
 // — the community fields are additive/optional, so they share the same bump. v4
-// adds node centrality (`pagerank`/`betweenness`) — `delta` relies on these, so
-// a v3 index must be rejected, not half-read. An index written by an
-// incompatible engine can't be read, so `check` asks for a rebuild.
+// adds node centrality (`pagerank`/`betweenness`), the tests→code fields
+// (`FileNode.testFile`/`ModuleNode.testedBy`), and symbols.json `endLine` —
+// `delta` relies on these, so a v3 index must be rejected, not half-read. An
+// index written by an incompatible engine can't be read, so `check` asks for a
+// rebuild.
 export const SCHEMA_VERSION = 4;
 
 // Identifies the extraction engine's output shape independently of the artifact
@@ -104,6 +106,8 @@ export interface FileNode {
   // File-graph PageRank scaled by the file count (average file ≈ 1.0), 4 dp.
   // Absent only on graphs built before centrality existed.
   pagerank?: number;
+  // Present (true) only when the path classifies as a test file (tests-map.ts).
+  testFile?: true;
 }
 
 export interface ModuleNode {
@@ -127,6 +131,9 @@ export interface ModuleNode {
   // Normalized undirected Brandes betweenness, [0,1], 6 dp. Absent when the
   // BETWEENNESS_MAX_NODES guard skipped the pass (see the manifest note).
   betweenness?: number;
+  // Sorted test-file rels with a resolved import/call/use edge into a member —
+  // "which tests cover this module". Absent when none do.
+  testedBy?: string[];
 }
 
 // A directed edge. For a resolved edge `to` is a node id; for a dangling edge
