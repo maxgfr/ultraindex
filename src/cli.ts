@@ -11,6 +11,7 @@ import { runNeighbors } from "./neighbors.js";
 import { runSymbols } from "./symbols.js";
 import { runImpact } from "./impact.js";
 import { runMap } from "./mapcmd.js";
+import { runDelta, formatDeltaPanel } from "./delta.js";
 import { runStatus } from "./status.js";
 import { runCheck, checkAnswer } from "./check.js";
 import { runVerify, applyVerdicts, formatVerifyReport, VERIFY_MAX } from "./verify.js";
@@ -32,6 +33,7 @@ Usage:
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>] [--kind <k>]
   ultraindex symbols "<name>" [--out <dir>] [--json]
   ultraindex impact  <file|module-slug> [--out <dir>] [--depth <n>] [--json]
+  ultraindex delta   [--base <ref>] [--staged] [--out <dir>] [--repo <dir>] [--depth <n>] [--json]
   ultraindex map     [--out <dir>] [--module <slug>]
   ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
@@ -54,6 +56,10 @@ Commands:
              which files reference it — from symbols.json, no repo re-scan.
   impact     Reverse dependency closure: every file that transitively imports or
              uses the target, grouped by module — "what breaks if I change this".
+  delta      Map the git diff (merge-base of --base vs the worktree, or --staged)
+             onto the index: changed files → enclosing symbols → blast radius →
+             a risk-scored review panel with explained reasons. Needs a fresh
+             index — fails closed when a changed file drifted since the build.
   map        Print INDEX.md (the map) or one module's entry. With --json, emit
              the module table (slug, path, tier, degree, summary) for parsing.
   status     Show enrichment progress and the suggested order to enrich next —
@@ -83,7 +89,11 @@ Options:
   --full-hash       build: re-hash every file, disabling the (size,mtime) fastpath
   --no-mermaid      Do not write graph.mmd
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
-  --depth <n>       neighbors: hops to traverse                (default: 1)
+  --depth <n>       neighbors: hops to traverse (default: 1); delta: blast-radius
+                    hops (default: 2)
+  --base <ref>      delta: review base ref (default: origin/HEAD → main → master,
+                    compared at its merge-base with HEAD)
+  --staged          delta: review the staged changeset against HEAD instead
   --kind <k>        neighbors: only these edge kinds (comma list: import,call,use,doc-link,mention)
   --budget <n>      ask/dossier: cap the source evidence at ~n tokens
   --module <slug>   map: print this module's entry instead of INDEX.md
@@ -115,9 +125,9 @@ Grounding:
   citation does not resolve to a real file/line — the anti-hallucination guard.
 `;
 
-const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify", "orchestrate"]);
-const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase"]);
-const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "quiet", "force", "semantic", "eco", "list"]);
+const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate"]);
+const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
+const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "quiet", "force", "semantic", "eco", "list", "staged"]);
 
 // What each dangling reason means and what to do about it — emitted in
 // `build --json` so the report is self-diagnosing.
@@ -454,6 +464,23 @@ function cmdImpact(p: Parsed): void {
   process.stdout.write(lines.join("\n") + "\n");
 }
 
+function cmdDelta(p: Parsed): void {
+  const out = resolveOut(p, resolve(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out);
+  if (p.values.base && p.bools.has("staged")) {
+    fail("--staged reviews the staged changeset against HEAD; it does not take --base");
+  }
+  const depth = p.values.depth ? Number(p.values.depth) : undefined;
+  if (depth !== undefined && (!Number.isInteger(depth) || depth <= 0)) fail("invalid --depth");
+  const res = runDelta(out, repo, { base: p.values.base, staged: p.bools.has("staged"), depth });
+  if ("error" in res) fail(res.error);
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    return;
+  }
+  process.stdout.write(formatDeltaPanel(res));
+}
+
 function cmdMap(p: Parsed): void {
   const base = resolve(p.values.repo ?? ".");
   const out = resolveOut(p, base);
@@ -680,6 +707,8 @@ async function main(): Promise<void> {
       return cmdSymbols(p);
     case "impact":
       return cmdImpact(p);
+    case "delta":
+      return cmdDelta(p);
     case "map":
       return cmdMap(p);
     case "status":

@@ -33,6 +33,16 @@ describe("parseArgs", () => {
     expect(p.values.exclude).toBe("**/*.test.ts");
   });
 
+  it("parses delta with --base as a value flag and --staged as a boolean", () => {
+    const p = parseArgs(["delta", "--base", "origin/main", "--depth", "3", "--json"]);
+    expect(p.command).toBe("delta");
+    expect(p.values.base).toBe("origin/main");
+    expect(p.values.depth).toBe("3");
+    expect(p.bools.has("json")).toBe(true);
+    const staged = parseArgs(["delta", "--staged"]);
+    expect(staged.bools.has("staged")).toBe(true);
+  });
+
   it("collects the positional query for find and supports boolean flags", () => {
     const p = parseArgs(["find", "retry", "backoff", "--json"]);
     expect(p.command).toBe("find");

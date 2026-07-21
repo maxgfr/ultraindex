@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve as resolve2, join as join16, dirname as dirname6 } from "path";
+import { resolve as resolve2, join as join17, dirname as dirname6 } from "path";
 import { existsSync as existsSync5 } from "fs";
 import { pathToFileURL, fileURLToPath as fileURLToPath2 } from "url";
 import { realpathSync as realpathSync2 } from "fs";
@@ -209,6 +209,15 @@ function sh(cmd, args2, opts = {}) {
     missing
   };
 }
+var whichCache = /* @__PURE__ */ new Map();
+function have(cmd) {
+  const cached = whichCache.get(cmd);
+  if (cached !== void 0) return cached;
+  const probe = sh(process.platform === "win32" ? "where" : "which", [cmd]);
+  const found = probe.ok && probe.stdout.trim().length > 0;
+  whichCache.set(cmd, found);
+  return found;
+}
 function slugify(input) {
   return input.toLowerCase().replace(/^https?:\/\//, "").replace(/^git@/, "").replace(/\.git$/, "").replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120);
 }
@@ -359,6 +368,123 @@ function rrf(lists, keyOf2, k = 60) {
 function headCommit(dir) {
   const res = sh("git", ["-C", dir, "rev-parse", "--short", "HEAD"]);
   return res.ok ? res.stdout.trim() : void 0;
+}
+var gitArgs = (dir) => ["-C", dir, "-c", "core.quotePath=false"];
+var rangeArgs = (spec) => spec.staged ? ["--cached"] : [spec.mergeBase];
+function isGitWorktree(dir) {
+  return sh("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"]).ok;
+}
+function resolveBaseRef(dir, base) {
+  const verify = (ref) => sh("git", [...gitArgs(dir), "rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).ok;
+  const mergeBase = (ref) => {
+    const mb = sh("git", [...gitArgs(dir), "merge-base", ref, "HEAD"]);
+    return mb.ok ? mb.stdout.trim() : void 0;
+  };
+  if (base) {
+    if (!verify(base)) return { error: `base ref "${base}" not found (tried git rev-parse --verify)` };
+    const mb = mergeBase(base);
+    if (!mb) return { error: `no merge-base between "${base}" and HEAD` };
+    return { ref: base, mergeBase: mb };
+  }
+  const originHead = sh("git", [...gitArgs(dir), "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]);
+  const candidates = [
+    ...originHead.ok ? [originHead.stdout.trim().replace("refs/remotes/", "")] : [],
+    "origin/main",
+    "origin/master",
+    "main",
+    "master"
+  ];
+  for (const c2 of candidates) {
+    if (!verify(c2)) continue;
+    const mb = mergeBase(c2);
+    if (mb) return { ref: c2, mergeBase: mb };
+  }
+  const head = sh("git", [...gitArgs(dir), "rev-parse", "HEAD"]);
+  if (!head.ok) return { error: "cannot resolve HEAD \u2014 empty repository?" };
+  return {
+    ref: "HEAD",
+    mergeBase: head.stdout.trim(),
+    note: "base: HEAD (no default branch found \u2014 reviewing uncommitted work)"
+  };
+}
+function diffFiles(dir, spec) {
+  const out2 = [];
+  const ns = sh("git", [...gitArgs(dir), "diff", "-z", "-M", "--name-status", ...rangeArgs(spec)]);
+  if (ns.ok) {
+    const toks = ns.stdout.split("\0");
+    let i2 = 0;
+    while (i2 < toks.length) {
+      const st = toks[i2++];
+      if (!st) break;
+      const code = st[0];
+      if (code === "R" || code === "C") {
+        const oldPath = toks[i2++];
+        const path = toks[i2++];
+        if (path) out2.push({ path, status: "renamed", oldPath });
+      } else {
+        const path = toks[i2++];
+        if (!path) break;
+        const status = code === "A" ? "added" : code === "D" ? "deleted" : "modified";
+        out2.push({ path, status });
+      }
+    }
+  }
+  const byPath = new Map(out2.map((f) => [f.path, f]));
+  const num = sh("git", [...gitArgs(dir), "diff", "-z", "-M", "--numstat", ...rangeArgs(spec)]);
+  if (num.ok) {
+    const toks = num.stdout.split("\0");
+    let i2 = 0;
+    while (i2 < toks.length) {
+      const head = toks[i2++];
+      if (!head) break;
+      const m = head.match(/^(-|\d+)\t(-|\d+)\t([\s\S]*)$/);
+      if (!m) continue;
+      let path = m[3];
+      if (path === "") {
+        i2++;
+        path = toks[i2++] ?? "";
+      }
+      const rec = byPath.get(path);
+      if (!rec) continue;
+      if (m[1] === "-") rec.binary = true;
+      else {
+        rec.linesAdded = Number(m[1]);
+        rec.linesDeleted = Number(m[2]);
+      }
+    }
+  }
+  return out2;
+}
+function diffHunks(dir, spec) {
+  const map = /* @__PURE__ */ new Map();
+  const res = sh("git", [...gitArgs(dir), "diff", "-M", "--unified=0", ...rangeArgs(spec)]);
+  if (!res.ok) return map;
+  let current;
+  for (const line of res.stdout.split("\n")) {
+    if (line.startsWith("+++ ")) {
+      const p = line.slice(4).trim();
+      if (p === "/dev/null") {
+        current = void 0;
+        continue;
+      }
+      const path = p.startsWith("b/") ? p.slice(2) : p;
+      current = map.get(path) ?? [];
+      map.set(path, current);
+    } else if (current && line.startsWith("@@")) {
+      const m = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+      if (!m) continue;
+      const start2 = Number(m[1]);
+      const count = m[2] === void 0 ? 1 : Number(m[2]);
+      if (count === 0) current.push({ start: Math.max(start2, 1), end: Math.max(start2, 1), approx: true });
+      else current.push({ start: start2, end: start2 + count - 1 });
+    }
+  }
+  return map;
+}
+function untrackedFiles(dir) {
+  const res = sh("git", [...gitArgs(dir), "ls-files", "--others", "--exclude-standard", "-z"]);
+  if (!res.ok) return [];
+  return res.stdout.split("\0").filter((p) => p.length > 0);
 }
 
 // src/hash.ts
@@ -8699,8 +8825,326 @@ function runMap(outDir, moduleSlug) {
   return readIfExists(paths.index);
 }
 
+// src/delta.ts
+import { join as join10, relative as relative3, isAbsolute as isAbsolute2 } from "path";
+import { statSync as statSync2 } from "fs";
+var RISK_WEIGHTS = {
+  exportedChange: 25,
+  // an exported symbol changed: consumers may break
+  hubHigh: 20,
+  // pagerank percentile ≥ .90
+  hubMed: 10,
+  // pagerank percentile ≥ .75
+  blastHigh: 20,
+  // ≥ 20 dependent files or ≥ 5 dependent modules
+  blastMed: 10,
+  // ≥ 5 dependent files
+  testGap: 20,
+  // a testable module with no covering test
+  surprise: 10,
+  // the module sits on a surprising cross-community edge
+  dangling: 15
+  // a changed file carries a dangling import
+};
+var HIGH_MIN = 60;
+var MEDIUM_MIN = 30;
+var OPEN_CAP = 3;
+var DEFAULT_DEPTH = 2;
+function symbolsInHunks(defs, hunks) {
+  const out2 = [];
+  const seen = /* @__PURE__ */ new Set();
+  const push = (d, approx) => {
+    const key = `${d.name}:${d.line}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out2.push({
+      name: d.name,
+      kind: d.kind,
+      exported: d.exported,
+      line: d.line,
+      ...d.endLine !== void 0 ? { endLine: d.endLine } : {},
+      ...d.parent !== void 0 ? { parent: d.parent } : {},
+      ...approx ? { approx: true } : {}
+    });
+  };
+  const span = (d) => (d.endLine ?? d.line) - d.line;
+  for (const h of hunks) {
+    const enclosing = defs.filter((d) => d.line <= h.end && (d.endLine ?? d.line) >= h.start);
+    if (enclosing.length) {
+      enclosing.sort((a, b) => span(a) - span(b) || b.line - a.line || byStr(a.name, b.name));
+      for (const d of enclosing) push(d, false);
+    } else {
+      const above = defs.filter((d) => d.line <= h.start && d.endLine === void 0);
+      const near = above[above.length - 1];
+      if (near) push(near, true);
+    }
+  }
+  return out2;
+}
+function percentile(values, mine) {
+  if (values.length <= 1) return 0;
+  let smaller = 0;
+  for (const v of values) if (v < mine) smaller++;
+  return smaller / (values.length - 1);
+}
+function computeDelta(graph, symbols, diff, depth = DEFAULT_DEPTH) {
+  const notes = [...diff.notes ?? []];
+  if (!symbols) notes.push("symbols.json missing \u2014 symbol-level attribution disabled");
+  const fileByRel = new Map(graph.files.map((f) => [f.rel, f]));
+  const defsByFile = /* @__PURE__ */ new Map();
+  if (symbols) {
+    for (const [name2, entries] of Object.entries(symbols.defs)) {
+      for (const d of entries) {
+        let arr = defsByFile.get(d.file);
+        if (!arr) defsByFile.set(d.file, arr = []);
+        arr.push({ name: name2, ...d });
+      }
+    }
+    for (const arr of defsByFile.values()) arr.sort((a, b) => a.line - b.line || byStr(a.name, b.name));
+  }
+  const deleted = [];
+  const unindexed = [];
+  const changes = [];
+  for (const df of [...diff.files].sort((a, b) => byStr(a.path, b.path))) {
+    const carry = {
+      ...df.oldPath !== void 0 ? { oldPath: df.oldPath } : {},
+      ...df.binary ? { binary: true } : {},
+      ...df.linesAdded !== void 0 ? { linesAdded: df.linesAdded } : {},
+      ...df.linesDeleted !== void 0 ? { linesDeleted: df.linesDeleted } : {}
+    };
+    if (df.status === "deleted") {
+      deleted.push(df.path);
+      changes.push({ path: df.path, status: df.status, ...carry, hunks: [], symbols: [] });
+      continue;
+    }
+    const node = fileByRel.get(df.path);
+    if (!node) {
+      unindexed.push(df.path);
+      continue;
+    }
+    let hunks = diff.hunks.get(df.path) ?? [];
+    if (!hunks.length && df.status === "added" && !df.binary) hunks = [{ start: 1, end: Math.max(node.lines, 1) }];
+    const syms = df.binary ? [] : symbolsInHunks(defsByFile.get(df.path) ?? [], hunks);
+    changes.push({
+      path: df.path,
+      status: df.status,
+      ...carry,
+      module: node.module,
+      hunks: hunks.map((h) => ({ start: h.start, end: h.end })),
+      symbols: syms
+    });
+  }
+  const changedRels = new Set(changes.filter((c2) => c2.status !== "deleted").map((c2) => c2.path));
+  const dangling = graph.fileEdges.filter((e) => e.dangling && (e.kind === "import" || e.kind === "doc-link") && changedRels.has(e.from)).map((e) => ({ from: e.from, spec: e.to, reason: e.reason ?? "unknown" })).sort((a, b) => byStr(a.from, b.from) || byStr(a.spec, b.spec));
+  const byModule = /* @__PURE__ */ new Map();
+  for (const c2 of changes) {
+    if (c2.status === "deleted" || !c2.module) continue;
+    let arr = byModule.get(c2.module);
+    if (!arr) byModule.set(c2.module, arr = []);
+    arr.push(c2);
+  }
+  const nonTestCode = /* @__PURE__ */ new Set();
+  for (const f of graph.files) {
+    if (f.fileKind === "code" && !f.testFile) nonTestCode.add(f.module);
+  }
+  const pagerankKnown = graph.modules.some((m) => m.pagerank !== void 0);
+  const metricOf = (m) => pagerankKnown ? m.pagerank ?? 0 : m.degIn + m.degOut;
+  const metricValues = graph.modules.map(metricOf);
+  const metricName = pagerankKnown ? "pagerank" : "degree";
+  const modules = [];
+  for (const slug of [...byModule.keys()].sort(byStr)) {
+    const m = graph.modules.find((x) => x.slug === slug);
+    if (!m) continue;
+    const moduleChanges = byModule.get(slug);
+    const reasons = [];
+    let score = 0;
+    const exportedNames = [...new Set(moduleChanges.flatMap((c2) => c2.symbols.filter((s) => s.exported).map((s) => s.name)))].sort(byStr);
+    if (exportedNames.length) {
+      score += RISK_WEIGHTS.exportedChange;
+      const shown = exportedNames.slice(0, 3).join(", ") + (exportedNames.length > 3 ? ", \u2026" : "");
+      reasons.push(exportedNames.length === 1 ? `exported symbol ${shown} changed` : `exported symbols ${shown} changed`);
+    }
+    const pct = percentile(metricValues, metricOf(m));
+    if (pct >= 0.9) {
+      score += RISK_WEIGHTS.hubHigh;
+      reasons.push(`${metricName} p${Math.round(pct * 100)} hub`);
+    } else if (pct >= 0.75) {
+      score += RISK_WEIGHTS.hubMed;
+      reasons.push(`${metricName} p${Math.round(pct * 100)} hub`);
+    }
+    const depthByRel = /* @__PURE__ */ new Map();
+    const impModules = /* @__PURE__ */ new Set();
+    for (const c2 of moduleChanges) {
+      const imp = impactOf(graph, c2.path, depth);
+      if (!imp) continue;
+      for (const f of imp.files) {
+        const prev = depthByRel.get(f.rel);
+        if (prev === void 0 || f.depth < prev) depthByRel.set(f.rel, f.depth);
+      }
+      for (const im of imp.modules) if (im !== slug) impModules.add(im);
+    }
+    const transitiveFiles = depthByRel.size;
+    const directFiles = [...depthByRel.values()].filter((d) => d === 1).length;
+    const impact = { directFiles, transitiveFiles, modules: [...impModules].sort(byStr) };
+    if (transitiveFiles >= 20 || impact.modules.length >= 5) {
+      score += RISK_WEIGHTS.blastHigh;
+      reasons.push(`${transitiveFiles} dependent files across ${impact.modules.length} modules (depth ${depth})`);
+    } else if (transitiveFiles >= 5) {
+      score += RISK_WEIGHTS.blastMed;
+      reasons.push(`${transitiveFiles} dependent files across ${impact.modules.length} modules (depth ${depth})`);
+    }
+    const testable = m.tier <= 1 && m.symbols > 0 && nonTestCode.has(slug);
+    const coveredBy = m.testedBy ?? [];
+    const tests = testable ? coveredBy.length ? { status: "covered", files: coveredBy } : { status: "gap", files: [] } : { status: "n/a", files: [] };
+    if (tests.status === "gap") {
+      score += RISK_WEIGHTS.testGap;
+      reasons.push("no test covers this module");
+    }
+    const sup = (graph.surprises ?? []).find((s) => s.from === slug || s.to === slug);
+    if (sup) {
+      score += RISK_WEIGHTS.surprise;
+      reasons.push(`cross-community edge to ${sup.from === slug ? sup.to : sup.from} (surprising)`);
+    }
+    const moduleDangling = dangling.filter((d) => moduleChanges.some((c2) => c2.path === d.from));
+    if (moduleDangling.length) {
+      score += RISK_WEIGHTS.dangling;
+      const first = moduleDangling[0];
+      const more = moduleDangling.length > 1 ? ` (+${moduleDangling.length - 1} more)` : "";
+      reasons.push(`dangling import "${first.spec}" in ${first.from}${more}`);
+    }
+    score = Math.min(100, score);
+    const changedFiles = moduleChanges.map((c2) => c2.path).sort(byStr);
+    const allSyms = moduleChanges.flatMap((c2) => c2.symbols);
+    const open = moduleChanges.slice().sort(
+      (a, b) => b.symbols.filter((s) => s.exported).length - a.symbols.filter((s) => s.exported).length || b.symbols.length - a.symbols.length || byStr(a.path, b.path)
+    ).slice(0, OPEN_CAP).map((c2) => c2.path);
+    modules.push({
+      slug,
+      path: m.path,
+      score,
+      bucket: score >= HIGH_MIN ? "HIGH" : score >= MEDIUM_MIN ? "MEDIUM" : "LOW",
+      reasons,
+      changedFiles,
+      changedSymbols: {
+        total: new Set(allSyms.map((s) => `${s.name}:${s.line}`)).size,
+        exported: new Set(allSyms.filter((s) => s.exported).map((s) => `${s.name}:${s.line}`)).size
+      },
+      impact,
+      tests,
+      open,
+      entry: `encyclopedia/${slug}.md`
+    });
+  }
+  modules.sort((a, b) => b.score - a.score || byStr(a.slug, b.slug));
+  return {
+    base: diff.base,
+    ...graph.commit !== void 0 ? { indexCommit: graph.commit } : {},
+    depth,
+    changes,
+    modules,
+    dangling,
+    deleted: deleted.sort(byStr),
+    unindexed: unindexed.sort(byStr),
+    notes
+  };
+}
+function runDelta(outDir, repo, opts) {
+  if (!have("git")) return { error: "git is required for delta and was not found on PATH" };
+  if (!isGitWorktree(repo)) return { error: `delta needs a git worktree \u2014 ${repo} is not inside one` };
+  const graph = loadGraph(outDir);
+  if (!graph) return { error: `no index at ${outDir} \u2014 run \`ultraindex build\` first` };
+  const symbols = loadSymbols(outDir);
+  const manifest = loadManifest(outDir);
+  const notes = [];
+  let base;
+  if (opts.staged) {
+    const head = sh("git", ["-C", repo, "rev-parse", "HEAD"]);
+    if (!head.ok) return { error: "cannot resolve HEAD \u2014 empty repository?" };
+    base = { ref: "HEAD", mergeBase: head.stdout.trim(), staged: true };
+  } else {
+    const r = resolveBaseRef(repo, opts.base);
+    if ("error" in r) return { error: r.error };
+    if (r.note) notes.push(r.note);
+    base = { ref: r.ref, mergeBase: r.mergeBase, staged: false };
+  }
+  const spec = opts.staged ? { staged: true } : { mergeBase: base.mergeBase };
+  let files = diffFiles(repo, spec);
+  if (!opts.staged) {
+    const known = new Set(files.map((f) => f.path));
+    for (const u of untrackedFiles(repo)) {
+      if (!known.has(u)) files.push({ path: u, status: "added" });
+    }
+  }
+  const outRel = relative3(repo, outDir);
+  if (!isAbsolute2(outRel) && !outRel.startsWith("..")) {
+    const prefix = outRel.replace(/\/+$/, "") + "/";
+    files = files.filter((f) => f.path !== outRel && !f.path.startsWith(prefix));
+  }
+  if (manifest) {
+    const include = compileGlobs(manifest.scan?.include);
+    const exclude = compileGlobs(manifest.scan?.exclude);
+    const maxBytes = manifest.scan?.maxBytes ?? 1024 * 1024;
+    const stale = [];
+    for (const f of files) {
+      if (f.status === "deleted") {
+        if (manifest.fileHashes[f.path] !== void 0) stale.push(f.path);
+        continue;
+      }
+      if (include && !include(f.path)) continue;
+      if (exclude && exclude(f.path)) continue;
+      const abs = join10(repo, f.path);
+      let text;
+      try {
+        const st = statSync2(abs);
+        if (!st.isFile() || st.size > maxBytes) continue;
+        text = readText(abs);
+      } catch {
+        continue;
+      }
+      const recorded = manifest.fileHashes[f.path];
+      if (recorded === void 0 || sha1(text) !== recorded) stale.push(f.path);
+    }
+    if (stale.length) {
+      stale.sort(byStr);
+      return {
+        error: `index is stale for ${stale.length} changed file(s) (${stale.slice(0, 5).join(", ")}) \u2014 run \`ultraindex build\` first`,
+        stale
+      };
+    }
+  }
+  return computeDelta(graph, symbols, { files, hunks: diffHunks(repo, spec), base, notes }, opts.depth ?? DEFAULT_DEPTH);
+}
+function formatDeltaPanel(res) {
+  const mb = res.base.mergeBase.slice(0, 7);
+  const vs = `${res.base.staged ? "staged vs " : ""}${res.base.ref}`;
+  if (!res.changes.length && !res.unindexed.length) {
+    return `ultraindex: no changes vs ${vs} (merge-base ${mb})
+`;
+  }
+  const changedCount = res.changes.length + res.unindexed.length;
+  const lines = [
+    `ultraindex: delta vs ${vs} (merge-base ${mb}) \u2014 ${changedCount} changed file(s), ${res.modules.length} module(s)${res.indexCommit ? `, index @ ${res.indexCommit}` : ""}`
+  ];
+  for (const n of res.notes) lines.push(`  note: ${n}`);
+  for (const m of res.modules) {
+    lines.push(`  ${m.bucket.padEnd(6)} ${m.slug}  score ${m.score}${m.reasons.length ? ` \u2014 ${m.reasons.join("; ")}` : ""}`);
+    const tests = m.tests.status === "gap" ? "GAP" : m.tests.status === "covered" ? `covered (${m.tests.files.length})` : "n/a";
+    lines.push(`         open: ${m.open.join(", ") || "\u2014"} \xB7 entry: ${m.entry} \xB7 tests: ${tests}`);
+  }
+  if (res.dangling.length) {
+    lines.push(`  dangling:  ${res.dangling.map((d) => `${d.spec} (from ${d.from})`).join(" \xB7 ")}`);
+  }
+  if (res.deleted.length) lines.push(`  deleted:   ${res.deleted.join(", ")}`);
+  if (res.unindexed.length) lines.push(`  unindexed: ${res.unindexed.join(", ")}`);
+  const top = res.modules.find((m) => m.bucket !== "LOW");
+  if (top) {
+    lines.push(`  next: dossier ${top.slug} \xB7 impact ${top.open[0] ?? top.slug} --json \xB7 ground findings, then check --answer`);
+  }
+  return lines.join("\n") + "\n";
+}
+
 // src/status.ts
-import { join as join10 } from "path";
+import { join as join11 } from "path";
 function runStatus(outDir) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
@@ -8708,7 +9152,7 @@ function runStatus(outDir) {
   const modules = graph.modules.map((m) => {
     let total = 0;
     let filled = 0;
-    const text = readIfExists(join10(enc, `${m.slug}.md`));
+    const text = readIfExists(join11(enc, `${m.slug}.md`));
     if (text) {
       const parsed = parseRegions(text);
       if (parsed.ok) {
@@ -8753,11 +9197,11 @@ function runStatus(outDir) {
 }
 
 // src/check.ts
-import { dirname as dirname4, join as join12 } from "path";
+import { dirname as dirname4, join as join13 } from "path";
 
 // src/verify.ts
 import { existsSync as existsSync3, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "fs";
-import { dirname as dirname3, join as join11 } from "path";
+import { dirname as dirname3, join as join12 } from "path";
 
 // src/cite.ts
 var EXT_TOKEN = /\[((?:[^[\]\n]|\[(?:[^[\]\n]|\[[^\]\n]*\])*\])*?\.[A-Za-z0-9]{1,8}(?::\d+(?:-\d+)?)?)\]/g;
@@ -8945,7 +9389,7 @@ function claimPairs(text) {
 function readExcerpt(repo, c2) {
   let full;
   try {
-    full = readFileSync4(join11(repo, c2.path), "utf8");
+    full = readFileSync4(join12(repo, c2.path), "utf8");
   } catch {
     return "";
   }
@@ -8980,8 +9424,8 @@ function runVerify(answerPath, repo, opts = {}) {
   const worklist = { answer: answerPath, pairs: kept };
   const dir = dirname3(answerPath);
   const todo = { answer: answerPath, pairs: kept.map((p) => ({ ...p, verdict: null, note: "" })) };
-  writeFileSync2(join11(dir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
-  writeFileSync2(join11(dir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
+  writeFileSync2(join12(dir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
+  writeFileSync2(join12(dir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
   return worklist;
 }
 function renderWorklistMd(wl, total, kept) {
@@ -9006,7 +9450,7 @@ _Showing ${kept} of ${total} pair(s) \u2014 capped._`);
   return out2.join("\n");
 }
 function loadTodoPairs(dir) {
-  const p = join11(dir, "VERIFY.todo.json");
+  const p = join12(dir, "VERIFY.todo.json");
   if (!existsSync3(p)) return void 0;
   let todo;
   try {
@@ -9068,7 +9512,7 @@ function applyVerdicts(dir, verdictsPath) {
   - ${errors.join("\n  - ")}`);
   }
   const result = reduceVerdicts(verdicts);
-  writeFileSync2(join11(dir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
+  writeFileSync2(join12(dir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
   return result;
 }
 function citationlessClaims(text) {
@@ -9138,7 +9582,7 @@ function reduceVerdicts(verdicts) {
   };
 }
 function loadVerify(dir) {
-  const p = join11(dir, "VERIFY.json");
+  const p = join12(dir, "VERIFY.json");
   if (!existsSync3(p)) return void 0;
   try {
     return JSON.parse(readFileSync4(p, "utf8"));
@@ -9195,7 +9639,7 @@ function runCheck(outDir, repo) {
   removed.sort(byStr);
   const enc = indexPaths(outDir).encyclopedia;
   for (const m of graph.modules) {
-    if (readIfExists(join12(enc, `${m.slug}.md`)) === void 0) {
+    if (readIfExists(join13(enc, `${m.slug}.md`)) === void 0) {
       errors.push(`module "${m.slug}" has no encyclopedia entry`);
     }
   }
@@ -9205,7 +9649,7 @@ function runCheck(outDir, repo) {
   }
   const fileLines = fileLineTable(graph);
   for (const m of graph.modules) {
-    const text = readIfExists(join12(enc, `${m.slug}.md`));
+    const text = readIfExists(join13(enc, `${m.slug}.md`));
     if (!text) continue;
     const parsed = parseRegions(text);
     if (!parsed.ok) {
@@ -9262,7 +9706,7 @@ function checkAnswer(outDir, answerPath, opts = {}) {
     const cited = [...new Set(cc.resolved.map((c2) => c2.path))];
     const drifted = cited.filter((rel) => {
       const recorded = manifest.fileHashes[rel];
-      return recorded !== void 0 && sha1(readText(join12(repoRoot, rel))) !== recorded;
+      return recorded !== void 0 && sha1(readText(join13(repoRoot, rel))) !== recorded;
     });
     if (drifted.length) {
       warnings.push(
@@ -9333,14 +9777,14 @@ function checkAnswer(outDir, answerPath, opts = {}) {
 }
 
 // src/evidence.ts
-import { join as join13, extname as extname3 } from "path";
+import { join as join14, extname as extname3 } from "path";
 var HEAD_LINES = 120;
 var MAX_SYMS = 25;
 var ASK_FILE_CAP = 20;
 function gatherEvidence(repo, rels, headLines = HEAD_LINES) {
   const out2 = [];
   for (const rel of rels) {
-    const content = readText(join13(repo, rel));
+    const content = readText(join14(repo, rel));
     if (!content) continue;
     const lines = content.split(/\r?\n/);
     const code = extractCode(rel, extname3(rel).toLowerCase(), content);
@@ -9496,10 +9940,10 @@ async function runAsk(outDir, repo, question, k = 5, budget) {
 
 // src/orchestrate.ts
 import { existsSync as existsSync4, mkdirSync as mkdirSync2, readFileSync as readFileSync5, writeFileSync as writeFileSync3 } from "fs";
-import { dirname as dirname5, join as join15, resolve } from "path";
+import { dirname as dirname5, join as join16, resolve } from "path";
 
 // src/orchestrate-templates.ts
-import { join as join14 } from "path";
+import { join as join15 } from "path";
 var ENRICH_SCHEMA = {
   type: "object",
   required: ["entries"],
@@ -9565,7 +10009,7 @@ function toBatches(ids, batchSize) {
 }
 function phaseWorkflowScript(ph, ctx, batchSize) {
   const spec = phaseSpec(ph.name);
-  const scriptPath = join14(ctx.out, "orchestration", `${ph.name}.workflow.mjs`);
+  const scriptPath = join15(ctx.out, "orchestration", `${ph.name}.workflow.mjs`);
   const meta = { name: `ultraindex-${ph.name}`, description: spec.description(ph.items), phases: [{ title: spec.title }] };
   const source = ph.name === "enrich" ? "the CURRENT enrichment queue (exactly what `status --json` reports)" : "the CURRENT claim\u2194citation worklist";
   return [
@@ -9634,7 +10078,7 @@ Index: \`${ctx.out}\` \xB7 Repo: \`${ctx.repo}\`. The queue you were drawn from 
 For EACH of your slugs:
 
 1. Run \`${engine} dossier <slug> --out ${ctx.out}\` (read-only) and read ONLY that packet \u2014 the module's real key source + graph neighbours. A docs/config-only module (often \`root\`) shows no code \u2014 cite its README/config files instead.
-2. Edit \`${join14(ctx.out, "encyclopedia")}/<slug>.md\`: fill the \`ui:human\` regions (\`business\` \u2014 what it does for the product and how it connects; \`gotchas\` \u2014 caveats) with 2\u20135 sentences of genuine analysis, **citing the evidence** as \`[file]\`, \`[file:line]\` or \`[file:start-end]\`. Write only what the source supports \u2014 no guessing. Remove the \`<!-- ui:enrich -->\` stub marker; leave every \`ui:gen\` region alone.
+2. Edit \`${join15(ctx.out, "encyclopedia")}/<slug>.md\`: fill the \`ui:human\` regions (\`business\` \u2014 what it does for the product and how it connects; \`gotchas\` \u2014 caveats) with 2\u20135 sentences of genuine analysis, **citing the evidence** as \`[file]\`, \`[file:line]\` or \`[file:start-end]\`. Write only what the source supports \u2014 no guessing. Remove the \`<!-- ui:enrich -->\` stub marker; leave every \`ui:gen\` region alone.
 3. Cite only files inside that module (you may open a file the dossier lists to cite a line past the excerpt \u2014 never a file outside your module).
 
 Return (structured output): \`{ "entries": [{ "slug", "entry", "note" }] }\` \u2014 the entries you wrote (absolute paths) + a one-line note per entry, so the orchestrator can route \`check\` failures back to you.
@@ -9664,14 +10108,14 @@ Return (structured output): \`{ "pairs": [{ "claimId", "citation", "verdict", "n
 
 ## Return, don't write
 
-Return ONLY the structured output specified above. Do NOT write, edit, or delete any file; do NOT run any engine command that writes (\`build\`, \`embed\`, \`verify --apply\`). The orchestrator is the sole writer \u2014 it folds your verdicts into a verdicts file itself and runs the fail-closed \`verify --apply\` gate. Exception: if a justification is prose too large to return, write ONLY to \`${join14(ctx.out, "orchestration", "out")}/<role>-<batch>.md\` (a file namespaced to you alone) and return its path.
+Return ONLY the structured output specified above. Do NOT write, edit, or delete any file; do NOT run any engine command that writes (\`build\`, \`embed\`, \`verify --apply\`). The orchestrator is the sole writer \u2014 it folds your verdicts into a verdicts file itself and runs the fail-closed \`verify --apply\` gate. Exception: if a justification is prose too large to return, write ONLY to \`${join15(ctx.out, "orchestration", "out")}/<role>-<batch>.md\` (a file namespaced to you alone) and return its path.
 `
   };
 }
 function runbookMd(phases, ctx) {
   const status = phases.map((p) => `| ${p.name} | \`${p.worklist}\` | ${p.ready ? `ready (${p.items} item(s))` : "not ready"} | \`${p.prerequisite}\` |`).join("\n");
   const engine = `node ${ctx.engine}`;
-  const agents = join14(ctx.out, "orchestration", "agents");
+  const agents = join15(ctx.out, "orchestration", "agents");
   return `# ultraindex \u2014 sequential RUNBOOK (eco / no-subagent fallback)
 
 Index: \`${ctx.out}\` \xB7 Repo: \`${ctx.repo}\` \xB7 Engine: \`${engine}\`
@@ -9689,13 +10133,13 @@ ${status}
 ## The loop (play every role yourself, one item at a time)
 
 1. **Build** (if not done): \`${engine} build --repo ${ctx.repo} --out ${ctx.out}\` \u2014 once, before any enrichment.
-2. **Queue**: \`${engine} status --out ${ctx.out} --json\` \u2014 every module in the exact order to enrich (unenriched first, hubs first). The enrich phase fans out over \`${join14(ctx.out, "graph.json")}\` + the entries exactly as this queue reports them.
-3. **Enrich each module** \u2014 apply \`${join14(agents, "enricher.md")}\` yourself: \`${engine} dossier <slug> --out ${ctx.out}\`, then write 2\u20135 sentences of cited \`[file:line]\` prose into the \`ui:human\` regions of \`${join14(ctx.out, "encyclopedia")}/<slug>.md\`. One module at a time; the hard rule holds here too \u2014 no \`build\` or \`map\` mid-loop.
+2. **Queue**: \`${engine} status --out ${ctx.out} --json\` \u2014 every module in the exact order to enrich (unenriched first, hubs first). The enrich phase fans out over \`${join15(ctx.out, "graph.json")}\` + the entries exactly as this queue reports them.
+3. **Enrich each module** \u2014 apply \`${join15(agents, "enricher.md")}\` yourself: \`${engine} dossier <slug> --out ${ctx.out}\`, then write 2\u20135 sentences of cited \`[file:line]\` prose into the \`ui:human\` regions of \`${join15(ctx.out, "encyclopedia")}/<slug>.md\`. One module at a time; the hard rule holds here too \u2014 no \`build\` or \`map\` mid-loop.
 4. **Gate**: \`${engine} check --out ${ctx.out} --repo ${ctx.repo}\` \u2014 repo-wide; it keys each grounding failure to its entry. Fix and re-run until green (never delete a citation just to pass).
 5. **Semantic layer** (only if \`vectors.json\` exists): \`${engine} embed --out ${ctx.out}\`.
-6. **Verify an answer** (high assurance): \`${engine} verify --answer <answer.md> --repo ${ctx.repo}\` writes \`VERIFY.todo.json\` next to the answer. For EVERY pair, apply \`${join14(agents, "refuter.md")}\` yourself (verdict + note), save your rows as \`verdicts.json\`, then \`${engine} verify --apply verdicts.json --answer <answer.md>\` and gate with \`${engine} check --answer <answer.md> --semantic --out ${ctx.out}\`.
+6. **Verify an answer** (high assurance): \`${engine} verify --answer <answer.md> --repo ${ctx.repo}\` writes \`VERIFY.todo.json\` next to the answer. For EVERY pair, apply \`${join15(agents, "refuter.md")}\` yourself (verdict + note), save your rows as \`verdicts.json\`, then \`${engine} verify --apply verdicts.json --answer <answer.md>\` and gate with \`${engine} check --answer <answer.md> --semantic --out ${ctx.out}\`.
 
-With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${ctx.out} --phase <p>\` then \`Workflow({ scriptPath: "${join14(ctx.out, "orchestration", "<p>.workflow.mjs")}" })\` \u2014 one repo-wide \`check\` after the join either way, and no \`build\` or \`map\` while agents are in flight.
+With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${ctx.out} --phase <p>\` then \`Workflow({ scriptPath: "${join15(ctx.out, "orchestration", "<p>.workflow.mjs")}" })\` \u2014 one repo-wide \`check\` after the join either way, and no \`build\` or \`map\` while agents are in flight.
 `;
 }
 
@@ -9706,7 +10150,7 @@ var BATCH_SIZE2 = 8;
 function listPhases(ctx) {
   const st = runStatus(ctx.out);
   const enrichIds = st ? st.modules.filter((m) => !m.enriched).map((m) => m.slug) : [];
-  const verifyWl = join15(ctx.answer ? dirname5(ctx.answer) : ctx.repo, "VERIFY.todo.json");
+  const verifyWl = join16(ctx.answer ? dirname5(ctx.answer) : ctx.repo, "VERIFY.todo.json");
   const verifyPrereq = `node ${ctx.engine} verify --answer ${ctx.answer ?? "<answer.md>"} --repo ${ctx.repo}` + (ctx.answer ? "" : ` (then re-run orchestrate with --answer <answer.md>)`);
   let verifyIds = [];
   let verifyReady = false;
@@ -9780,9 +10224,9 @@ function orchestrateRun(ctx, opts = {}) {
     }
     selected = [ph];
   }
-  const orchDir = join15(ctx.out, "orchestration");
-  const agentsDir = join15(orchDir, "agents");
-  mkdirSync2(join15(orchDir, "out"), { recursive: true });
+  const orchDir = join16(ctx.out, "orchestration");
+  const agentsDir = join16(orchDir, "agents");
+  mkdirSync2(join16(orchDir, "out"), { recursive: true });
   mkdirSync2(agentsDir, { recursive: true });
   const written = [];
   const notices = [];
@@ -9790,7 +10234,7 @@ function orchestrateRun(ctx, opts = {}) {
     if (!ph.ready && ph.reason) notices.push(`phase "${ph.name}": ${ph.reason}`);
   }
   for (const [name2, content] of Object.entries(agentContracts(ctx))) {
-    const p = join15(agentsDir, `${name2}.md`);
+    const p = join16(agentsDir, `${name2}.md`);
     writeFileSync3(p, content);
     written.push(p);
   }
@@ -9803,12 +10247,12 @@ function orchestrateRun(ctx, opts = {}) {
       if (ph.items <= SMALL_WORKLIST) {
         notices.push(`phase "${ph.name}": only ${ph.items} item(s) \u2014 the sequential --eco path is equivalent and cheaper.`);
       }
-      const p = join15(orchDir, `${ph.name}.workflow.mjs`);
+      const p = join16(orchDir, `${ph.name}.workflow.mjs`);
       writeFileSync3(p, phaseWorkflowScript(ph, ctx, BATCH_SIZE2));
       written.push(p);
     }
   }
-  const rb = join15(orchDir, "RUNBOOK.md");
+  const rb = join16(orchDir, "RUNBOOK.md");
   writeFileSync3(rb, runbookMd(phases, ctx));
   written.push(rb);
   return { exitCode: 0, written, notices, errors: [], phases };
@@ -9827,6 +10271,7 @@ Usage:
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>] [--kind <k>]
   ultraindex symbols "<name>" [--out <dir>] [--json]
   ultraindex impact  <file|module-slug> [--out <dir>] [--depth <n>] [--json]
+  ultraindex delta   [--base <ref>] [--staged] [--out <dir>] [--repo <dir>] [--depth <n>] [--json]
   ultraindex map     [--out <dir>] [--module <slug>]
   ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
@@ -9849,6 +10294,10 @@ Commands:
              which files reference it \u2014 from symbols.json, no repo re-scan.
   impact     Reverse dependency closure: every file that transitively imports or
              uses the target, grouped by module \u2014 "what breaks if I change this".
+  delta      Map the git diff (merge-base of --base vs the worktree, or --staged)
+             onto the index: changed files \u2192 enclosing symbols \u2192 blast radius \u2192
+             a risk-scored review panel with explained reasons. Needs a fresh
+             index \u2014 fails closed when a changed file drifted since the build.
   map        Print INDEX.md (the map) or one module's entry. With --json, emit
              the module table (slug, path, tier, degree, summary) for parsing.
   status     Show enrichment progress and the suggested order to enrich next \u2014
@@ -9878,7 +10327,11 @@ Options:
   --full-hash       build: re-hash every file, disabling the (size,mtime) fastpath
   --no-mermaid      Do not write graph.mmd
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
-  --depth <n>       neighbors: hops to traverse                (default: 1)
+  --depth <n>       neighbors: hops to traverse (default: 1); delta: blast-radius
+                    hops (default: 2)
+  --base <ref>      delta: review base ref (default: origin/HEAD \u2192 main \u2192 master,
+                    compared at its merge-base with HEAD)
+  --staged          delta: review the staged changeset against HEAD instead
   --kind <k>        neighbors: only these edge kinds (comma list: import,call,use,doc-link,mention)
   --budget <n>      ask/dossier: cap the source evidence at ~n tokens
   --module <slug>   map: print this module's entry instead of INDEX.md
@@ -9909,9 +10362,9 @@ Grounding:
   [path:start-end]. \`check\` (encyclopedia prose) and \`check --answer\` fail if a
   citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "map", "status", "dossier", "ask", "check", "verify", "orchestrate"]);
-var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase"]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "full-hash", "quiet", "force", "semantic", "eco", "list"]);
+var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate"]);
+var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "full-hash", "quiet", "force", "semantic", "eco", "list", "staged"]);
 var REASON_HINTS = {
   "missing-module": "a relative import's target file does not exist \u2014 usually a real broken import in the repo, worth reporting",
   "alias-unresolved": "a tsconfig path alias matched but its target file is missing \u2014 check the tsconfig paths or uncommitted build artifacts",
@@ -9985,9 +10438,9 @@ function splitList(s) {
 }
 function resolveOut(p, base) {
   if (p.values.out) return resolve2(p.values.out);
-  const dotted = join16(base, ".ultraindex");
+  const dotted = join17(base, ".ultraindex");
   if (existsSync5(dotted)) return dotted;
-  const docs = join16(base, "docs", "ultraindex");
+  const docs = join17(base, "docs", "ultraindex");
   if (existsSync5(docs)) return docs;
   return dotted;
 }
@@ -9998,7 +10451,7 @@ function resolveRepoRoot(p, out2) {
 async function cmdBuild(p) {
   const repo = resolve2(p.values.repo ?? ".");
   if (!existsSync5(repo)) fail(`repo not found: ${repo}`);
-  const out2 = p.values.out ? resolve2(p.values.out) : join16(repo, ".ultraindex");
+  const out2 = p.values.out ? resolve2(p.values.out) : join17(repo, ".ultraindex");
   const maxBytes = p.values["max-bytes"] ? Number(p.values["max-bytes"]) : void 0;
   if (maxBytes !== void 0 && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
   const maxFiles = p.values["max-files"] ? Number(p.values["max-files"]) : void 0;
@@ -10109,7 +10562,7 @@ async function cmdEmbed(p) {
   const cfg = loadSemanticConfig(out2);
   if (!cfg) {
     fail(
-      `no semantic config \u2014 set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join16(out2, "semantic.json")} ({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`
+      `no semantic config \u2014 set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join17(out2, "semantic.json")} ({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`
     );
   }
   const report = await runEmbed(out2, cfg, p.bools.has("force"));
@@ -10204,6 +10657,22 @@ function cmdImpact(p) {
     for (const f of res.files) lines.push(`  \u2190 ${f.rel}  (module ${f.module}, depth ${f.depth})`);
   }
   process.stdout.write(lines.join("\n") + "\n");
+}
+function cmdDelta(p) {
+  const out2 = resolveOut(p, resolve2(p.values.repo ?? "."));
+  const repo = resolveRepoRoot(p, out2);
+  if (p.values.base && p.bools.has("staged")) {
+    fail("--staged reviews the staged changeset against HEAD; it does not take --base");
+  }
+  const depth = p.values.depth ? Number(p.values.depth) : void 0;
+  if (depth !== void 0 && (!Number.isInteger(depth) || depth <= 0)) fail("invalid --depth");
+  const res = runDelta(out2, repo, { base: p.values.base, staged: p.bools.has("staged"), depth });
+  if ("error" in res) fail(res.error);
+  if (p.bools.has("json")) {
+    process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    return;
+  }
+  process.stdout.write(formatDeltaPanel(res));
 }
 function cmdMap(p) {
   const base = resolve2(p.values.repo ?? ".");
@@ -10383,7 +10852,7 @@ function cmdOrchestrate(p) {
   const workflows = res.written.filter((w) => w.endsWith(".workflow.mjs"));
   if (workflows.length) {
     for (const ph of res.phases) {
-      const w = workflows.find((x) => x === join16(out2, "orchestration", `${ph.name}.workflow.mjs`));
+      const w = workflows.find((x) => x === join17(out2, "orchestration", `${ph.name}.workflow.mjs`));
       if (!w) continue;
       lines.push(`  launch:   Workflow({ scriptPath: ${JSON.stringify(w)} })`);
       lines.push(
@@ -10391,7 +10860,7 @@ function cmdOrchestrate(p) {
       );
     }
   } else {
-    lines.push(`  next:     follow ${join16(out2, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
+    lines.push(`  next:     follow ${join17(out2, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
   }
   process.stderr.write(lines.join("\n") + "\n");
 }
@@ -10410,6 +10879,8 @@ async function main() {
       return cmdSymbols(p);
     case "impact":
       return cmdImpact(p);
+    case "delta":
+      return cmdDelta(p);
     case "map":
       return cmdMap(p);
     case "status":
