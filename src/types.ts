@@ -8,9 +8,11 @@ export const VERSION = "5.0.0";
 // symbols.json, the `use` edge kind, per-symbol parent/endLine, and the
 // extraction cache; v3 adds the `call` edge kind, `Edge.confidence`,
 // `ModuleNode.community` (graph.json), and `Manifest.communities` (manifest.json)
-// — the community fields are additive/optional, so they share the same bump. An
-// index written by an incompatible engine can't be read, so `check` asks for a rebuild.
-export const SCHEMA_VERSION = 3;
+// — the community fields are additive/optional, so they share the same bump. v4
+// adds node centrality (`pagerank`/`betweenness`) — `delta` relies on these, so
+// a v3 index must be rejected, not half-read. An index written by an
+// incompatible engine can't be read, so `check` asks for a rebuild.
+export const SCHEMA_VERSION = 4;
 
 // Identifies the extraction engine's output shape independently of the artifact
 // schema. The incremental build cache keys reused FileRecords on (content hash,
@@ -99,6 +101,9 @@ export interface FileNode {
   lines: number;
   degIn: number;
   degOut: number;
+  // File-graph PageRank scaled by the file count (average file ≈ 1.0), 4 dp.
+  // Absent only on graphs built before centrality existed.
+  pagerank?: number;
 }
 
 export interface ModuleNode {
@@ -117,6 +122,11 @@ export interface ModuleNode {
   // the largest cluster. OPTIONAL/additive: display-only, never affects `find` or
   // slugs. Absent only on graphs built before communities existed.
   community?: number;
+  // Module-graph PageRank scaled by the module count (average ≈ 1.0), 4 dp.
+  pagerank?: number;
+  // Normalized undirected Brandes betweenness, [0,1], 6 dp. Absent when the
+  // BETWEENNESS_MAX_NODES guard skipped the pass (see the manifest note).
+  betweenness?: number;
 }
 
 // A directed edge. For a resolved edge `to` is a node id; for a dangling edge
@@ -249,7 +259,12 @@ export interface VectorStore {
 // reference it (populated by the use/mention pass). Deterministically ordered.
 export interface SymbolIndex {
   schemaVersion: number;
-  defs: Record<string, { file: string; line: number; kind: string; exported: boolean; lang: string; parent?: string }[]>;
+  // `endLine` mirrors CodeSymbol.endLine (AST extractor only) — `delta` uses it
+  // to map changed line ranges to their enclosing symbols.
+  defs: Record<
+    string,
+    { file: string; line: number; endLine?: number; kind: string; exported: boolean; lang: string; parent?: string }[]
+  >;
   refs: Record<string, string[]>;
 }
 

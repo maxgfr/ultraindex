@@ -8,7 +8,7 @@ import { realpathSync as realpathSync2 } from "fs";
 
 // src/types.ts
 var VERSION = "5.0.0";
-var SCHEMA_VERSION = 3;
+var SCHEMA_VERSION = 4;
 var EXTRACTOR_VERSION = 3;
 
 // src/build.ts
@@ -6882,6 +6882,118 @@ function detectCommunities(modules, edges, previous) {
   return out2;
 }
 
+// src/centrality.ts
+var DAMPING = 0.85;
+var MAX_ITERS = 100;
+var CONVERGENCE = 1e-10;
+var BETWEENNESS_MAX_NODES = 3e3;
+function pagerankOf(ids, edges, damping = DAMPING) {
+  const out2 = /* @__PURE__ */ new Map();
+  const n = ids.length;
+  if (n === 0) return out2;
+  const idx = new Map(ids.map((s, i2) => [s, i2]));
+  const adj = Array.from({ length: n }, () => []);
+  const outW = new Array(n).fill(0);
+  for (const e of edges) {
+    if (e.dangling) continue;
+    const a = idx.get(e.from);
+    const b = idx.get(e.to);
+    if (a === void 0 || b === void 0 || a === b) continue;
+    adj[a].push([b, e.weight]);
+    outW[a] += e.weight;
+  }
+  let pr = new Array(n).fill(1 / n);
+  for (let iter = 0; iter < MAX_ITERS; iter++) {
+    let dangling = 0;
+    for (let i2 = 0; i2 < n; i2++) if (outW[i2] === 0) dangling += pr[i2];
+    const base = (1 - damping) / n + damping * dangling / n;
+    const next = new Array(n).fill(base);
+    for (let i2 = 0; i2 < n; i2++) {
+      if (outW[i2] === 0) continue;
+      const share = damping * pr[i2] / outW[i2];
+      for (const [j, w] of adj[i2]) next[j] += share * w;
+    }
+    let delta = 0;
+    for (let i2 = 0; i2 < n; i2++) delta += Math.abs(next[i2] - pr[i2]);
+    pr = next;
+    if (delta < CONVERGENCE) break;
+  }
+  ids.forEach((s, i2) => out2.set(s, pr[i2]));
+  return out2;
+}
+function betweennessOf(ids, edges) {
+  const out2 = /* @__PURE__ */ new Map();
+  for (const s of ids) out2.set(s, 0);
+  const n = ids.length;
+  if (n < 3) return out2;
+  const idx = new Map(ids.map((s, i2) => [s, i2]));
+  const nbSets = Array.from({ length: n }, () => /* @__PURE__ */ new Set());
+  for (const e of edges) {
+    if (e.dangling) continue;
+    const a = idx.get(e.from);
+    const b = idx.get(e.to);
+    if (a === void 0 || b === void 0 || a === b) continue;
+    nbSets[a].add(b);
+    nbSets[b].add(a);
+  }
+  const adj = nbSets.map((s) => [...s].sort((x, y) => x - y));
+  const cb = new Array(n).fill(0);
+  for (let s = 0; s < n; s++) {
+    const stack = [];
+    const pred = Array.from({ length: n }, () => []);
+    const sigma = new Array(n).fill(0);
+    const dist = new Array(n).fill(-1);
+    sigma[s] = 1;
+    dist[s] = 0;
+    const queue = [s];
+    for (let qi = 0; qi < queue.length; qi++) {
+      const v = queue[qi];
+      stack.push(v);
+      for (const w of adj[v]) {
+        if (dist[w] < 0) {
+          dist[w] = dist[v] + 1;
+          queue.push(w);
+        }
+        if (dist[w] === dist[v] + 1) {
+          sigma[w] += sigma[v];
+          pred[w].push(v);
+        }
+      }
+    }
+    const delta = new Array(n).fill(0);
+    for (let si = stack.length - 1; si >= 0; si--) {
+      const w = stack[si];
+      for (const v of pred[w]) delta[v] += sigma[v] / sigma[w] * (1 + delta[w]);
+      if (w !== s) cb[w] += delta[w];
+    }
+  }
+  const norm2 = (n - 1) * (n - 2) / 2;
+  ids.forEach((id, i2) => out2.set(id, cb[i2] / 2 / norm2));
+  return out2;
+}
+function applyCentrality(graph) {
+  const notes = [];
+  const nM = graph.modules.length;
+  if (nM > 0) {
+    const mIds = graph.modules.map((m) => m.id);
+    const mPr = pagerankOf(mIds, graph.moduleEdges);
+    for (const m of graph.modules) m.pagerank = Number(((mPr.get(m.id) ?? 0) * nM).toFixed(4));
+    if (nM > BETWEENNESS_MAX_NODES) {
+      notes.push(`betweenness skipped (${nM} modules > ${BETWEENNESS_MAX_NODES})`);
+    } else {
+      const bt = betweennessOf(mIds, graph.moduleEdges);
+      for (const m of graph.modules) m.betweenness = Number((bt.get(m.id) ?? 0).toFixed(6));
+    }
+  }
+  const nF = graph.files.length;
+  if (nF > 0) {
+    const fIds = graph.files.map((f) => f.id);
+    const fPr = pagerankOf(fIds, graph.fileEdges);
+    for (const f of graph.files) f.pagerank = Number(((fPr.get(f.id) ?? 0) * nF).toFixed(4));
+  }
+  return notes;
+}
+
 // src/merge.ts
 var ENRICH_MARKER = "<!-- ui:enrich -->";
 function isEnrichedBody(body2) {
@@ -7324,6 +7436,7 @@ function buildSymbolIndex(scan2, refs = /* @__PURE__ */ new Map()) {
       arr.push({
         file: s.file,
         line: s.line,
+        ...s.endLine !== void 0 ? { endLine: s.endLine } : {},
         kind: s.kind,
         exported: s.exported,
         lang: s.lang,
@@ -7578,6 +7691,7 @@ function runBuild(opts, builtAt) {
     const id = communities.get(m.slug);
     if (id !== void 0) m.community = id;
   }
+  const centralityNotes = applyCentrality(graph);
   const edgeIndex = buildEntryEdgeIndex(graph, moduleOf);
   const entryInputs = graph.modules.map((m) => ({
     slug: m.slug,
@@ -7595,6 +7709,7 @@ function runBuild(opts, builtAt) {
   const extraNotes = [
     ...ctx.warnings,
     ...cappedNote,
+    ...centralityNotes,
     ...opts.mermaid ? [] : ["mermaid diagram disabled (--no-mermaid)"]
   ];
   const outRel = !isAbsolute(relative2(opts.repo, opts.out)) && !relative2(opts.repo, opts.out).startsWith("..") ? relative2(opts.repo, opts.out) : opts.out;

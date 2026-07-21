@@ -48,6 +48,7 @@ export function buildSymbolIndex(scan: RepoScan, refs: Map<string, Set<string>> 
       arr.push({
         file: s.file,
         line: s.line,
+        ...(s.endLine !== undefined ? { endLine: s.endLine } : {}),
         kind: s.kind,
         exported: s.exported,
         lang: s.lang,

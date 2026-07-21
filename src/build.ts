@@ -7,6 +7,7 @@ import { buildResolveContext } from "./resolve.js";
 import { buildModules } from "./modules.js";
 import { buildGraph } from "./graph.js";
 import { detectCommunities } from "./community.js";
+import { applyCentrality } from "./centrality.js";
 import { renderEntrySpec, buildEntryEdgeIndex } from "./render/encyclopedia.js";
 import { renderIndex } from "./render/index-md.js";
 import { renderMermaid } from "./render/mermaid.js";
@@ -59,6 +60,10 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
     if (id !== undefined) m.community = id;
   }
 
+  // Centrality (pagerank/betweenness) stamped after communities so both layers
+  // serialize from the same node arrays in one fixed order.
+  const centralityNotes = applyCentrality(graph);
+
   const edgeIndex = buildEntryEdgeIndex(graph, moduleOf);
   const entryInputs: EntryInput[] = graph.modules.map((m) => ({
     slug: m.slug,
@@ -81,6 +86,7 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
   const extraNotes = [
     ...ctx.warnings,
     ...cappedNote,
+    ...centralityNotes,
     ...(opts.mermaid ? [] : ["mermaid diagram disabled (--no-mermaid)"]),
   ];
   const outRel = !isAbsolute(relative(opts.repo, opts.out)) && !relative(opts.repo, opts.out).startsWith("..")

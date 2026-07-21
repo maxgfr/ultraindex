@@ -55,8 +55,8 @@ describe("runBuild", () => {
   it("writes the current schema version so an old index is rejected, not misread", () => {
     const dir = out();
     build(dir);
-    expect(loadGraph(dir)!.schemaVersion).toBe(3);
-    expect(loadManifest(dir)!.schemaVersion).toBe(3);
+    expect(loadGraph(dir)!.schemaVersion).toBe(4);
+    expect(loadManifest(dir)!.schemaVersion).toBe(4);
   });
 
   it("omits graph.mmd with mermaid disabled", () => {
@@ -80,7 +80,7 @@ describe("runBuild", () => {
     const dir = out();
     build(dir);
     const idx = JSON.parse(readFileSync(join(dir, "symbols.json"), "utf8"));
-    expect(idx.schemaVersion).toBe(3);
+    expect(idx.schemaVersion).toBe(4);
     // Every def entry carries a resolvable file:line so `symbols` can point at it.
     const someName = Object.keys(idx.defs)[0]!;
     expect(someName).toBeTruthy();
@@ -88,6 +88,10 @@ describe("runBuild", () => {
     expect(typeof site.file).toBe("string");
     expect(typeof site.line).toBe("number");
     expect(typeof site.exported).toBe("boolean");
+    // AST-extracted symbols persist their end line so `delta` can map changed
+    // hunks to enclosing symbols.
+    const sites = Object.values(idx.defs).flat() as { endLine?: number }[];
+    expect(sites.some((d) => typeof d.endLine === "number")).toBe(true);
   });
 
   it("preserves enriched prose across a rebuild (idempotent merge end-to-end)", () => {
