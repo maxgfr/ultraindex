@@ -7,7 +7,7 @@ import { pathToFileURL, fileURLToPath as fileURLToPath2 } from "url";
 import { realpathSync as realpathSync2 } from "fs";
 
 // src/types.ts
-var VERSION = "5.0.0";
+var VERSION = "5.1.0";
 var SCHEMA_VERSION = 4;
 var EXTRACTOR_VERSION = 4;
 

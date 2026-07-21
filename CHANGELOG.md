@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [5.1.0](https://github.com/maxgfr/ultraindex/compare/v5.0.0...v5.1.0) (2026-07-21)
+
+
+### Features
+
+* **ast:** extract CommonJS assignment-style JS/TS definitions ([7a8df94](https://github.com/maxgfr/ultraindex/commit/7a8df944d6a232b38f77a8234dffc94ce27056be))
+* **community:** put Louvain clusters to work in find and surface surprises ([8d3b5c3](https://github.com/maxgfr/ultraindex/commit/8d3b5c36959e17d94ad4646d6cbc5accb5d0e26b))
+* **delta:** diff-driven, risk-scored review command ([59346f0](https://github.com/maxgfr/ultraindex/commit/59346f099a54fd7c41b517a590f6e36e8d2163f8))
+* **graph:** add PageRank + betweenness centrality to graph.json (schema v4) ([7552046](https://github.com/maxgfr/ultraindex/commit/7552046cf4038259597ab8481eb93b2bf0e2be9a))
+* **render:** rank Hubs by pagerank and surface Bridges in INDEX.md ([4d3f59d](https://github.com/maxgfr/ultraindex/commit/4d3f59de328fb6cebb51d889d92d360d9dc6aa1a)), closes [hi#betweenness](https://github.com/hi/issues/betweenness)
+* **tests-map:** derive tests→code coverage from the graph ([e7a9e84](https://github.com/maxgfr/ultraindex/commit/e7a9e84b80d406cb2bee7ec0556fd910a31eaab9))
+
 # [5.0.0](https://github.com/maxgfr/ultraindex/compare/v4.1.1...v5.0.0) (2026-07-10)
 
 
