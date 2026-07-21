@@ -151,3 +151,24 @@ describe("expandResults: determinism and cap", () => {
     expect(a).toEqual(b);
   });
 });
+
+describe("expandResults: community affinity", () => {
+  it("orders same-community neighbours before equal-degree strangers", () => {
+    // Both neighbours sit at depth 1 with equal degree; without the affinity
+    // key, slug order would put the stranger (afar) first.
+    const seed = moduleNode("smod", "src/smod", { summary: "alpha" });
+    const near = moduleNode("zsame", "src/zsame", { deg: 2 });
+    const far = moduleNode("afar", "src/afar", { deg: 2 });
+    seed.community = 7;
+    near.community = 7;
+    far.community = 3;
+    const g = graph([seed, near, far], [edge("smod", "zsame"), edge("smod", "afar")]);
+    const full = scoreModules(g, "alpha");
+    const top = full.slice(0, 1).map((x) => x.r);
+    expect(top.map((r) => r.slug)).toEqual(["smod"]);
+
+    const out = expandResults(g, top, full, ["smod"], 1);
+    const slugs = out.filter((r) => r.via === "graph").map((r) => r.slug);
+    expect(slugs).toEqual(["zsame", "afar"]);
+  });
+});

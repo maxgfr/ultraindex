@@ -125,3 +125,25 @@ describe("renderIndex centrality", () => {
     expect(renderIndex(small, { repoName: "small" })).not.toContain("## Bridges");
   });
 });
+
+describe("renderIndex unusual couplings", () => {
+  it("lists stamped surprises in the Architecture section", () => {
+    const graph = bigGraph(9);
+    graph.modules.forEach((m, i) => {
+      m.community = i < 5 ? 0 : 1;
+    });
+    graph.surprises = [
+      {
+        from: "mod004",
+        to: "mod005",
+        kind: "import",
+        weight: 1,
+        communities: [0, 1],
+        pairEdges: 1,
+      },
+    ];
+    const md = renderIndex(graph, { repoName: "big" });
+    expect(md).toContain("**Unusual couplings:**");
+    expect(md).toMatch(/⚠ `mod004` → `mod005` \(import\) — the only link between/);
+  });
+});

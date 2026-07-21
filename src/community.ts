@@ -1,10 +1,18 @@
-import type { Edge, ModuleNode } from "./types.js";
+import type { Edge, Graph, ModuleNode } from "./types.js";
 import { byStr } from "./sort.js";
 
+// The community id of one module — a contract helper for delta and other
+// graph consumers.
+export function communityOf(graph: Graph, slug: string): number | undefined {
+  return graph.modules.find((m) => m.slug === slug)?.community;
+}
+
 // Deterministic weighted Louvain (modularity maximization) over the UNDIRECTED
-// module graph, used to cluster modules into navigation "communities". This layer
-// is DISPLAY-ONLY: it never feeds `find` ranking and never touches module slugs
-// (slugs key human-authored prose — reclustering must not renumber them).
+// module graph, used to cluster modules into navigation "communities". This
+// layer never feeds `find`'s lexical ranking and never touches module slugs
+// (slugs key human-authored prose — reclustering must not renumber them); its
+// only ranking role is biasing graph-expansion ordering toward the seeds'
+// subsystem, and flagging surprising cross-community edges.
 //
 // Determinism is load-bearing: community ids land in graph.json / INDEX.md, which
 // carry the byte-identical rebuild guarantee. So: NO Math.random; every node is

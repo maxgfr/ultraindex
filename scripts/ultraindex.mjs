@@ -7045,6 +7045,40 @@ function computeTestMap(graph) {
   return { testFiles, testedByFile: sortSets(byFile), testedByModule: sortSets(byModule) };
 }
 
+// src/surprise.ts
+var SURPRISE_CAP = 24;
+var MAX_PAIR_EDGES = 2;
+var DEP_KINDS = /* @__PURE__ */ new Set(["import", "call", "use"]);
+function computeSurprises(graph) {
+  const commOf = /* @__PURE__ */ new Map();
+  const tierOf2 = /* @__PURE__ */ new Map();
+  for (const m of graph.modules) {
+    if (m.community !== void 0) commOf.set(m.slug, m.community);
+    tierOf2.set(m.slug, m.tier);
+  }
+  const pairCount = /* @__PURE__ */ new Map();
+  const pairKey = (a, b) => a < b ? `${a}:${b}` : `${b}:${a}`;
+  const candidates = [];
+  for (const e of graph.moduleEdges) {
+    if (e.dangling) continue;
+    const ca = commOf.get(e.from);
+    const cb = commOf.get(e.to);
+    if (ca === void 0 || cb === void 0 || ca === cb) continue;
+    pairCount.set(pairKey(ca, cb), (pairCount.get(pairKey(ca, cb)) ?? 0) + 1);
+    if (!DEP_KINDS.has(e.kind)) continue;
+    if (tierOf2.get(e.to) === 0) continue;
+    candidates.push({ edge: e, comms: [ca, cb] });
+  }
+  return candidates.filter((c2) => pairCount.get(pairKey(c2.comms[0], c2.comms[1])) <= MAX_PAIR_EDGES).map((c2) => ({
+    from: c2.edge.from,
+    to: c2.edge.to,
+    kind: c2.edge.kind,
+    weight: c2.edge.weight,
+    communities: c2.comms,
+    pairEdges: pairCount.get(pairKey(c2.comms[0], c2.comms[1]))
+  })).sort((a, b) => a.pairEdges - b.pairEdges || byStr(a.from, b.from) || byStr(a.to, b.to)).slice(0, SURPRISE_CAP);
+}
+
 // src/merge.ts
 var ENRICH_MARKER = "<!-- ui:enrich -->";
 function isEnrichedBody(body2) {
@@ -7321,6 +7355,7 @@ var HUB_CAP = 12;
 var BRIDGE_CAP = 8;
 var BRIDGE_MIN_MODULES = 8;
 var UNTESTED_CAP = 6;
+var SURPRISE_SHOWN = 8;
 var MODULE_CAP = 120;
 var ARCH_CAP = 12;
 var ARCH_MEMBER_CAP = 12;
@@ -7411,6 +7446,23 @@ function renderIndex(graph, opts) {
       const shown2 = slugs.slice(0, ARCH_MEMBER_CAP).map((s) => `\`${s}\``).join(", ");
       const overflow = slugs.length > ARCH_MEMBER_CAP ? ` _(+${slugs.length - ARCH_MEMBER_CAP} more)_` : "";
       lines.push(`- \`${label}\` \u2014 ${shown2}${overflow}`);
+    }
+    const surprises = (graph.surprises ?? []).slice(0, SURPRISE_SHOWN);
+    if (surprises.length) {
+      const labelOf = (cid) => {
+        const members = byCommunity.get(cid) ?? [];
+        const top = members.slice().sort((a, b) => degree(b) - degree(a) || byStr(a.slug, b.slug))[0];
+        return top ? top.path : String(cid);
+      };
+      lines.push("");
+      lines.push("**Unusual couplings:**");
+      for (const s of surprises) {
+        const w = s.weight > 1 ? ` \xD7${s.weight}` : "";
+        const linkPhrase = s.pairEdges === 1 ? "the only link" : `1 of ${s.pairEdges} links`;
+        lines.push(
+          `- \u26A0 \`${s.from}\` \u2192 \`${s.to}\` (${s.kind}${w}) \u2014 ${linkPhrase} between \`${labelOf(s.communities[0])}\` and \`${labelOf(s.communities[1])}\``
+        );
+      }
     }
   }
   lines.push("");
@@ -7801,6 +7853,8 @@ function runBuild(opts, builtAt) {
     const t = testMap.testedByModule.get(m.slug);
     if (t?.length) m.testedBy = t;
   }
+  const surprises = computeSurprises(graph);
+  if (surprises.length) graph.surprises = surprises;
   const edgeIndex = buildEntryEdgeIndex(graph, moduleOf);
   const entryInputs = graph.modules.map((m) => ({
     slug: m.slug,
@@ -8451,7 +8505,16 @@ function expandResults(graph, top, fullScored, seeds, k, enrichedSlugs) {
     if (!list) filesByModule.set(f.module, list = []);
     list.push(f);
   }
-  const discovered = [...depth.entries()].filter(([, d]) => d >= 1).sort((a, b) => a[1] - b[1] || degreeOf(b[0]) - degreeOf(a[0]) || byStr(a[0], b[0]));
+  const seedComms = /* @__PURE__ */ new Set();
+  for (const s of seeds) {
+    const c2 = moduleBySlug.get(s)?.community;
+    if (c2 !== void 0) seedComms.add(c2);
+  }
+  const aff = (slug) => {
+    const c2 = moduleBySlug.get(slug)?.community;
+    return c2 !== void 0 && seedComms.has(c2) ? 1 : 0;
+  };
+  const discovered = [...depth.entries()].filter(([, d]) => d >= 1).sort((a, b) => a[1] - b[1] || aff(b[0]) - aff(a[0]) || degreeOf(b[0]) - degreeOf(a[0]) || byStr(a[0], b[0]));
   for (const [slug] of discovered) {
     if (out2.length >= cap) break;
     if (present.has(slug)) continue;
@@ -9983,6 +10046,7 @@ async function cmdBuild(p) {
           edges: graph.fileEdges.length,
           dangling,
           calls,
+          surprises: graph.surprises?.length ?? 0,
           ...dangling ? { danglingByReason, reasonHints } : {},
           ...capped ? { truncated: true } : {},
           orphaned: manifest.orphaned,

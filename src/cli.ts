@@ -285,6 +285,7 @@ async function cmdBuild(p: Parsed): Promise<void> {
           edges: graph.fileEdges.length,
           dangling,
           calls,
+          surprises: graph.surprises?.length ?? 0,
           ...(dangling ? { danglingByReason, reasonHints } : {}),
           ...(capped ? { truncated: true } : {}),
           orphaned: manifest.orphaned,

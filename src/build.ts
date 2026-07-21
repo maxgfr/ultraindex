@@ -9,6 +9,7 @@ import { buildGraph } from "./graph.js";
 import { detectCommunities } from "./community.js";
 import { applyCentrality } from "./centrality.js";
 import { computeTestMap } from "./tests-map.js";
+import { computeSurprises } from "./surprise.js";
 import { renderEntrySpec, buildEntryEdgeIndex } from "./render/encyclopedia.js";
 import { renderIndex } from "./render/index-md.js";
 import { renderMermaid } from "./render/mermaid.js";
@@ -51,8 +52,9 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
   // The edge index is built once so each entry costs O(its own links), not O(E).
   const prev = loadManifest(opts.out);
 
-  // Cluster modules into navigation communities (display-only: never affects find
-  // ranking or slugs). Computed here — after the graph and the previous manifest —
+  // Cluster modules into navigation communities (never affects slugs or lexical
+  // ranking; biases find's graph-expansion ordering and feeds the surprise
+  // pass). Computed here — after the graph and the previous manifest —
   // so graph.json, INDEX.md and the manifest all serialize the same ids, and a
   // rebuild can reuse the prior ids for an unchanged partition.
   const communities = detectCommunities(graph.modules, graph.moduleEdges, prev?.communities);
@@ -76,6 +78,11 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
     const t = testMap.testedByModule.get(m.slug);
     if (t?.length) m.testedBy = t;
   }
+
+  // Surprising cross-community couplings, persisted on the graph so navigation
+  // and delta can read them without recomputing.
+  const surprises = computeSurprises(graph);
+  if (surprises.length) graph.surprises = surprises;
 
   const edgeIndex = buildEntryEdgeIndex(graph, moduleOf);
   const entryInputs: EntryInput[] = graph.modules.map((m) => ({

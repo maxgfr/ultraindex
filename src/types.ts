@@ -123,8 +123,9 @@ export interface ModuleNode {
   degIn: number;
   degOut: number;
   // Navigation community (a Louvain cluster of related modules), 0-based; id 0 is
-  // the largest cluster. OPTIONAL/additive: display-only, never affects `find` or
-  // slugs. Absent only on graphs built before communities existed.
+  // the largest cluster. OPTIONAL/additive: never affects slugs or lexical
+  // ranking; used only to bias `find`'s graph-expansion ordering (and shown in
+  // INDEX.md). Absent only on graphs built before communities existed.
   community?: number;
   // Module-graph PageRank scaled by the module count (average ≈ 1.0), 4 dp.
   pagerank?: number;
@@ -165,6 +166,20 @@ export interface Graph {
   modules: ModuleNode[];
   fileEdges: Edge[];
   moduleEdges: Edge[];
+  // Surprising cross-community couplings (see surprise.ts), capped and sorted
+  // (pairEdges asc, from, to). Absent when none were found.
+  surprises?: SurpriseEdge[];
+}
+
+// A dependency edge that is one of at most 2 links between two otherwise-
+// separate communities — an architectural leak worth extra review attention.
+export interface SurpriseEdge {
+  from: string;
+  to: string;
+  kind: EdgeKind;
+  weight: number;
+  communities: [number, number]; // [community(from), community(to)]
+  pairEdges: number; // total module edges between the two communities
 }
 
 // Per-build bookkeeping, persisted as manifest.json. The staleness oracle

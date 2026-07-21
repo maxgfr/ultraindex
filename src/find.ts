@@ -364,16 +364,28 @@ export function expandResults(
     }
   }
 
-  // 2. BFS-discovered modules (depth ≥ 1), ordered depth asc, degree desc, slug.
+  // 2. BFS-discovered modules (depth ≥ 1), ordered depth asc, same-community-
+  // as-a-seed first, degree desc, slug. The affinity key biases which
+  // neighbourhood rows survive the cap toward the seeds' own subsystem; graphs
+  // without communities (older indexes, test literals) order exactly as before.
   const filesByModule = new Map<string, FileNode[]>();
   for (const f of graph.files) {
     let list = filesByModule.get(f.module);
     if (!list) filesByModule.set(f.module, (list = []));
     list.push(f);
   }
+  const seedComms = new Set<number>();
+  for (const s of seeds) {
+    const c = moduleBySlug.get(s)?.community;
+    if (c !== undefined) seedComms.add(c);
+  }
+  const aff = (slug: string): number => {
+    const c = moduleBySlug.get(slug)?.community;
+    return c !== undefined && seedComms.has(c) ? 1 : 0;
+  };
   const discovered = [...depth.entries()]
     .filter(([, d]) => d >= 1)
-    .sort((a, b) => a[1] - b[1] || degreeOf(b[0]) - degreeOf(a[0]) || byStr(a[0], b[0]));
+    .sort((a, b) => a[1] - b[1] || aff(b[0]) - aff(a[0]) || degreeOf(b[0]) - degreeOf(a[0]) || byStr(a[0], b[0]));
   for (const [slug] of discovered) {
     if (out.length >= cap) break;
     if (present.has(slug)) continue;

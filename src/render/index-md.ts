@@ -8,6 +8,7 @@ const HUB_CAP = 12;
 const BRIDGE_CAP = 8;
 const BRIDGE_MIN_MODULES = 8; // below this, everything is trivially a bridge — no signal
 const UNTESTED_CAP = 6; // untested modules named on the Tests line before overflow
+const SURPRISE_SHOWN = 8; // unusual couplings listed in the Architecture section
 const MODULE_CAP = 120; // keep INDEX.md always-loadable on huge repos
 const ARCH_CAP = 12; // communities shown in the Architecture section
 const ARCH_MEMBER_CAP = 12; // member slugs listed per community before overflow
@@ -149,6 +150,25 @@ export function renderIndex(
       const shown = slugs.slice(0, ARCH_MEMBER_CAP).map((s) => `\`${s}\``).join(", ");
       const overflow = slugs.length > ARCH_MEMBER_CAP ? ` _(+${slugs.length - ARCH_MEMBER_CAP} more)_` : "";
       lines.push(`- \`${label}\` — ${shown}${overflow}`);
+    }
+
+    // Surprising couplings — near-unique dependency edges between communities.
+    const surprises = (graph.surprises ?? []).slice(0, SURPRISE_SHOWN);
+    if (surprises.length) {
+      const labelOf = (cid: number): string => {
+        const members = byCommunity.get(cid) ?? [];
+        const top = members.slice().sort((a, b) => degree(b) - degree(a) || byStr(a.slug, b.slug))[0];
+        return top ? top.path : String(cid);
+      };
+      lines.push("");
+      lines.push("**Unusual couplings:**");
+      for (const s of surprises) {
+        const w = s.weight > 1 ? ` ×${s.weight}` : "";
+        const linkPhrase = s.pairEdges === 1 ? "the only link" : `1 of ${s.pairEdges} links`;
+        lines.push(
+          `- ⚠ \`${s.from}\` → \`${s.to}\` (${s.kind}${w}) — ${linkPhrase} between \`${labelOf(s.communities[0])}\` and \`${labelOf(s.communities[1])}\``,
+        );
+      }
     }
   }
 
