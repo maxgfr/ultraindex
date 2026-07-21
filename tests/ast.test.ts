@@ -172,3 +172,45 @@ describe("AST call-site + imported-name collection", () => {
     expect(extractAst("s.swift", ".swift", "f()")).toBeUndefined();
   });
 });
+
+describe("CommonJS assignment-style definitions (JS/TS)", () => {
+  it("extracts res.x / prototype / exports assignments of functions with endLine", () => {
+    const src = [
+      "var res = {};",
+      "",
+      "res.sendStatus = function sendStatus(statusCode) {",
+      "  statusCode = Number(statusCode);",
+      "  return statusCode;",
+      "};",
+      "",
+      "Thing.prototype.render = function () {",
+      "  return 1;",
+      "};",
+      "",
+      "exports.helper = function helper() {",
+      "  return 2;",
+      "};",
+      "",
+      "module.exports.other = () => 3;",
+      "",
+      "res.count = 1;",
+    ].join("\n");
+    const syms = extractAst("lib/response.js", ".js", src)!.symbols;
+
+    const send = syms.find((s) => s.name === "sendStatus")!;
+    expect(send.kind).toBe("function");
+    expect(send.line).toBe(3);
+    expect(send.endLine).toBe(6);
+    expect(send.exported).toBe(false); // augmenting a local object is not a module export
+
+    const render = syms.find((s) => s.name === "render")!;
+    expect(render.line).toBe(8);
+    expect(render.endLine).toBe(10);
+
+    expect(syms.find((s) => s.name === "helper")!.exported).toBe(true);
+    expect(syms.find((s) => s.name === "other")!.exported).toBe(true);
+
+    // A plain value assignment is NOT a symbol (would be pure noise).
+    expect(syms.some((s) => s.name === "count")).toBe(false);
+  });
+});

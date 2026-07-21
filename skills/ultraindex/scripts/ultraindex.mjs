@@ -9,7 +9,7 @@ import { realpathSync as realpathSync2 } from "fs";
 // src/types.ts
 var VERSION = "5.0.0";
 var SCHEMA_VERSION = 4;
-var EXTRACTOR_VERSION = 3;
+var EXTRACTOR_VERSION = 4;
 
 // src/build.ts
 import { basename as basename2, relative as relative2, isAbsolute } from "path";
@@ -5170,7 +5170,8 @@ var TS_SPEC = {
   exported: neverExport,
   // export is tracked structurally via export_statement; see walk
   imports: { import_statement: "string" },
-  calls: { call_expression: "function", new_expression: "constructor" }
+  calls: { call_expression: "function", new_expression: "constructor" },
+  assignments: true
 };
 var SPECS = {
   typescript: TS_SPEC,
@@ -5419,6 +5420,42 @@ function extractAst(rel, ext, content) {
               const spec2 = c2.namedChild(j);
               const nm = spec2.childForFieldName("name") ?? spec2.namedChild(0);
               if (nm?.text) exportedNames.add(nm.text);
+            }
+          }
+        }
+      }
+      if (spec.assignments && node.type === "expression_statement") {
+        const expr = node.namedChild(0);
+        if (expr?.type === "assignment_expression") {
+          const left = expr.childForFieldName("left");
+          const right = expr.childForFieldName("right");
+          const funcy = right && ["function_expression", "function", "generator_function", "arrow_function", "class"].includes(right.type);
+          if (left && right && funcy) {
+            let name2;
+            let exportedAssign = false;
+            if (left.type === "member_expression") {
+              const prop = left.childForFieldName("property");
+              if (prop?.type === "property_identifier") {
+                name2 = prop.text;
+                const obj = left.text.slice(0, left.text.length - prop.text.length - 1);
+                exportedAssign = obj === "exports" || obj === "module.exports";
+              }
+            } else if (left.type === "identifier") {
+              name2 = left.text;
+            }
+            if (name2) {
+              symbols.push({
+                name: name2,
+                kind: right.type === "class" ? "class" : "function",
+                file: rel,
+                line: expr.startPosition.row + 1,
+                endLine: expr.endPosition.row + 1,
+                ...parent ? { parent } : {},
+                signature: firstLine(expr),
+                exported: nowExported || exportedAssign,
+                lang: spec.lang
+              });
+              return;
             }
           }
         }

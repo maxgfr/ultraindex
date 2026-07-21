@@ -20,8 +20,9 @@ export const SCHEMA_VERSION = 4;
 // schema. The incremental build cache keys reused FileRecords on (content hash,
 // EXTRACTOR_VERSION); bump this whenever symbol/import extraction changes so a
 // stale cache is discarded wholesale rather than mixing old and new records. v3
-// adds FileRecord.calls (call-site callee names) and importedNames.
-export const EXTRACTOR_VERSION = 3;
+// adds FileRecord.calls (call-site callee names) and importedNames; v4 adds
+// CommonJS assignment-style JS/TS definitions (`x.y = function () {}`).
+export const EXTRACTOR_VERSION = 4;
 
 // How a file is classified for the encyclopedia. `code` gets symbol/import
 // extraction; `doc` gets link/heading extraction; the rest are catalogued but
