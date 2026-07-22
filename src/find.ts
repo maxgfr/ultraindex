@@ -6,8 +6,7 @@ import { humanBodies, isEnrichedBody } from "./merge.js";
 import { buildHaystack, queryTerms, scoreHaystack, splitIdentifier } from "./lex.js";
 import type { QueryTerm } from "./lex.js";
 import { exportedNamesByFile } from "./symbols.js";
-import { rrf } from "./util.js";
-import { byStr } from "./sort.js";
+import { rrf, byStr } from "./engine.js";
 import { loadVectors } from "./vectors.js";
 import { loadSemanticConfig, embedTexts, cosine } from "./semantic.js";
 

@@ -1,15 +1,10 @@
 import { join, relative, isAbsolute } from "node:path";
 import { statSync } from "node:fs";
 import type { Graph, ModuleNode, SymbolIndex } from "./types.js";
-import type { DiffFile, DiffSpec, Hunk } from "./git.js";
-import { isGitWorktree, resolveBaseRef, diffFiles, diffHunks, untrackedFiles } from "./git.js";
+import type { DiffFile, DiffSpec, Hunk } from "./engine.js";
+import { isGitWorktree, resolveBaseRef, diffFiles, diffHunks, untrackedFiles, byStr, have, sh, compileGlobs, readText, sha1 } from "./engine.js";
 import { loadGraph, loadSymbols, loadManifest } from "./store.js";
 import { impactOf } from "./impact.js";
-import { byStr } from "./sort.js";
-import { have, sh } from "./util.js";
-import { compileGlobs } from "./glob.js";
-import { readText } from "./walk.js";
-import { sha1 } from "./hash.js";
 
 // `delta`: map a git diff onto the index — changed files → enclosing symbols →
 // blast radius → a risk-scored, reasons-first review panel. The scoring is

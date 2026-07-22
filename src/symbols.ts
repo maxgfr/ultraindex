@@ -1,8 +1,7 @@
 import type { Graph, SymbolIndex } from "./types.js";
 import { loadGraph, loadSymbols } from "./store.js";
 import { splitIdentifier } from "./lex.js";
-import { keywords, foldText } from "./util.js";
-import { byStr } from "./sort.js";
+import { keywords, foldText, byStr } from "./engine.js";
 
 export interface SymbolSite {
   file: string;

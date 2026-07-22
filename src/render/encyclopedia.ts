@@ -1,7 +1,6 @@
 import type { Edge, FileRecord, Graph, ModuleNode, Tier } from "../types.js";
 import { ENRICH_MARKER, type Region } from "../merge.js";
-import { byStr } from "../sort.js";
-import { clip } from "../util.js";
+import { byStr, clip } from "../engine.js";
 
 // Module edges and dangling refs pre-grouped by module, built ONCE per build so
 // each entry is O(its own links) instead of re-scanning every graph edge — the

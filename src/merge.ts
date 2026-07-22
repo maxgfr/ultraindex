@@ -1,5 +1,4 @@
-import { shortHash } from "./hash.js";
-import { byStr } from "./sort.js";
+import { shortHash, byStr } from "./engine.js";
 
 // An encyclopedia entry is an ordered list of regions. `gen` regions are owned by
 // the tool and rewritten wholesale every build; `human` regions are owned by the

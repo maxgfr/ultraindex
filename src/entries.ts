@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { Region } from "./merge.js";
 import { mergeEntry, humanBodies } from "./merge.js";
 import { readIfExists, writeFileIfChanged, moveFile, removeFile } from "./output.js";
-import { byStr } from "./sort.js";
+import { byStr } from "./engine.js";
 
 export interface EntryInput {
   slug: string;

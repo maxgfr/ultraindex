@@ -3,7 +3,7 @@ import { SCHEMA_VERSION, VERSION } from "../src/types.js";
 import type { Graph, FileNode, ModuleNode, Tier, SymbolIndex } from "../src/types.js";
 import { findModules } from "../src/find.js";
 import { exportedNamesByFile } from "../src/symbols.js";
-import { byStr } from "../src/sort.js";
+import { byStr } from "../src/engine.js";
 
 function fileNode(rel: string, module: string): FileNode {
   return {

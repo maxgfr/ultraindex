@@ -19,7 +19,7 @@ import { runDossier, runAsk } from "./explain.js";
 import { listPhases, orchestrateRun } from "./orchestrate.js";
 import { phaseSpec } from "./orchestrate-templates.js";
 import { indexExists, loadGraph, loadManifest } from "./store.js";
-import { ensureGrammars, allGrammarKeys } from "./ast/loader.js";
+import { ensureGrammars, allGrammarKeys } from "./engine.js";
 
 const HELP = `ultraindex v${VERSION}
 Deterministically index a whole repo (code + docs) into a navigable encyclopedia
@@ -27,7 +27,7 @@ Deterministically index a whole repo (code + docs) into a navigable encyclopedia
 huge codebases without filling its context window. Zero deps, no keys.
 
 Usage:
-  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid]
+  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid] [--no-gitignore]
   ultraindex find    "<query>" [--out <dir>] [--k <n>]
   ultraindex embed   [--out <dir>] [--force]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>] [--kind <k>]
@@ -86,6 +86,8 @@ Options:
   --max-bytes <n>   Skip files larger than n bytes                (default: 1 MiB)
   --max-files <n>   Stop the scan after n files; the index warns if hit (default: 20000)
   --no-cache        build: ignore cache.json and re-extract every file
+  --no-gitignore    build: also index files .gitignore would hide (the walk
+                    honors .gitignore by default)
   --full-hash       build: re-hash every file, disabling the (size,mtime) fastpath
   --no-mermaid      Do not write graph.mmd
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
@@ -127,7 +129,7 @@ Grounding:
 
 const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate"]);
 const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
-const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "quiet", "force", "semantic", "eco", "list", "staged"]);
+const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "eco", "list", "staged"]);
 
 // What each dangling reason means and what to do about it — emitted in
 // `build --json` so the report is self-diagnosing.
@@ -257,6 +259,7 @@ async function cmdBuild(p: Parsed): Promise<void> {
       maxFiles,
       noCache: p.bools.has("no-cache"),
       fullHash: p.bools.has("full-hash"),
+      ...(p.bools.has("no-gitignore") ? { gitignore: false } : {}),
       mermaid: !p.bools.has("no-mermaid"),
       json: p.bools.has("json"),
     },

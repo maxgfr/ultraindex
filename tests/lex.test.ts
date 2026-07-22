@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { splitIdentifier, stem, synonymGroup, queryTerms, buildHaystack, scoreHaystack } from "../src/lex.js";
-import { foldText, keywords } from "../src/util.js";
+import { foldText, keywords } from "../src/engine.js";
 
 describe("foldText (NFKD diacritic folding)", () => {
   it("strips diacritics but leaves plain ASCII untouched", () => {

@@ -1,4 +1,4 @@
-import { ensureGrammars, allGrammarKeys } from "../src/ast/loader.js";
+import { ensureGrammars, allGrammarKeys } from "../src/engine.js";
 
 // Warm every committed grammar before the test file is imported (setupFiles are
 // awaited first), so scanRepo / extractCode exercise the SAME AST path the CLI

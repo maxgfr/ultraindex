@@ -1,7 +1,7 @@
 import type { Edge, Graph } from "./types.js";
 import { loadGraph } from "./store.js";
 import { hubThreshold } from "./find.js";
-import { byStr } from "./sort.js";
+import { byStr } from "./engine.js";
 
 export interface NeighborLink {
   node: string;

@@ -1,7 +1,6 @@
 import type { Graph, ModuleNode, Tier } from "../types.js";
 import type { MermaidResult } from "./mermaid.js";
-import { byStr } from "../sort.js";
-import { clip } from "../util.js";
+import { byStr, clip } from "../engine.js";
 
 const TIER_LABEL: Record<Tier, string> = { 0: "Foundations", 1: "Features", 2: "Tail" };
 const HUB_CAP = 12;

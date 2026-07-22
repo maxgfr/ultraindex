@@ -1,4 +1,4 @@
-import { foldText, keywords } from "./util.js";
+import { foldText, keywords } from "./engine.js";
 
 // Lexical matching primitives for `find`: identifier splitting, conservative
 // stemming, and a small code-domain synonym table. Everything here is pure and

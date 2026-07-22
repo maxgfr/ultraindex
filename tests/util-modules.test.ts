@@ -2,9 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sha1, shortHash } from "../src/hash.js";
-import { byStr, byKey } from "../src/sort.js";
-import { headCommit } from "../src/git.js";
+import { sha1, shortHash, byStr, byKey, headCommit } from "../src/engine.js";
 import { readIfExists, writeFileIfChanged, removeFile, ensureDir, moveFile } from "../src/output.js";
 
 describe("hash", () => {

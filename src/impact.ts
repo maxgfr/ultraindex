@@ -1,6 +1,6 @@
 import type { Edge, Graph } from "./types.js";
 import { loadGraph } from "./store.js";
-import { byStr } from "./sort.js";
+import { byStr } from "./engine.js";
 
 export interface ImpactedFile {
   rel: string;

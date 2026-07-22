@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { computeDelta, formatDeltaPanel, RISK_WEIGHTS } from "../src/delta.js";
-import type { DiffFile, Hunk } from "../src/git.js";
+import type { DiffFile, Hunk } from "../src/engine.js";
+import { sh, have } from "../src/engine.js";
 import type { Edge, FileNode, Graph, ModuleNode, SymbolIndex, Tier } from "../src/types.js";
 
 const mod = (slug: string, opts: Partial<ModuleNode> = {}): ModuleNode => ({
@@ -283,7 +284,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDelta } from "../src/delta.js";
 import { runBuild } from "../src/build.js";
-import { sh, have } from "../src/util.js";
 
 const TIME = "2026-01-01T00:00:00.000Z";
 

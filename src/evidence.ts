@@ -1,10 +1,6 @@
 import { join, extname } from "node:path";
 import type { Graph, ModuleNode } from "./types.js";
-import { readText } from "./walk.js";
-import { extractCode } from "./extract/code.js";
-import { extToLang } from "./lang/registry.js";
-import { clip, clipInline } from "./util.js";
-import { byStr } from "./sort.js";
+import { readText, extractCode, extToLang, clip, clipInline, byStr } from "./engine.js";
 
 const HEAD_LINES = 120;
 const MAX_SYMS = 25;

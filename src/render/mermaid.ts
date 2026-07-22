@@ -1,5 +1,5 @@
 import type { Graph, ModuleNode, Tier } from "../types.js";
-import { byStr } from "../sort.js";
+import { byStr } from "../engine.js";
 
 export interface MermaidResult {
   content: string;

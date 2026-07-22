@@ -1,8 +1,8 @@
 import { SCHEMA_VERSION, VERSION } from "../types.js";
 import type { Graph, Manifest } from "../types.js";
-import type { RepoScan } from "../scan.js";
+import type { RepoScan } from "../engine.js";
+import { byStr } from "../engine.js";
 import type { SyncResult } from "../entries.js";
-import { byStr } from "../sort.js";
 
 function sortedRecord<T>(obj: Record<string, T>): Record<string, T> {
   const out: Record<string, T> = {};
@@ -21,7 +21,7 @@ export function buildManifest(
   sync: SyncResult,
   builtAt: string,
   extraNotes: string[] = [],
-  filters: { include?: string[]; exclude?: string[]; maxBytes?: number; maxFiles?: number } = {},
+  filters: { include?: string[]; exclude?: string[]; maxBytes?: number; maxFiles?: number; gitignore?: boolean } = {},
 ): Manifest {
   const fileHashes: Record<string, string> = {};
   for (const f of scan.files) fileHashes[f.rel] = f.hash;
@@ -50,6 +50,9 @@ export function buildManifest(
   if (filters.exclude?.length) scanFilters!.exclude = filters.exclude;
   if (filters.maxBytes !== undefined) scanFilters!.maxBytes = filters.maxBytes;
   if (filters.maxFiles !== undefined) scanFilters!.maxFiles = filters.maxFiles;
+  // Only a --no-gitignore build is recorded — the default (gitignore honored)
+  // keeps the manifest shape unchanged.
+  if (filters.gitignore === false) scanFilters!.gitignore = false;
 
   return {
     schemaVersion: SCHEMA_VERSION,

@@ -2,8 +2,7 @@ import { SCHEMA_VERSION } from "./types.js";
 import type { EmbedReport, Graph, SemanticConfig, VectorStore } from "./types.js";
 import { indexPaths, loadGraph } from "./store.js";
 import { readIfExists, writeFileIfChanged } from "./output.js";
-import { sha1 } from "./hash.js";
-import { byStr } from "./sort.js";
+import { sha1, byStr } from "./engine.js";
 import { embedTexts, moduleEmbedText } from "./semantic.js";
 import { loadEnrichedProse } from "./find.js";
 

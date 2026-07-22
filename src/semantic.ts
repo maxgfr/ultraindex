@@ -1,8 +1,7 @@
 import type { FileNode, ModuleNode, SemanticConfig } from "./types.js";
 import { indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
-import { clip } from "./util.js";
-import { byStr } from "./sort.js";
+import { clip, byStr } from "./engine.js";
 
 // The optional semantic layer talks to any OpenAI-compatible /v1/embeddings
 // endpoint (a local TEI container via docker-compose, Ollama, or a hosted API).

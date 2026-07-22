@@ -1,12 +1,9 @@
 import { dirname, join } from "node:path";
 import type { CheckResult, Manifest, VerifyResult } from "./types.js";
 import { loadVerify, buildClaimPairs, citationlessClaims, reduceVerdicts, revalidateVerdicts, VERIFY_MAX } from "./verify.js";
-import { walk, readText } from "./walk.js";
-import { sha1 } from "./hash.js";
-import { compileGlobs } from "./glob.js";
+import { walk, readText, sha1, compileGlobs, byStr } from "./engine.js";
 import { loadGraph, loadManifest, indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
-import { byStr } from "./sort.js";
 import { parseRegions } from "./merge.js";
 import { checkCitations, fileLineTable } from "./cite.js";
 import { loadVectors, staleVectorSlugs } from "./vectors.js";
@@ -20,7 +17,7 @@ function hashRepo(repo: string, outAbs: string, filters: Manifest["scan"]): Reco
   const include = compileGlobs(filters?.include);
   const exclude = compileGlobs(filters?.exclude);
   const out: Record<string, string> = {};
-  for (const f of walk(repo, { maxFileBytes: filters?.maxBytes, maxFiles: filters?.maxFiles }).files) {
+  for (const f of walk(repo, { maxFileBytes: filters?.maxBytes, maxFiles: filters?.maxFiles, gitignore: filters?.gitignore }).files) {
     if (f.abs === outAbs || f.abs.startsWith(outPrefix)) continue;
     if (include && !include(f.rel)) continue;
     if (exclude && exclude(f.rel)) continue;

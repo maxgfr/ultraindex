@@ -3,7 +3,7 @@ import type { Tier } from "./types.js";
 import { loadGraph, indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
 import { parseRegions, isEnrichedBody } from "./merge.js";
-import { byStr } from "./sort.js";
+import { byStr } from "./engine.js";
 
 export interface ModuleStatus {
   slug: string;

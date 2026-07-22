@@ -1,20 +1,10 @@
 import { basename, relative, isAbsolute } from "node:path";
 import type { BuildOptions, ExtractionCache, FileRecord, Graph, Manifest } from "./types.js";
-import { SCHEMA_VERSION, EXTRACTOR_VERSION } from "./types.js";
-import { scanRepo } from "./scan.js";
-import { DEFAULT_MAX_FILES } from "./walk.js";
-import { buildResolveContext } from "./resolve.js";
-import { buildModules } from "./modules.js";
-import { buildGraph } from "./graph.js";
-import { detectCommunities } from "./community.js";
-import { applyCentrality } from "./centrality.js";
-import { computeTestMap } from "./tests-map.js";
-import { computeSurprises } from "./surprise.js";
+import { VERSION, SCHEMA_VERSION, EXTRACTOR_VERSION } from "./types.js";
+import { scanRepo, DEFAULT_MAX_FILES, buildResolveContext, buildModules, buildGraph, detectCommunities, applyCentrality, computeTestMap, computeSurprises, renderGraphJson, buildSymbolIndex, renderSymbolsJson, computeSymbolRefs } from "./engine.js";
 import { renderEntrySpec, buildEntryEdgeIndex } from "./render/encyclopedia.js";
 import { renderIndex } from "./render/index-md.js";
 import { renderMermaid } from "./render/mermaid.js";
-import { renderGraphJson } from "./render/graph-json.js";
-import { buildSymbolIndex, renderSymbolsJson, computeSymbolRefs } from "./render/symbols-json.js";
 import { buildManifest, renderManifestJson } from "./render/manifest.js";
 import { syncEntries, type EntryInput } from "./entries.js";
 import { loadManifest, loadCache, indexPaths } from "./store.js";
@@ -36,13 +26,16 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
     exclude: opts.exclude,
     maxBytes: opts.maxBytes,
     maxFiles: opts.maxFiles,
+    gitignore: opts.gitignore,
     out: opts.out,
     cache,
     fullHash: opts.fullHash,
   });
   const ctx = buildResolveContext(scan);
   const { modules, moduleOf } = buildModules(scan);
-  const graph = buildGraph(scan, ctx, modules, moduleOf);
+  // Stamp graph.json with ULTRAINDEX's identity (it owns the artifact's
+  // schema/version lineage), not the engine's.
+  const graph = buildGraph(scan, ctx, modules, moduleOf, { version: VERSION, schemaVersion: SCHEMA_VERSION });
 
   const records = new Map<string, FileRecord>(scan.files.map((f) => [f.rel, f]));
   const paths = indexPaths(opts.out);
@@ -117,6 +110,7 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
     exclude: opts.exclude,
     maxBytes: opts.maxBytes,
     maxFiles: opts.maxFiles,
+    gitignore: opts.gitignore,
   });
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
 
