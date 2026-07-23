@@ -1,0 +1,163 @@
+name: Engine re-pin
+
+# Daily check for a newer maxgfr/codeindex release. If the vendored engine is
+# already current, this is a no-op green run. Otherwise it re-pins, runs the
+# exact same gates as ci.yml, and either:
+#   - pushes straight to main + explicitly triggers release.yml/ci.yml
+#     (a push authenticated with GITHUB_TOKEN does NOT itself trigger other
+#     workflows — that's why steps below call `gh workflow run` explicitly), or
+#   - on any gate failure, pushes the synced-but-failing state to a
+#     repin/<tag> branch and opens a PR for manual adjudication. Goldens are
+#     NEVER regenerated here — a golden diff is a failed gate, on purpose.
+on:
+  schedule:
+    - cron: "38 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: write
+
+concurrency: engine-repin
+
+jobs:
+  repin:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Detect latest codeindex release
+        id: detect
+        run: |
+          PINNED_TAG=$(node -p "require('./src/vendor/engine.meta.json').tag")
+          # NB: do NOT use `releases/latest` — the codeindex repo also ships an
+          # `embed-model-v1` asset release, which is not an engine tag.
+          LATEST_TAG=$(gh api repos/maxgfr/codeindex/releases --jq '[.[] | select(.tag_name | test("^v[0-9]")) | .tag_name] | first')
+          echo "PINNED_TAG=$PINNED_TAG" >> "$GITHUB_ENV"
+          echo "LATEST_TAG=$LATEST_TAG" >> "$GITHUB_ENV"
+          if [ "$PINNED_TAG" = "$LATEST_TAG" ]; then
+            echo "up to date ($PINNED_TAG)"
+            echo "UP_TO_DATE=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "UP_TO_DATE=false" >> "$GITHUB_ENV"
+          echo "re-pin needed: $PINNED_TAG -> $LATEST_TAG"
+
+      - name: Re-pin codeindex engine
+        if: env.UP_TO_DATE != 'true'
+        run: |
+          node scripts/sync-engine.mjs --ref "$LATEST_TAG"
+          node scripts/sync-engine.mjs --check
+
+      - name: Install dependencies
+        if: env.UP_TO_DATE != 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        if: env.UP_TO_DATE != 'true'
+        run: pnpm run typecheck
+
+      - name: Rebuild bundle for the new pin + stage outputs
+        if: env.UP_TO_DATE != 'true'
+        # check:build's own tsup+diff would otherwise fail on the very fact
+        # that the rebuilt bundle isn't committed yet. Build once here and
+        # stage everything (vendor pin + bundle + skill mirror) so the index
+        # already matches the working tree before that gate runs.
+        run: |
+          pnpm run build
+          git add -A
+
+      - name: Build is reproducible (committed bundle + grammar wasms up to date)
+        if: env.UP_TO_DATE != 'true'
+        run: pnpm run check:build
+
+      - name: Test
+        if: env.UP_TO_DATE != 'true'
+        run: |
+          pnpm test 2>&1 | tee test-output.log
+          { grep -E "Test Files|Tests " test-output.log || true; } > test-summary.txt
+
+      - name: Smoke-run the committed bundle (offline, fixture repo)
+        if: env.UP_TO_DATE != 'true'
+        run: pnpm run demo
+
+      - name: Assert the index was produced
+        if: env.UP_TO_DATE != 'true'
+        run: test -f /tmp/ultraindex-demo/INDEX.md && test -f /tmp/ultraindex-demo/graph.json
+
+      - name: Push re-pin to main
+        if: success() && env.UP_TO_DATE != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          TEST_SUMMARY=$(cat test-summary.txt 2>/dev/null || echo "test summary unavailable")
+          {
+            echo "chore(engine): re-pin codeindex ${LATEST_TAG}"
+            echo
+            echo "automated re-pin, all gates green, goldens byte-identical"
+            echo
+            echo "pinned: ${PINNED_TAG} -> ${LATEST_TAG}"
+            echo "typecheck: clean"
+            echo "check:build: bundle + grammar wasms rebuilt, diff clean against HEAD (4 tracked build paths)"
+            echo "${TEST_SUMMARY}"
+            echo "demo: index built + checked (tests/fixtures/mini-repo)"
+          } > commit-message.txt
+          git commit -F commit-message.txt
+          git push origin HEAD:main
+
+      - name: Trigger release + ci workflows
+        if: success() && env.UP_TO_DATE != 'true'
+        # A push authenticated with the default GITHUB_TOKEN does not fire
+        # other workflows' `on: push` triggers — must dispatch explicitly.
+        run: |
+          gh workflow run release.yml --ref main
+          gh workflow run ci.yml --ref main
+
+      - name: On failure — push re-pin branch for adjudication
+        if: failure() && env.LATEST_TAG != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "repin/${LATEST_TAG}"
+          git add -A
+          git commit \
+            -m "chore(engine): re-pin codeindex ${LATEST_TAG} [gates failed]" \
+            -m "Automated re-pin candidate; one or more gates failed. This is the adjudication material for the PR below — do not regenerate goldens without classifying the diff first." \
+            || echo "nothing to commit"
+          git push origin "HEAD:refs/heads/repin/${LATEST_TAG}" --force-with-lease
+
+      - name: On failure — open adjudication PR (skip if one is already open)
+        if: failure() && env.LATEST_TAG != ''
+        run: |
+          EXISTING=$(gh pr list --head "repin/${LATEST_TAG}" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "PR #$EXISTING already open for repin/${LATEST_TAG}, skipping"
+            exit 0
+          fi
+          {
+            echo "One or more gates failed while re-pinning the codeindex engine from \`${PINNED_TAG}\` to \`${LATEST_TAG}\`."
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo "This branch carries the synced engine and rebuilt bundle even though gates failed — that is intentional, it is the adjudication material."
+            echo
+            echo "Doctrine: classify every golden/snapshot diff before ever regenerating one. A real engine regression must be filed as an issue against maxgfr/codeindex, not silently absorbed by regenerating goldens here."
+          } > pr-body.txt
+          gh pr create \
+            --title "engine re-pin ${LATEST_TAG}: gates failed — manual adjudication needed" \
+            --base main \
+            --head "repin/${LATEST_TAG}" \
+            --body-file pr-body.txt
