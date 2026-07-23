@@ -41,6 +41,7 @@ jobs:
       - name: Detect latest codeindex release
         id: detect
         run: |
+          set -euo pipefail
           PINNED_TAG=$(node -p "require('./src/vendor/engine.meta.json').tag")
           # NB: do NOT use `releases/latest` — the codeindex repo also ships an
           # `embed-model-v1` asset release, which is not an engine tag.
@@ -87,7 +88,7 @@ jobs:
         if: env.UP_TO_DATE != 'true'
         run: |
           pnpm test 2>&1 | tee test-output.log
-          { grep -E "Test Files|Tests " test-output.log || true; } > test-summary.txt
+          { grep -E "Test Files|Tests " test-output.log || true; } > "$RUNNER_TEMP/test-summary.txt"
 
       - name: Smoke-run the committed bundle (offline, fixture repo)
         if: env.UP_TO_DATE != 'true'
@@ -99,11 +100,15 @@ jobs:
 
       - name: Push re-pin to main
         if: success() && env.UP_TO_DATE != 'true'
+        id: push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          TEST_SUMMARY=$(cat test-summary.txt 2>/dev/null || echo "test summary unavailable")
+          git add \
+            src/vendor/engine.meta.json src/vendor/codeindex-engine.mjs src/vendor/codeindex-engine.d.mts \
+            scripts/ultraindex.mjs skills/ultraindex/scripts/ultraindex.mjs \
+            scripts/grammars skills/ultraindex/scripts/grammars
+          TEST_SUMMARY=$(cat "$RUNNER_TEMP/test-summary.txt" 2>/dev/null || echo "test summary unavailable")
           {
             echo "feat(engine): re-pin codeindex ${LATEST_TAG}"
             echo
@@ -116,7 +121,9 @@ jobs:
             echo "demo: index built + checked (tests/fixtures/mini-repo)"
           } > commit-message.txt
           git commit -F commit-message.txt
+          git pull --rebase origin main
           git push origin HEAD:main
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
 
       - name: Trigger release + ci workflows
         if: success() && env.UP_TO_DATE != 'true'
@@ -127,7 +134,7 @@ jobs:
           gh workflow run ci.yml --ref main
 
       - name: On failure — push re-pin branch for adjudication
-        if: failure() && env.LATEST_TAG != ''
+        if: failure() && steps.push.outputs.pushed != 'true' && env.LATEST_TAG != ''
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -140,7 +147,7 @@ jobs:
           git push origin "HEAD:refs/heads/repin/${LATEST_TAG}" --force-with-lease
 
       - name: On failure — open adjudication PR (skip if one is already open)
-        if: failure() && env.LATEST_TAG != ''
+        if: failure() && steps.push.outputs.pushed != 'true' && env.LATEST_TAG != ''
         run: |
           EXISTING=$(gh pr list --head "repin/${LATEST_TAG}" --state open --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
