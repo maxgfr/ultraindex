@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [5.2.0](https://github.com/maxgfr/ultraindex/compare/v5.1.0...v5.2.0) (2026-07-23)
+
+
+### Features
+
+* **engine:** re-pin the codeindex engine at v2.10.0 ([23acc3d](https://github.com/maxgfr/ultraindex/commit/23acc3db21aa0c234eb7b28196d4827180648da2))
+
 # [5.1.0](https://github.com/maxgfr/ultraindex/compare/v5.0.0...v5.1.0) (2026-07-21)
 
 

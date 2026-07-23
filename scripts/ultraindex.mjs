@@ -11330,7 +11330,7 @@ ${HELP}`);
 }
 
 // src/types.ts
-var VERSION = "5.1.0";
+var VERSION = "5.2.0";
 var SCHEMA_VERSION2 = 4;
 
 // src/build.ts
