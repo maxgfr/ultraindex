@@ -105,7 +105,7 @@ jobs:
           git add -A
           TEST_SUMMARY=$(cat test-summary.txt 2>/dev/null || echo "test summary unavailable")
           {
-            echo "chore(engine): re-pin codeindex ${LATEST_TAG}"
+            echo "feat(engine): re-pin codeindex ${LATEST_TAG}"
             echo
             echo "automated re-pin, all gates green, goldens byte-identical"
             echo
