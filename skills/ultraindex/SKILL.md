@@ -78,17 +78,17 @@ review of a branch is 2 → 4; a high-assurance answer adds → 5.
 
 ## Command cheat-sheet
 
-- `build --repo <dir> [--out .ultraindex] [--include/--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--no-mermaid]` — scan and (re)write the index. Idempotent; keeps enriched prose. Incremental (reuses unchanged files' extraction); warns if `--max-files` truncates. `--out docs/ultraindex` for a committed, PR-reviewable index.
+- `build --repo <dir> [--out .ultraindex] [--include/--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid] [--no-gitignore]` — scan and (re)write the index. Idempotent; keeps enriched prose. Incremental (reuses unchanged files' extraction); warns if `--max-files` truncates. `--out docs/ultraindex` for a committed, PR-reviewable index.
 - `map [--module <slug>] [--json]` — print INDEX.md (or one entry, or the module table).
 - `find "<query>" [--k <n>]` — rank modules, print the **exact files to open**. Lexical (with IDF term weighting) by default; hybrid (+ semantic) when vectors.json exists.
-- `neighbors <file|module> [--depth <n>]` — what links to / from it.
+- `neighbors <file|module> [--depth <n>] [--kind <k>]` — what links to / from it (`--kind` filters edge kinds: import,call,use,doc-link,mention).
 - `symbols "<name>" [--json]` — where a symbol is **defined** (file:line, kind, owning module) and which files reference it. Fuzzy by identifier sub-token.
 - `impact <file|module> [--depth <n>] [--json]` — the **reverse dependency closure**: everything that imports or uses the target. "What breaks if I change this."
 - `delta [--base <ref>] [--staged] [--depth <n>] [--json]` — map the git diff onto the index: changed files → enclosing symbols → blast radius → a **risk-scored review panel** with explained reasons (exported API, hub centrality, blast size, test gap, surprising coupling, dangling imports). Needs a fresh index (fails closed on drift). See [references/review.md](references/review.md).
 - `status` — the enrichment **work-queue**, in the exact order to enrich.
-- `dossier <slug>` — a module's grounding packet (real source + neighbours; a docs/config-only module, e.g. `root`, shows no code — enrich it by citing its README/config instead).
-- `ask "<question>"` — assemble grounded evidence to answer from.
-- `check [--answer <file>] [--semantic]` — staleness + integrity + **grounding** (citations must resolve). Non-zero exit ⇒ stale, broken, or ungrounded. `--semantic` also folds the verify gate (fails a claim whose cited excerpt refutes it, or that is fully adjudicated with no support); it re-reduces the verdict from the raw `verdicts[]` and re-reads every adjudicated excerpt from the live repo — a doctored summary or drifted source fails, never passes.
+- `dossier <slug> [--budget <n>]` — a module's grounding packet (real source + neighbours; a docs/config-only module, e.g. `root`, shows no code — enrich it by citing its README/config instead).
+- `ask "<question>" [--budget <n>]` — assemble grounded evidence to answer from; `--budget` caps the inlined source at ~n tokens (also on `dossier`).
+- `check [--answer <file>] [--semantic] [--quiet]` — staleness + integrity + **grounding** (citations must resolve). Non-zero exit ⇒ stale, broken, or ungrounded (`--quiet` suppresses output — exit code only). `--semantic` also folds the verify gate (fails a claim whose cited excerpt refutes it, or that is fully adjudicated with no support); it re-reduces the verdict from the raw `verdicts[]` and re-reads every adjudicated excerpt from the live repo — a doctored summary or drifted source fails, never passes.
 - `verify --answer <file> [--apply <verdicts.json>] [--max-verify <n>]` — the high-assurance gate **above** `check --answer`: emit a claim↔citation worklist for adversarial support-checking, then `--apply` reduces your verdicts to a pass/fail gate. See [references/verify.md](references/verify.md).
 - `embed [--force]` — build/refresh vectors.json for semantic `find` (needs a provider — see [references/semantic.md](references/semantic.md)).
 - `orchestrate [--phase enrich|verify-answer] [--answer <file>] [--eco] [--list]` — emit the multi-agent fan-out (workflow scripts + dispatch contracts + a sequential RUNBOOK) into `<index>/orchestration/` from the CURRENT enrichment queue / verify worklist. See **Orchestration — route by harness**.

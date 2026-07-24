@@ -85,6 +85,20 @@ describe("skill docs stay in sync with the CLI", () => {
       expect(help.includes(f), `--help omits ${f}, which the skill documents`).toBe(true);
     }
   });
+
+  // Reverse drift guard: every flag `--help` advertises must be documented
+  // somewhere in SKILL.md or references/ — an undocumented flag is invisible
+  // to the agent. `--help`/`--version` are CLI boilerplate, not workflow.
+  it("mentions every flag --help advertises (guards doc omissions)", () => {
+    const help = execFileSync(process.execPath, [join(ROOT, "scripts/ultraindex.mjs"), "--help"], { encoding: "utf8" });
+    const docText = [body, ...Object.values(refBodies)].join("\n");
+    const documented = new Set(docText.match(/--[a-z][a-z-]+/g) ?? []);
+    const boilerplate = new Set(["--help", "--version"]);
+    for (const f of new Set(help.match(/--[a-z][a-z-]+/g) ?? [])) {
+      if (boilerplate.has(f)) continue;
+      expect(documented.has(f), `--help advertises ${f}, which no skill doc mentions`).toBe(true);
+    }
+  });
 });
 
 describe("SKILL.md routes to the references (progressive disclosure)", () => {
