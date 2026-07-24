@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [5.5.0](https://github.com/maxgfr/ultraindex/compare/v5.4.0...v5.5.0) (2026-07-24)
+
+
+### Features
+
+* **cli:** expose the vendored engine MCP server as ultraindex mcp ([1d55961](https://github.com/maxgfr/ultraindex/commit/1d55961cb961f0cd3678d37643c18ae33f36c00c))
+
 # [5.4.0](https://github.com/maxgfr/ultraindex/compare/v5.3.0...v5.4.0) (2026-07-24)
 
 
