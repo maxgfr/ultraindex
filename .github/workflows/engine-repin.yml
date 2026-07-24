@@ -136,6 +136,7 @@ jobs:
       - name: On failure — push re-pin branch for adjudication
         if: failure() && steps.push.outputs.pushed != 'true' && env.LATEST_TAG != ''
         run: |
+          git rebase --abort 2>/dev/null || true
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "repin/${LATEST_TAG}"
