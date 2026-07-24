@@ -6,9 +6,9 @@ name: Engine re-pin
 #   - pushes straight to main + explicitly triggers release.yml/ci.yml
 #     (a push authenticated with GITHUB_TOKEN does NOT itself trigger other
 #     workflows — that's why steps below call `gh workflow run` explicitly), or
-#   - on any gate failure, pushes the synced-but-failing state to a
-#     repin/<tag> branch and opens a PR for manual adjudication. Goldens are
-#     NEVER regenerated here — a golden diff is a failed gate, on purpose.
+#   - on any gate failure, pushes nothing and opens no PR — the run just
+#     fails and the next daily cron retries. A red run is the signal to
+#     investigate locally.
 on:
   schedule:
     - cron: "38 6 * * *"
@@ -17,7 +17,6 @@ on:
 permissions:
   contents: write
   actions: write
-  pull-requests: write
 
 concurrency: engine-repin
 
@@ -132,40 +131,3 @@ jobs:
         run: |
           gh workflow run release.yml --ref main
           gh workflow run ci.yml --ref main
-
-      - name: On failure — push re-pin branch for adjudication
-        if: failure() && steps.push.outputs.pushed != 'true' && env.LATEST_TAG != ''
-        run: |
-          git rebase --abort 2>/dev/null || true
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "repin/${LATEST_TAG}"
-          git add -A
-          git commit \
-            -m "chore(engine): re-pin codeindex ${LATEST_TAG} [gates failed]" \
-            -m "Automated re-pin candidate; one or more gates failed. This is the adjudication material for the PR below — do not regenerate goldens without classifying the diff first." \
-            || echo "nothing to commit"
-          git push origin "HEAD:refs/heads/repin/${LATEST_TAG}" --force-with-lease
-
-      - name: On failure — open adjudication PR (skip if one is already open)
-        if: failure() && steps.push.outputs.pushed != 'true' && env.LATEST_TAG != ''
-        run: |
-          EXISTING=$(gh pr list --head "repin/${LATEST_TAG}" --state open --json number --jq '.[0].number // empty')
-          if [ -n "$EXISTING" ]; then
-            echo "PR #$EXISTING already open for repin/${LATEST_TAG}, skipping"
-            exit 0
-          fi
-          {
-            echo "One or more gates failed while re-pinning the codeindex engine from \`${PINNED_TAG}\` to \`${LATEST_TAG}\`."
-            echo
-            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            echo
-            echo "This branch carries the synced engine and rebuilt bundle even though gates failed — that is intentional, it is the adjudication material."
-            echo
-            echo "Doctrine: classify every golden/snapshot diff before ever regenerating one. A real engine regression must be filed as an issue against maxgfr/codeindex, not silently absorbed by regenerating goldens here."
-          } > pr-body.txt
-          gh pr create \
-            --title "engine re-pin ${LATEST_TAG}: gates failed — manual adjudication needed" \
-            --base main \
-            --head "repin/${LATEST_TAG}" \
-            --body-file pr-body.txt
