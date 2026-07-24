@@ -12104,7 +12104,7 @@ ${HELP}`);
 }
 
 // src/types.ts
-var VERSION = "5.6.0";
+var VERSION = "5.7.0";
 var SCHEMA_VERSION2 = 4;
 
 // src/build.ts
