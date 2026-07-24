@@ -93,7 +93,8 @@ describe("ultraindex mcp (shipped bundle)", () => {
     expect(init.error).toBeUndefined();
     expect(init.result?.protocolVersion).toBe("2024-11-05");
     const serverInfo = init.result?.serverInfo as { name?: string } | undefined;
-    // Engine v2.13.0 hardcodes its own server name; no override is exposed yet.
+    // The engine defaults its server name to "codeindex" (an override exists but
+    // the skill's `mcp` passthrough doesn't set one).
     expect(serverInfo?.name).toBe("codeindex");
 
     const list = await request(child, { jsonrpc: "2.0", id: 2, method: "tools/list" }, 8000);

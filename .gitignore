@@ -9,3 +9,7 @@ coverage/
 .ultraindex/
 **/.ultraindex/
 tests/.e2e-cache/
+# Locally-provisioned tree-sitter grammars for tests/dev (rebuilt from
+# node_modules by scripts/provision-grammars.mjs); never committed. The glob
+# also covers the atomic-rename temp dirs (.grammars-cache-tmp-*).
+.grammars-cache*

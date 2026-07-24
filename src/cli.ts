@@ -19,7 +19,7 @@ import { runDossier, runAsk } from "./explain.js";
 import { listPhases, orchestrateRun } from "./orchestrate.js";
 import { phaseSpec } from "./orchestrate-templates.js";
 import { indexExists, loadGraph, loadManifest } from "./store.js";
-import { ensureGrammars, allGrammarKeys, runMcpServer } from "./engine.js";
+import { ensureGrammars, allGrammarKeys, runMcpServer, runCli, resolveGrammarsTier } from "./engine.js";
 
 const HELP = `ultraindex v${VERSION}
 Deterministically index a whole repo (code + docs) into a navigable encyclopedia
@@ -41,6 +41,7 @@ Usage:
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
+  ultraindex grammars [status|pull]
   ultraindex mcp
 
 Commands:
@@ -78,6 +79,14 @@ Commands:
              <out>/orchestration/: one workflow script per ready phase (enrich =
              the status work-queue; verify-answer = the claim↔citation worklist),
              the dispatch contracts, and a sequential RUNBOOK fallback.
+  grammars   Manage the tree-sitter grammars that power AST-exact symbols. The
+             wasm is no longer vendored: \`grammars pull\` downloads the
+             per-release tarball into a shared per-machine cache
+             (<XDG_CACHE_HOME|~/.cache>/codeindex/grammars/<engine>/),
+             sha256-verified and idempotent; \`grammars status\` prints the
+             active tier and whether a pull is needed. \`build\` pulls
+             automatically on first use, so this is only for pre-warming (e.g.
+             before going offline) or diagnostics.
   mcp        Run the vendored engine's MCP server: newline-delimited JSON-RPC 2.0
              over stdio (initialize / tools/list / tools/call), exposing its
              repo-analysis tools (find_symbol, search, repo_map, …) to MCP
@@ -133,7 +142,7 @@ Grounding:
   citation does not resolve to a real file/line — the anti-hallucination guard.
 `;
 
-const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "mcp"]);
+const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars", "mcp"]);
 const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
 const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "eco", "list", "staged"]);
 
@@ -151,6 +160,41 @@ const REASON_HINTS: Record<string, string> = {
 function fail(message: string): never {
   process.stderr.write(`ultraindex: ${message}\n`);
   process.exit(1);
+}
+
+// Make the tree-sitter grammars available before the (synchronous) scan, then
+// load them. The wasm is not vendored anymore, so the engine resolves it in
+// this order: an adjacent grammars/ dir > $CODEINDEX_GRAMMARS_DIR > the shared
+// per-machine cache <XDG_CACHE_HOME|~/.cache>/codeindex/grammars/<engine>/ >
+// nothing. On a fresh machine the tier is "none": pull the per-release tarball
+// into the shared cache once (the engine's own atomic, sha256-verified,
+// idempotent `grammars pull`), then load — so AST precision is on by default
+// after a single download. Offline or blocked ⇒ the engine's regex extractor
+// takes over: still a full, searchable index, just less precise symbols — and
+// we say so, so the downgrade is never silent.
+async function warmGrammars(): Promise<void> {
+  if (resolveGrammarsTier().tier === "none") {
+    process.stderr.write(
+      "ultraindex: tree-sitter grammars not found locally — pulling them into the shared cache (once per machine)…\n",
+    );
+    // `grammars pull` is best-effort here: on failure the engine writes its own
+    // diagnostic and sets process.exitCode, which must NOT leak into this
+    // build's exit status (the build still succeeds on the regex extractor).
+    const priorExit = process.exitCode;
+    try {
+      await runCli(["grammars", "pull"]);
+    } catch (e) {
+      process.stderr.write(`ultraindex: grammar pull errored — ${(e as Error).message}\n`);
+    }
+    process.exitCode = priorExit;
+  }
+  await ensureGrammars(allGrammarKeys());
+  if (resolveGrammarsTier().tier === "none") {
+    process.stderr.write(
+      "ultraindex: no grammars available (offline?) — indexing with the regex extractor, so symbols are less precise. " +
+        "Run `ultraindex grammars pull` once online to enable AST precision.\n",
+    );
+  }
 }
 
 interface Parsed {
@@ -253,7 +297,9 @@ async function cmdBuild(p: Parsed): Promise<void> {
 
   // Load the tree-sitter grammars once, up front — the only async step; the scan
   // pipeline itself stays synchronous and parses against the warmed grammars.
-  await ensureGrammars(allGrammarKeys());
+  // First use on a fresh machine pulls the wasm into the shared cache; offline
+  // ⇒ regex fallback (warmGrammars announces the downgrade).
+  await warmGrammars();
 
   const { graph, manifest, capped } = runBuild(
     {
@@ -732,6 +778,12 @@ async function main(): Promise<void> {
       return cmdVerify(p);
     case "orchestrate":
       return cmdOrchestrate(p);
+    case "grammars":
+      // Thin passthrough to the vendored engine's own grammars CLI:
+      //   grammars status  — the active tier + whether a pull is needed (JSON)
+      //   grammars pull    — download the per-release wasm tarball into the
+      //                      shared cache, sha256-verified (atomic, idempotent).
+      return runCli(["grammars", ...p.positional, ...(p.values.out ? ["--out", p.values.out] : [])]);
     case "mcp":
       // The engine's server owns the whole session: it ensures grammars, then
       // serves JSON-RPC 2.0 over stdio until stdin closes. serverInfo.name is

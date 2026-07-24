@@ -15061,6 +15061,7 @@ Usage:
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
+  ultraindex grammars [status|pull]
   ultraindex mcp
 
 Commands:
@@ -15098,6 +15099,14 @@ Commands:
              <out>/orchestration/: one workflow script per ready phase (enrich =
              the status work-queue; verify-answer = the claim\u2194citation worklist),
              the dispatch contracts, and a sequential RUNBOOK fallback.
+  grammars   Manage the tree-sitter grammars that power AST-exact symbols. The
+             wasm is no longer vendored: \`grammars pull\` downloads the
+             per-release tarball into a shared per-machine cache
+             (<XDG_CACHE_HOME|~/.cache>/codeindex/grammars/<engine>/),
+             sha256-verified and idempotent; \`grammars status\` prints the
+             active tier and whether a pull is needed. \`build\` pulls
+             automatically on first use, so this is only for pre-warming (e.g.
+             before going offline) or diagnostics.
   mcp        Run the vendored engine's MCP server: newline-delimited JSON-RPC 2.0
              over stdio (initialize / tools/list / tools/call), exposing its
              repo-analysis tools (find_symbol, search, repo_map, \u2026) to MCP
@@ -15152,7 +15161,7 @@ Grounding:
   [path:start-end]. \`check\` (encyclopedia prose) and \`check --answer\` fail if a
   citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "mcp"]);
+var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars", "mcp"]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "eco", "list", "staged"]);
 var REASON_HINTS = {
@@ -15167,6 +15176,27 @@ function fail(message) {
   process.stderr.write(`ultraindex: ${message}
 `);
   process.exit(1);
+}
+async function warmGrammars() {
+  if (resolveGrammarsTier().tier === "none") {
+    process.stderr.write(
+      "ultraindex: tree-sitter grammars not found locally \u2014 pulling them into the shared cache (once per machine)\u2026\n"
+    );
+    const priorExit = process.exitCode;
+    try {
+      await runCli(["grammars", "pull"]);
+    } catch (e) {
+      process.stderr.write(`ultraindex: grammar pull errored \u2014 ${e.message}
+`);
+    }
+    process.exitCode = priorExit;
+  }
+  await ensureGrammars(allGrammarKeys());
+  if (resolveGrammarsTier().tier === "none") {
+    process.stderr.write(
+      "ultraindex: no grammars available (offline?) \u2014 indexing with the regex extractor, so symbols are less precise. Run `ultraindex grammars pull` once online to enable AST precision.\n"
+    );
+  }
 }
 function parseArgs(argv) {
   if (argv.length === 0) {
@@ -15246,7 +15276,7 @@ async function cmdBuild(p) {
   if (maxBytes !== void 0 && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
   const maxFiles = p.values["max-files"] ? Number(p.values["max-files"]) : void 0;
   if (maxFiles !== void 0 && (!Number.isInteger(maxFiles) || maxFiles <= 0)) fail("invalid --max-files");
-  await ensureGrammars(allGrammarKeys());
+  await warmGrammars();
   const { graph, manifest, capped } = runBuild(
     {
       repo,
@@ -15686,6 +15716,8 @@ async function main() {
       return cmdVerify(p);
     case "orchestrate":
       return cmdOrchestrate(p);
+    case "grammars":
+      return runCli(["grammars", ...p.positional, ...p.values.out ? ["--out", p.values.out] : []]);
     case "mcp":
       return runMcpServer();
   }

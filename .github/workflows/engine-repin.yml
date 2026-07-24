@@ -79,7 +79,7 @@ jobs:
           pnpm run build
           git add -A
 
-      - name: Build is reproducible (committed bundle + grammar wasms up to date)
+      - name: Build is reproducible (committed bundle up to date)
         if: env.UP_TO_DATE != 'true'
         run: pnpm run check:build
 
@@ -105,8 +105,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             src/vendor/engine.meta.json src/vendor/codeindex-engine.mjs src/vendor/codeindex-engine.d.mts \
-            scripts/ultraindex.mjs skills/ultraindex/scripts/ultraindex.mjs \
-            scripts/grammars skills/ultraindex/scripts/grammars
+            scripts/ultraindex.mjs skills/ultraindex/scripts/ultraindex.mjs
           TEST_SUMMARY=$(cat "$RUNNER_TEMP/test-summary.txt" 2>/dev/null || echo "test summary unavailable")
           {
             echo "feat(engine): re-pin codeindex ${LATEST_TAG}"
@@ -115,7 +114,7 @@ jobs:
             echo
             echo "pinned: ${PINNED_TAG} -> ${LATEST_TAG}"
             echo "typecheck: clean"
-            echo "check:build: bundle + grammar wasms rebuilt, diff clean against HEAD (4 tracked build paths)"
+            echo "check:build: bundle rebuilt, diff clean against HEAD (2 tracked build paths)"
             echo "${TEST_SUMMARY}"
             echo "demo: index built + checked (tests/fixtures/mini-repo)"
           } > commit-message.txt

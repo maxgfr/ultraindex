@@ -1,6 +1,6 @@
-# Committed tree-sitter grammar wasms + the bundled engine are binary/generated:
-# never line-ending-normalize them, and keep them out of textual diffs so the
+# The bundled engine is generated: keep it out of textual diffs so the
 # reproducibility gate (check:build) compares bytes, not rendered patches.
-*.wasm binary
+# (The tree-sitter grammar wasms are no longer committed — the engine pulls
+# them into a shared per-machine cache at skill-use time.)
 scripts/ultraindex.mjs -diff
 skills/ultraindex/scripts/ultraindex.mjs -diff

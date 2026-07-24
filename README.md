@@ -136,15 +136,20 @@ to commit a PR-reviewable index — deterministic, byte-stable rebuilds keep dif
 
 ## How it works
 
-A **deterministic engine** (no model, no network) does the mechanical work:
+A **deterministic engine** (no model, no keys) does the mechanical work:
 
 - **Scan** — gitignore-aware walk; per-file extraction of markdown (title /
   headings / links) and code. Symbols come from **tree-sitter** (AST-exact: real
   nesting, precise kinds, structural export) for JS/TS/TSX, Python, Go, Rust,
-  Java, C, C++, C#, Ruby, PHP — the grammar wasms ship **in the bundle** (still no
-  `npm install` at skill-use time; the install is ~17 MiB heavier). Other
-  languages fall back to the regex extractors. Barrel re-exports, top doc-comment
-  and local imports come along too.
+  Java, C, C++, C#, Ruby, PHP. The grammar wasms are **not shipped in the
+  bundle**: the first `build` on a machine pulls them (~17 MiB) into a shared
+  cache (`<XDG_CACHE_HOME|~/.cache>/codeindex/grammars/<engine>/`),
+  sha256-verified, and reuses them forever — so AST precision is on by default
+  after one download, with no `npm install` at skill-use time and a much smaller
+  installed skill. **Offline** with no cache yet ⇒ `build` says so and indexes
+  with the regex extractor (never a silent downgrade); pre-warm with
+  `ultraindex grammars pull`. Other languages use the regex extractors anyway.
+  Barrel re-exports, top doc-comment and local imports come along too.
 - **Resolve** — markdown relative links, and local imports for **JS/TS** (incl.
   `tsconfig` path aliases — even Nx-style root `tsconfig.base.json` — and
   **workspace packages** with their `exports` maps → in-repo source), **Python**,

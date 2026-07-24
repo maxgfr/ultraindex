@@ -25,9 +25,7 @@
           "skills/ultraindex/SKILL.md",
           "CHANGELOG.md",
           "scripts/ultraindex.mjs",
-          "skills/ultraindex/scripts/ultraindex.mjs",
-          "scripts/grammars/**",
-          "skills/ultraindex/scripts/grammars/**"
+          "skills/ultraindex/scripts/ultraindex.mjs"
         ],
         "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
       }

@@ -123,16 +123,25 @@ produces it.
 
 ## Scope notes
 
-- **No keys, no network, deterministic** (the optional semantic layer is the
-  one exception, and it degrades to lexical when its provider is absent). Two
-  builds of an unchanged repo are byte-identical except for `manifest.json`'s
+- **No keys, deterministic, offline after a one-time setup** — the only network
+  touches are the optional semantic layer (degrades to lexical when its provider
+  is absent) and the first-use tree-sitter grammars pull (see AST-exact symbols
+  below; degrades to the regex extractor offline, then reuses the shared cache).
+  Two builds of an unchanged repo are byte-identical except for `manifest.json`'s
   `builtAt` provenance timestamp; `vectors.json` is also excluded (its floats
   depend on the provider).
-- **AST-exact symbols** via committed tree-sitter grammars for JS/TS/TSX,
-  Python, Go, Rust, Java, C, C++, C#, Ruby, PHP — real nesting, precise kinds,
-  structural export. Other languages fall back to regex extractors (still
-  searchable). The grammar wasms ship in the bundle, so there is still no
-  `npm install` at skill-use time (the install is heavier — ~17 MiB of wasm).
+- **AST-exact symbols** via tree-sitter grammars for JS/TS/TSX, Python, Go,
+  Rust, Java, C, C++, C#, Ruby, PHP — real nesting, precise kinds, structural
+  export. Other languages fall back to regex extractors (still searchable). The
+  grammar wasms are **no longer shipped in the bundle**: the first `build` on a
+  machine pulls them (~17 MiB) into a shared cache
+  (`<XDG_CACHE_HOME|~/.cache>/codeindex/grammars/<engine>/`), sha256-verified,
+  then reuses them forever — so AST precision is on by default after a single
+  download, and the installed skill is that much smaller. **Offline with no cache
+  yet** ⇒ `build` says so and indexes with the regex extractor (never a silent
+  downgrade). Pre-warm before going offline with `node scripts/ultraindex.mjs
+  grammars pull` (inspect the active tier with `grammars status`), or point
+  `CODEINDEX_GRAMMARS_DIR` at an existing grammars dir.
 - **Import edges** for JS/TS (tsconfig `paths`, package `exports` maps),
   Python, Go (multi-module + `replace`), Rust (`mod`/`use`), Java (packages),
   C/C++ (`#include "..."`), Ruby (`require_relative`/`require`), PHP (composer

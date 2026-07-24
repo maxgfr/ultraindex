@@ -9,6 +9,16 @@ node scripts/ultraindex.mjs build --repo <path-to-repo> --json
 ```
 
 Add `--out docs/ultraindex` if the team wants it committed and reviewed in PRs.
+
+The **first** build on a machine downloads the tree-sitter grammars (~17 MiB)
+into a shared cache and reuses them forever, so AST-exact symbols are on by
+default; every later build finds them cached. If you are **offline** with no
+cache yet, `build` says so on stderr and indexes with the regex extractor
+(still a full, searchable index — just less precise symbols), never a silent
+downgrade. Pre-warm before going offline with `node scripts/ultraindex.mjs
+grammars pull`, or check what tier is active with `node scripts/ultraindex.mjs
+grammars status`.
+
 Fast even on huge repos, and **incremental** — a rebuild reuses the extraction
 of files whose content is unchanged, so only edited files are re-parsed. A
 stat fastpath makes this cheaper still: a non-doc file whose size and
