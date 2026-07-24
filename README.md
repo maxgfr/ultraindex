@@ -33,13 +33,42 @@ npx skills add maxgfr/ultraindex --global    # user-level, every project
 
 The skill installs self-contained (its `SKILL.md` + workflow references + the
 committed bundle), so it runs with `node` alone — no `npm install`, no API keys.
-Works with Claude Code and the other agents the `skills` CLI supports.
+Works with Claude Code, Codex, and the other agents the `skills` CLI supports.
 
 The skill **auto-routes** by situation: no index → it builds one; stale index →
 it rebuilds (your prose survives); a task or question → it navigates, opening
 only the files the index points at and answering with **grounded,
 citation-checked** analysis (`dossier`/`ask` hand the agent the real source;
 `check` rejects any citation that doesn't resolve).
+
+## MCP server
+
+The same bundle also runs as an **MCP server**: `ultraindex mcp` speaks
+newline-delimited JSON-RPC 2.0 over stdio (`initialize`, `tools/list`,
+`tools/call`) and exposes the engine's repo-analysis tools (`find_symbol`,
+`search`, `repo_map`, …). Each tool takes the repo path as an argument; the
+server runs until stdin closes.
+
+```bash
+# Claude Code
+claude mcp add ultraindex -- node skills/ultraindex/scripts/ultraindex.mjs mcp
+
+# Codex
+codex mcp add ultraindex -- node skills/ultraindex/scripts/ultraindex.mjs mcp
+```
+
+Codex also accepts the equivalent `~/.codex/config.toml` entry:
+
+```toml
+[mcp_servers.ultraindex]
+command = "node"
+args = ["skills/ultraindex/scripts/ultraindex.mjs", "mcp"]
+```
+
+The paths above assume a checkout of this repo; if the skill was installed with
+`npx skills add`, point at that install's copy of `scripts/ultraindex.mjs`
+instead. The server announces itself as `codeindex` — the vendored engine's own
+name.
 
 ## CLI
 
@@ -57,6 +86,7 @@ ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
 ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
 ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
 ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
+ultraindex mcp
 ```
 
 - **build** — scan + (re)write the index. Idempotent: regenerates the code view
@@ -98,6 +128,8 @@ ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--m
   claim↔citation worklist, adjudicate each (supported / partial / refuted /
   unsupported), then `--apply` reduces the verdicts to a pass/fail — so a cited
   excerpt must actually *support* its claim, not merely resolve.
+- **mcp** — run the same bundle as an MCP server over stdio (see
+  [MCP server](#mcp-server) above).
 
 Default output is `<repo>/.ultraindex` (gitignored). Use `--out docs/ultraindex`
 to commit a PR-reviewable index — deterministic, byte-stable rebuilds keep diffs small.
@@ -156,6 +188,33 @@ camelCase/snake_case identifiers (`getUserProfile` finds `src/user/profile.ts`),
 a conservative stemmer bridges plural/-ing variants, and a small code-domain
 synonym table bridges `auth`↔`authentication`↔`login` — all deterministic,
 offline, dependency-free.
+
+## Measured token savings
+
+`evals/token-savings/run.mjs` meters three representative agent tasks
+end-to-end — counting every byte of output the agent would read, tokens =
+ceil(chars/4) — against a naive baseline (ripgrep the symbol, read each matched
+file in full). On the pinned fixture `tests/fixtures/mini-repo`:
+
+| Task | ultraindex tokens | baseline tokens | ratio (baseline / ultraindex) |
+| --- | ---: | ---: | ---: |
+| where is symbol `backoff` defined | 30 | 296 | 9.87× |
+| who calls `backoff` | 74 | 296 | 4× |
+| overview of module `src` | 398 | 146 | 0.37× |
+| **total** | **502** | **738** | **1.47×** |
+
+The one-off index build costs ~60 ms and 84 output tokens on the fixture —
+reported separately because it amortizes across every subsequent task. Two
+honest caveats: the module-overview task *loses* on the fixture (the generated
+encyclopedia entry, ~1.6 KB, is richer than the module's entire raw source,
+~600 B), and per-query wall-clock is slower there (~25–50 ms vs ~5 ms — node
+startup dominates on a tiny repo). Both are fixture-size artifacts: the same
+eval run on this repository itself measured 4873×, 1364× and 47× (total 213×;
+build overhead 532 ms / 86 tokens). Ratios grow with repo size; the tiny
+fixture is the worst case.
+
+Reproduce with `node evals/token-savings/run.mjs` (defaults pin the fixture;
+`--repo <dir> --symbol <name> --module <slug> --module-path <dir>` retarget it).
 
 ## Semantic search (optional)
 
