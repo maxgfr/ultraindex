@@ -63,6 +63,7 @@ export {
   resolveBaseRef,
   resolveImport,
   rrf,
+  runMcpServer,
   scanRepo,
   sh,
   sha1,

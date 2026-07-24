@@ -14624,6 +14624,7 @@ Usage:
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
+  ultraindex mcp
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -14660,6 +14661,11 @@ Commands:
              <out>/orchestration/: one workflow script per ready phase (enrich =
              the status work-queue; verify-answer = the claim\u2194citation worklist),
              the dispatch contracts, and a sequential RUNBOOK fallback.
+  mcp        Run the vendored engine's MCP server: newline-delimited JSON-RPC 2.0
+             over stdio (initialize / tools/list / tools/call), exposing its
+             repo-analysis tools (find_symbol, search, repo_map, \u2026) to MCP
+             clients. Each tool takes the repo path as an argument; runs until
+             stdin closes. Server name is "codeindex" (the engine's).
 
 Options:
   --repo <dir>      Repo to index / check / read source from  (default: .)
@@ -14709,7 +14715,7 @@ Grounding:
   [path:start-end]. \`check\` (encyclopedia prose) and \`check --answer\` fail if a
   citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate"]);
+var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "mcp"]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "eco", "list", "staged"]);
 var REASON_HINTS = {
@@ -15243,6 +15249,8 @@ async function main() {
       return cmdVerify(p);
     case "orchestrate":
       return cmdOrchestrate(p);
+    case "mcp":
+      return runMcpServer();
   }
 }
 function isInvokedDirectly() {

@@ -19,7 +19,7 @@ import { runDossier, runAsk } from "./explain.js";
 import { listPhases, orchestrateRun } from "./orchestrate.js";
 import { phaseSpec } from "./orchestrate-templates.js";
 import { indexExists, loadGraph, loadManifest } from "./store.js";
-import { ensureGrammars, allGrammarKeys } from "./engine.js";
+import { ensureGrammars, allGrammarKeys, runMcpServer } from "./engine.js";
 
 const HELP = `ultraindex v${VERSION}
 Deterministically index a whole repo (code + docs) into a navigable encyclopedia
@@ -41,6 +41,7 @@ Usage:
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
+  ultraindex mcp
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -77,6 +78,11 @@ Commands:
              <out>/orchestration/: one workflow script per ready phase (enrich =
              the status work-queue; verify-answer = the claim↔citation worklist),
              the dispatch contracts, and a sequential RUNBOOK fallback.
+  mcp        Run the vendored engine's MCP server: newline-delimited JSON-RPC 2.0
+             over stdio (initialize / tools/list / tools/call), exposing its
+             repo-analysis tools (find_symbol, search, repo_map, …) to MCP
+             clients. Each tool takes the repo path as an argument; runs until
+             stdin closes. Server name is "codeindex" (the engine's).
 
 Options:
   --repo <dir>      Repo to index / check / read source from  (default: .)
@@ -127,7 +133,7 @@ Grounding:
   citation does not resolve to a real file/line — the anti-hallucination guard.
 `;
 
-const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate"]);
+const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "mcp"]);
 const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
 const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "eco", "list", "staged"]);
 
@@ -726,6 +732,11 @@ async function main(): Promise<void> {
       return cmdVerify(p);
     case "orchestrate":
       return cmdOrchestrate(p);
+    case "mcp":
+      // The engine's server owns the whole session: it ensures grammars, then
+      // serves JSON-RPC 2.0 over stdio until stdin closes. serverInfo.name is
+      // the engine's own ("codeindex") — v2.13.0 exposes no override.
+      return runMcpServer();
   }
 }
 
