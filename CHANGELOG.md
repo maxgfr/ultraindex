@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [6.1.1](https://github.com/maxgfr/ultraindex/compare/v6.1.0...v6.1.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* **semantic,delta:** four silent-wrong-answer bugs found by adversarial probing ([1647839](https://github.com/maxgfr/ultraindex/commit/164783905339ebfcad8311407e17f21d39b420b1))
+
 # [6.1.0](https://github.com/maxgfr/ultraindex/compare/v6.0.1...v6.1.0) (2026-07-25)
 
 
