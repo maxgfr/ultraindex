@@ -383,11 +383,17 @@ describe.skipIf(!have("git"))("runDelta — git integration", () => {
     git(repo, "add", "-A");
     git(repo, "commit", "-q", "-m", "base");
     const out = build(repo);
-    writeFileSync(join(repo, "src", "n.ts"), "export const n = 1;\n"); // untracked... but stale gate: new eligible file
+    writeFileSync(join(repo, "src", "n.ts"), "export const n = 1;\n"); // untracked, absent from the index
     const res = runDelta(out, repo, {});
-    // The untracked file was not in the build → stale gate fires (honest contract).
-    expect("error" in res).toBe(true);
-    // After a rebuild it flows through with the HEAD-fallback note.
+    // A file the manifest never saw does NOT block: the gate exists to catch an
+    // index that MISDESCRIBES a file, and it cannot misdescribe one it has no
+    // record of. Blocking here used to make `delta` unusable on any repo whose
+    // diff touches a permanently-unindexed path (a vendored bundle, anything in
+    // an ignored dir) — no rebuild could ever satisfy it.
+    if ("error" in res) throw new Error(res.error);
+    expect(res.notes.some((n) => n.includes("not in the index"))).toBe(true);
+    expect(res.unindexed).toContain("src/n.ts");
+    // After a rebuild it is indexed and attributed properly.
     const out2 = build(repo);
     const res2 = runDelta(out2, repo, {});
     if ("error" in res2) throw new Error(res2.error);

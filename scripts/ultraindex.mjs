@@ -14828,6 +14828,7 @@ function runDelta(outDir, repo, opts) {
     const exclude = compileGlobs(manifest.scan?.exclude);
     const maxBytes = manifest.scan?.maxBytes ?? 1024 * 1024;
     const stale = [];
+    const absent = [];
     for (const f of files) {
       if (f.status === "deleted") {
         if (manifest.fileHashes[f.path] !== void 0) stale.push(f.path);
@@ -14845,7 +14846,8 @@ function runDelta(outDir, repo, opts) {
         continue;
       }
       const recorded = manifest.fileHashes[f.path];
-      if (recorded === void 0 || sha1(text) !== recorded) stale.push(f.path);
+      if (recorded === void 0) absent.push(f.path);
+      else if (sha1(text) !== recorded) stale.push(f.path);
     }
     if (stale.length) {
       stale.sort(byStr);
@@ -14853,6 +14855,12 @@ function runDelta(outDir, repo, opts) {
         error: `index is stale for ${stale.length} changed file(s) (${stale.slice(0, 5).join(", ")}) \u2014 run \`ultraindex build\` first`,
         stale
       };
+    }
+    if (absent.length) {
+      absent.sort(byStr);
+      notes.push(
+        `${absent.length} changed file(s) are not in the index (${absent.slice(0, 5).join(", ")}${absent.length > 5 ? ", \u2026" : ""}) \u2014 no symbol attribution for them; if they are new, \`ultraindex build\` will pick them up`
+      );
     }
   }
   const res = computeDelta(graph, symbols, { files, hunks: diffHunks(repo, spec), base, notes }, opts.depth ?? DEFAULT_DEPTH);

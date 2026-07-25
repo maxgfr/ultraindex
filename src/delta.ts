@@ -55,9 +55,10 @@ export function withEntries(res: EngineDeltaResult): DeltaResult {
 }
 
 // Orchestrate: git plumbing → targeted staleness gate → computeDelta. Fails
-// closed when any diff-touched, index-eligible file drifted from the manifest
-// hashes — symbol line-mapping is only correct against a fresh index, and a
-// confidently wrong attribution is worse than "run build first".
+// closed when a diff-touched file the manifest KNOWS has drifted from its
+// recorded hash — symbol line-mapping is only correct against a fresh index,
+// and a confidently wrong attribution is worse than "run build first". A file
+// the manifest has never seen is reported, not refused: see the gate below.
 export function runDelta(outDir: string, repo: string, opts: { base?: string; staged?: boolean; depth?: number }): DeltaResult | DeltaError {
   if (!have("git")) return { error: "git is required for delta and was not found on PATH" };
   if (!isGitWorktree(repo)) return { error: `delta needs a git worktree — ${repo} is not inside one` };
@@ -100,6 +101,7 @@ export function runDelta(outDir: string, repo: string, opts: { base?: string; st
     const exclude = compileGlobs(manifest.scan?.exclude);
     const maxBytes = manifest.scan?.maxBytes ?? 1024 * 1024;
     const stale: string[] = [];
+    const absent: string[] = [];
     for (const f of files) {
       if (f.status === "deleted") {
         if (manifest.fileHashes[f.path] !== undefined) stale.push(f.path);
@@ -117,7 +119,16 @@ export function runDelta(outDir: string, repo: string, opts: { base?: string; st
         continue;
       }
       const recorded = manifest.fileHashes[f.path];
-      if (recorded === undefined || sha1(text) !== recorded) stale.push(f.path);
+      // ONLY a content mismatch on a file the manifest knows is staleness. A
+      // file the manifest has never heard of is not evidence that the index
+      // misdescribes anything — the indexer may simply skip it (vendored
+      // bundles, generated artifacts, anything past --max-bytes), in which case
+      // no rebuild could ever satisfy the gate and `delta` would refuse forever.
+      // Such a file has no symbols to line-map either, so it cannot produce a
+      // wrong attribution; computeDelta already reports it under `unindexed`,
+      // which is both true and actionable.
+      if (recorded === undefined) absent.push(f.path);
+      else if (sha1(text) !== recorded) stale.push(f.path);
     }
     if (stale.length) {
       stale.sort(byStr);
@@ -127,6 +138,13 @@ export function runDelta(outDir: string, repo: string, opts: { base?: string; st
           "run `ultraindex build` first",
         stale,
       };
+    }
+    if (absent.length) {
+      absent.sort(byStr);
+      notes.push(
+        `${absent.length} changed file(s) are not in the index (${absent.slice(0, 5).join(", ")}${absent.length > 5 ? ", …" : ""}) — ` +
+          "no symbol attribution for them; if they are new, `ultraindex build` will pick them up",
+      );
     }
   }
 
