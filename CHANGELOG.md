@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [6.1.0](https://github.com/maxgfr/ultraindex/compare/v6.0.1...v6.1.0) (2026-07-25)
+
+
+### Bug Fixes
+
+* **engine:** drop the duplicate hubThreshold, correct the barrel's own rules ([3be4d6b](https://github.com/maxgfr/ultraindex/commit/3be4d6bf59a604943eca7617ead2d933d083e761))
+* **orchestrate:** the fan-out is partly revision work — say so in the contract ([2078736](https://github.com/maxgfr/ultraindex/commit/2078736eae6e425f90f66db2129bd9e842ac1214))
+* **prose:** close two ways a stale entry could quietly report fresh ([4356db7](https://github.com/maxgfr/ultraindex/commit/4356db7bff346cd33f95827d9e93d4a66eeef50e))
+
+
+### Features
+
+* **engine:** re-pin codeindex v2.19.0 → v2.19.1 ([eb4d913](https://github.com/maxgfr/ultraindex/commit/eb4d913a323a3608af9893f0715887bc8f387e57))
+
 ## [6.0.1](https://github.com/maxgfr/ultraindex/compare/v6.0.0...v6.0.1) (2026-07-25)
 
 
