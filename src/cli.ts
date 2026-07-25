@@ -5,7 +5,7 @@ import { realpathSync } from "node:fs";
 import { VERSION } from "./types.js";
 import { runBuild } from "./build.js";
 import { runFindHybrid } from "./find.js";
-import { loadSemanticConfig } from "./semantic.js";
+import { resolveEmbedTier, sharedEmbedCacheDir } from "./semantic.js";
 import { runEmbed } from "./vectors.js";
 import { runNeighbors } from "./neighbors.js";
 import { runSymbols } from "./symbols.js";
@@ -19,7 +19,7 @@ import { runDossier, runAsk } from "./explain.js";
 import { listPhases, orchestrateRun } from "./orchestrate.js";
 import { phaseSpec } from "./orchestrate-templates.js";
 import { indexExists, loadGraph, loadManifest } from "./store.js";
-import { ensureGrammars, allGrammarKeys, runMcpServer, runCli, resolveGrammarsTier } from "./engine.js";
+import { ensureGrammars, allGrammarKeys, runCli, resolveGrammarsTier } from "./engine.js";
 
 const HELP = `ultraindex v${VERSION}
 Deterministically index a whole repo (code + docs) into a navigable encyclopedia
@@ -38,11 +38,10 @@ Usage:
   ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
   ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
-  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
+  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic] [--prose]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
   ultraindex grammars [status|pull]
-  ultraindex mcp
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -50,9 +49,9 @@ Commands:
              preserves your enriched prose.
   find       Rank modules for a task and print the exact files to open. Hybrid
              (lexical + semantic) when vectors.json exists; pure lexical otherwise.
-  embed      Build/refresh vectors.json: embed each module through the configured
-             provider (see Semantic below). Incremental — unchanged modules keep
-             their vectors.
+  embed      Build/refresh vectors.json: embed each module through the engine's
+             keyless embedding tier, pulling the model on first use (see Semantic
+             below). Incremental — unchanged modules keep their vectors.
   neighbors  Show graph neighbours of a file or module (what links to/from it).
   symbols    Find where a symbol is defined (file:line, kind, owning module) and
              which files reference it — from symbols.json, no repo re-scan.
@@ -87,11 +86,6 @@ Commands:
              active tier and whether a pull is needed. \`build\` pulls
              automatically on first use, so this is only for pre-warming (e.g.
              before going offline) or diagnostics.
-  mcp        Run the vendored engine's MCP server: newline-delimited JSON-RPC 2.0
-             over stdio (initialize / tools/list / tools/call), exposing its
-             repo-analysis tools (find_symbol, search, repo_map, …) to MCP
-             clients. Each tool takes the repo path as an argument; runs until
-             stdin closes. Server name is "codeindex" (the engine's).
 
 Options:
   --repo <dir>      Repo to index / check / read source from  (default: .)
@@ -123,18 +117,19 @@ Options:
   --list            orchestrate: print the phases + readiness as JSON, emit nothing
   --force           embed: re-embed every module even if unchanged
   --json            Machine-readable output
+  --prose           check: also FAIL when an entry's prose was written against
+                    source that has since changed (reported either way)
   --quiet           check: print nothing, use the exit code only
   -h, --help        Show this help
   -v, --version     Show version
 
-Semantic (optional):
-  \`find\` stays deterministic and offline by default. To add semantic ranking,
-  point ultraindex at any OpenAI-compatible /v1/embeddings endpoint — e.g. the
-  local container in docker-compose.yml (\`docker compose up -d\`) — via env
-  (ULTRAINDEX_EMBED_BASE_URL, ULTRAINDEX_EMBED_MODEL, ULTRAINDEX_EMBED_API_KEY)
-  or <out>/semantic.json, then run \`ultraindex embed\`. If the provider is down,
-  \`find\` degrades to pure lexical with a warning. Delete vectors.json to turn
-  the semantic layer off entirely.
+Semantic (optional, keyless):
+  \`find\` is lexical by default. \`ultraindex embed\` adds semantic ranking on top,
+  using the vendored engine's embedding tiers — no API key, no provider to run.
+  The first \`embed\` pulls the official model asset (sha256-verified) into the
+  shared codeindex cache; after that it is offline and byte-deterministic. Set
+  CODEINDEX_EMBED_ENDPOINT to prefer a local embedding server instead. With
+  neither, \`find\` simply stays lexical. Delete vectors.json to turn it off.
 
 Grounding:
   Analysis is verified, not trusted. Cite claims with [path], [path:line] or
@@ -142,9 +137,9 @@ Grounding:
   citation does not resolve to a real file/line — the anti-hallucination guard.
 `;
 
-const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars", "mcp"]);
+const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars"]);
 const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
-const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "eco", "list", "staged"]);
+const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "prose", "eco", "list", "staged"]);
 
 // What each dangling reason means and what to do about it — emitted in
 // `build --json` so the report is self-diagnosing.
@@ -384,7 +379,7 @@ async function cmdFind(p: Parsed): Promise<void> {
   const k = p.values.k ? Number(p.values.k) : 8;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
 
-  const found = await runFindHybrid(out, query, k);
+  const found = await runFindHybrid(out, query, k, base);
   if (found === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
   if (found.warning) process.stderr.write(`ultraindex: warning: ${found.warning}\n`);
   const results = found.results;
@@ -411,15 +406,35 @@ async function cmdFind(p: Parsed): Promise<void> {
 async function cmdEmbed(p: Parsed): Promise<void> {
   const base = resolve(p.values.repo ?? ".");
   const out = resolveOut(p, base);
-  const cfg = loadSemanticConfig(out);
-  if (!cfg) {
+  // No model on disk and no endpoint configured: fetch the engine's official
+  // model asset once (sha256-verified, keyless) rather than making the user go
+  // find a provider. Pulled into the SHARED per-machine cache, never into the
+  // user's repo — CODEINDEX_EMBED_DIR is the only knob that outranks the
+  // engine's in-repo defaults. A pull that fails leaves the layer simply off.
+  let tier = resolveEmbedTier(base);
+  if (!tier) {
+    const cache = sharedEmbedCacheDir();
+    process.stderr.write(`ultraindex: no embedding model found — pulling the keyless model once into ${cache}…\n`);
+    const prior = process.env.CODEINDEX_EMBED_DIR;
+    process.env.CODEINDEX_EMBED_DIR = cache;
+    try {
+      await runCli(["embed", "pull", "--repo", base]);
+    } catch {
+      /* the resolve below reports it properly */
+    } finally {
+      if (prior === undefined) delete process.env.CODEINDEX_EMBED_DIR;
+      else process.env.CODEINDEX_EMBED_DIR = prior;
+    }
+    tier = resolveEmbedTier(base);
+  }
+  if (!tier) {
     fail(
-      `no semantic config — set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join(out, "semantic.json")} ` +
-        `({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). ` +
-        `To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`,
+      "no embedding tier available — `codeindex embed pull` fetches the keyless model, " +
+        "or set CODEINDEX_EMBED_ENDPOINT to a local embedding server. " +
+        "`find` works without either; it just stays lexical.",
     );
   }
-  const report = await runEmbed(out, cfg, p.bools.has("force"));
+  const report = await runEmbed(out, tier, p.bools.has("force"));
   if (report === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");
@@ -427,7 +442,7 @@ async function cmdEmbed(p: Parsed): Promise<void> {
   }
   const lines = [
     `ultraindex: embedded ${report.embedded}/${report.total} module(s) (${report.reused} reused, ${report.removed} pruned)`,
-    `  model:    ${report.model} (dim ${report.dim})`,
+    `  tier:     ${tier.label}`,
     `  next:     \`ultraindex find "<query>"\` now ranks hybrid (lexical + semantic)`,
   ];
   process.stderr.write(lines.join("\n") + "\n");
@@ -576,12 +591,14 @@ function cmdStatus(p: Parsed): void {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     return;
   }
-  const lines = [`ultraindex: ${res.enriched}/${res.total} modules enriched`];
+  const header = `ultraindex: ${res.enriched}/${res.total} modules enriched`;
+  const lines = [res.proseStale ? `${header} · ${res.proseStale} with STALE prose` : header];
   if (res.suggestedNext.length) lines.push(`  next:     ${res.suggestedNext.join(", ")}`);
   lines.push("");
   for (const m of res.modules.slice(0, 15)) {
-    const state = m.enriched ? "✓" : "·";
-    lines.push(`  ${state} ${m.slug}  (${m.path}, tier ${m.tier}, degree ${m.degree}) — ${m.regions.enriched}/${m.regions.total} regions`);
+    const state = m.prose === "stale" ? "!" : m.enriched ? "✓" : "·";
+    const drift = m.prose === "stale" ? ", source changed since written" : "";
+    lines.push(`  ${state} ${m.slug}  (${m.path}, tier ${m.tier}, degree ${m.degree}) — ${m.regions.enriched}/${m.regions.total} regions${drift}`);
   }
   if (res.modules.length > 15) lines.push(`  …and ${res.modules.length - 15} more (use --json for all)`);
   lines.push("", `  enrich:   \`ultraindex dossier <slug>\` then fill the ui:human regions, then \`ultraindex check\``);
@@ -644,7 +661,7 @@ function cmdCheck(p: Parsed): void {
     return;
   }
 
-  const res = runCheck(out, repo);
+  const res = runCheck(out, repo, { prose: p.bools.has("prose") });
 
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
@@ -653,14 +670,29 @@ function cmdCheck(p: Parsed): void {
   }
   if (!p.bools.has("quiet")) {
     const lines: string[] = [];
-    const status = res.errors.length ? "BROKEN" : res.stale ? "STALE" : "FRESH";
+    const proseBlocks = p.bools.has("prose") && res.proseStale.length > 0;
+    const status = res.errors.length || proseBlocks ? "BROKEN" : res.stale ? "STALE" : "FRESH";
     lines.push(`ultraindex: index is ${status} (${out})`);
     if (res.changed.length) lines.push(`  changed:  ${res.changed.length} — ${res.changed.slice(0, 8).join(", ")}${res.changed.length > 8 ? " …" : ""}`);
     if (res.added.length) lines.push(`  added:    ${res.added.length} — ${res.added.slice(0, 8).join(", ")}${res.added.length > 8 ? " …" : ""}`);
     if (res.removed.length) lines.push(`  removed:  ${res.removed.length} — ${res.removed.slice(0, 8).join(", ")}${res.removed.length > 8 ? " …" : ""}`);
     for (const e of res.errors) lines.push(`  error:    ${e}`);
+    // Reported on its own line, never folded into changed/added/removed and
+    // never under a bare "stale": a stale INDEX is fixed by rebuilding, stale
+    // PROSE by re-enriching. Different failure, different remedy.
+    if (res.proseStale.length) {
+      const label = proseBlocks ? "error" : "prose";
+      lines.push(
+        `  ${label}:    ${res.proseStale.length} module(s) written against source that has since changed`,
+      );
+      for (const slug of res.proseStale.slice(0, 8)) lines.push(`              ${slug}`);
+      if (res.proseStale.length > 8) lines.push(`              …and ${res.proseStale.length - 8} more`);
+    }
     for (const w of res.warnings) lines.push(`  warning:  ${w}`);
     if (res.stale) lines.push(`  fix:      re-run \`ultraindex build\` to refresh`);
+    if (res.proseStale.length) {
+      lines.push(`  re-enrich: \`ultraindex dossier <slug>\`, revise the prose, then \`check\``);
+    }
     process.stdout.write(lines.join("\n") + "\n");
   }
   if (!res.ok) process.exit(1);
@@ -784,11 +816,6 @@ async function main(): Promise<void> {
       //   grammars pull    — download the per-release wasm tarball into the
       //                      shared cache, sha256-verified (atomic, idempotent).
       return runCli(["grammars", ...p.positional, ...(p.values.out ? ["--out", p.values.out] : [])]);
-    case "mcp":
-      // The engine's server owns the whole session: it ensures grammars, then
-      // serves JSON-RPC 2.0 over stdio until stdin closes. serverInfo.name is
-      // the engine's own ("codeindex") — v2.13.0 exposes no override.
-      return runMcpServer();
   }
 }
 

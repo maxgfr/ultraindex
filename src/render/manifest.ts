@@ -1,8 +1,9 @@
 import { SCHEMA_VERSION, VERSION } from "../types.js";
-import type { Graph, Manifest } from "../types.js";
+import type { Graph, Manifest, ProseState } from "../types.js";
 import type { RepoScan } from "../engine.js";
 import { byStr } from "../engine.js";
 import type { SyncResult } from "../entries.js";
+import { proseSourceHash } from "../prose.js";
 
 function sortedRecord<T>(obj: Record<string, T>): Record<string, T> {
   const out: Record<string, T> = {};
@@ -22,14 +23,42 @@ export function buildManifest(
   builtAt: string,
   extraNotes: string[] = [],
   filters: { include?: string[]; exclude?: string[]; maxBytes?: number; maxFiles?: number; gitignore?: boolean } = {},
+  prev?: Manifest,
 ): Manifest {
   const fileHashes: Record<string, string> = {};
   for (const f of scan.files) fileHashes[f.rel] = f.hash;
 
-  const modules: Record<string, { members: string[]; humanKeys: string[] }> = {};
+  const modules: Record<string, { members: string[]; humanKeys: string[]; prose?: ProseState }> = {};
   for (const m of graph.modules) {
-    modules[m.slug] = { members: m.members, humanKeys: (sync.humanKeys[m.slug] ?? []).slice().sort(byStr) };
+    const entry: { members: string[]; humanKeys: string[]; prose?: ProseState } = {
+      members: m.members,
+      humanKeys: (sync.humanKeys[m.slug] ?? []).slice().sort(byStr),
+    };
+    const digest = sync.proseDigests[m.slug];
+    if (digest) {
+      // Rename-aware lookup: prose that migrated from a predecessor inherits
+      // that predecessor's source pointer, so a rename cannot launder staleness.
+      const from = sync.migrations[m.slug];
+      const prevMod = prev?.modules[m.slug] ?? (from ? prev?.modules[from] : undefined);
+      // The digest is unchanged ⇒ nobody touched the prose ⇒ keep pointing at
+      // the source it was actually written against, even though the source may
+      // have moved underneath it. A moved digest means it was edited since the
+      // last build, so it was written against the source as of now.
+      const carried = prevMod?.prose?.digest === digest ? prevMod.prose.source : undefined;
+      entry.prose = { digest, source: carried ?? proseSourceHash(m.members, fileHashes) };
+    }
+    modules[m.slug] = entry;
   }
+
+  // NOTE on prose baselining. Prose already on disk when this feature shipped
+  // gets its source state stamped from the CURRENT state, asserting it was
+  // written against source it may never have seen. We deliberately do NOT emit a
+  // note for that: from inside a build, "prose that predates tracking" and
+  // "prose the user just wrote between two builds" are indistinguishable — both
+  // are enriched-on-disk with no manifest record — so any note would fire on
+  // ordinary first enrichment and train people to ignore it. The honest signal
+  // lives in `check` instead, which reports an enriched entry with no recorded
+  // source state as `proseUnknown` rather than as fresh.
 
   // Navigation communities: community-id string → sorted member slugs. Recorded so
   // the next build can remap ids and keep them stable across a small edit. Only

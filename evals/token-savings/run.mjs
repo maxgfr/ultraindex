@@ -1,35 +1,45 @@
 #!/usr/bin/env node
-// Token/time-savings eval: ultraindex (shipped bundle) vs a naive search+read
-// baseline, on a deterministic pinned target (default: tests/fixtures/mini-repo).
+// Token/time-savings eval: ultraindex (shipped bundle) vs a naive read-the-
+// source baseline, on a deterministic pinned target (default:
+// tests/fixtures/mini-repo).
 //
-// For three representative agent tasks —
-//   1. "where is symbol X defined"
-//   2. "who calls X"
-//   3. "overview of module Y"
-// — both strategies are executed end-to-end and metered by the tokens of EVERY
-// byte the agent would read (all command stdout+stderr, plus full file contents
-// for the baseline), with tokens = ceil(chars / 4). Wall-clock ms is recorded
-// per strategy; the one-off index build is timed and reported SEPARATELY (it
-// amortizes across every subsequent task, so it is never hidden inside a task).
+// WHAT THIS DOES *NOT* MEASURE ANY MORE. Until v5.8.0 this eval compared
+// `symbols` / `impact` / `map --module` against ripgrep. Those are retrieval,
+// and retrieval is the vendored codeindex engine's job — the eval was proving
+// the ENGINE's worth under ultraindex's name. codeindex benchmarks that itself.
 //
-// Strategy (a) ultraindex: build once, then symbols / impact / map --module via
-//   node skills/ultraindex/scripts/ultraindex.mjs — the exact bundle agents run.
-// Strategy (b) baseline: ripgrep the symbol, then read each matched file IN
-//   FULL (for the overview task: list the module's files, read each in full) —
-//   the way an agent without an index works.
+// What is measured here is what ultraindex alone provides: the cost of reaching
+// an EXPLAINED, GROUNDED answer.
+//
+//   1. "what does module Y do, and why" — one enriched encyclopedia entry vs
+//      reading every file in the module. The source states what the code does;
+//      only the entry states why it exists, so the baseline is doing strictly
+//      less work for strictly more tokens. Enrichment is a one-off, reported
+//      separately and never hidden inside a task — exactly like the build.
+//   2. "answer a question from real source" — `ask` assembles a budget-capped
+//      evidence packet vs searching and reading every matched file in full.
+//   3. "is that answer actually founded?" — reported as a CAPABILITY, not a
+//      ratio. `check --answer` exits non-zero on a citation that does not
+//      resolve; the baseline has no equivalent, so the honest cell is n/a
+//      rather than a fabricated speedup.
+//
+// Both strategies are metered by the tokens of EVERY byte the agent would read
+// (all command stdout+stderr, plus full file contents for the baseline), with
+// tokens = ceil(chars / 4). Wall-clock ms is recorded per strategy.
 //
 // Plain Node, zero dependencies. Whatever the ratios come out to be, they are
 // printed as measured — no fabrication.
 //
 // Usage:
-//   node evals/token-savings/run.mjs [--repo <dir>] [--symbol <name>]
-//                                    [--module <slug>] [--module-path <dir>]
+//   node evals/token-savings/run.mjs [--repo <dir>] [--module <slug>]
+//                                    [--module-path <dir>] [--question "<q>"]
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { performance } from "node:perf_hooks";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -45,9 +55,9 @@ function flag(name, dflt) {
   return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : dflt;
 }
 const target = resolve(REPO_ROOT, flag("--repo", "tests/fixtures/mini-repo"));
-const symbol = flag("--symbol", "backoff");
 const moduleSlug = flag("--module", "src");
 const modulePath = flag("--module-path", "src");
+const question = flag("--question", "how does retry backoff work");
 
 statSync(target); // fail fast on a bad --repo
 
@@ -82,14 +92,13 @@ function must(res, what) {
 const hasRg = spawnSync("rg", ["--version"], { encoding: "utf8" }).status === 0;
 const searchTool = hasRg ? "rg" : "grep";
 
-/** Search the symbol across the target repo; returns output + matched files. */
-function baselineSearch(sym) {
-  // Explicit "." path: under spawnSync stdin is a pipe, and rg without a path
-  // argument would search (empty) stdin instead of the tree.
+/** Search the query terms across the target repo; returns output + matched files. */
+function baselineSearch(query) {
+  const pattern = query.split(/\s+/).filter(Boolean).join("|");
   const res = hasRg
-    ? run("rg", ["-n", "--no-heading", sym, "."], { cwd: target })
-    : run("grep", ["-rnI", "--exclude-dir=.git", "--exclude-dir=node_modules", "--exclude-dir=.ultraindex", sym, "."], { cwd: target });
-  if (res.status > 1) must(res, `${searchTool} ${sym}`); // 1 = no matches, valid
+    ? run("rg", ["-n", "--no-heading", "-i", pattern, "."], { cwd: target })
+    : run("grep", ["-rnIE", "-i", "--exclude-dir=.git", "--exclude-dir=node_modules", "--exclude-dir=.ultraindex", pattern, "."], { cwd: target });
+  if (res.status > 1) must(res, `${searchTool} ${pattern}`); // 1 = no matches, valid
   const files = [...new Set(
     res.out.split("\n")
       .map((l) => /^(.+?):\d+:/.exec(l)?.[1])
@@ -118,7 +127,8 @@ function readAll(files) {
 }
 
 // ---------------------------------------------------------------------------
-// One-off index build (amortized: reported separately, never inside a task).
+// One-off setup: build, then enrich ONE entry. Both are amortized across every
+// later question, so both are reported separately and never inside a task.
 // ---------------------------------------------------------------------------
 const outDir = mkdtempSync(join(tmpdir(), "ui-eval-"));
 const idx = join(outDir, ".ultraindex");
@@ -129,8 +139,32 @@ const build = must(
 );
 const indexBuild = { ms: build.ms, tokens: tokens(build.out) };
 
+// The enrichment an agent would write, standing in for a real dossier→prose
+// pass so the eval stays hermetic and deterministic. It cites a real line, so
+// `check` genuinely validates it rather than waving it through.
+const entryPath = join(idx, "encyclopedia", `${moduleSlug}.md`);
+const firstMember = baselineList(modulePath).files[0];
+if (!firstMember) {
+  process.stderr.write(`eval: module path "${modulePath}" has no files\n`);
+  process.exit(1);
+}
+const PROSE = `Owns the ${moduleSlug} behaviour this repo exists to provide, and is the module a change here starts from [${firstMember}:1].`;
+{
+  const before = readFileSync(entryPath, "utf8");
+  const after = before.replace(
+    /(<!-- ui:human key=business -->\n)[\s\S]*?(\n<!-- \/ui:human key=business -->)/,
+    `$1${PROSE}$2`,
+  );
+  if (after === before) {
+    process.stderr.write(`eval: no ui:human business region in ${entryPath}\n`);
+    process.exit(1);
+  }
+  writeFileSync(entryPath, after);
+}
+const enrichCost = { tokens: tokens(PROSE), note: "one hand-written entry; a real pass costs a dossier read plus the prose" };
+
 // ---------------------------------------------------------------------------
-// The three tasks
+// Tasks
 // ---------------------------------------------------------------------------
 const tasks = [];
 
@@ -141,77 +175,75 @@ function record(id, question, ultra, base) {
     ultraindex: ultra,
     baseline: base,
     // >1 means ultraindex is cheaper than the baseline for this task.
-    ratio: ultra.tokens > 0 ? Math.round((base.tokens / ultra.tokens) * 100) / 100 : null,
+    ratio: base.tokens !== null && ultra.tokens > 0 ? Math.round((base.tokens / ultra.tokens) * 100) / 100 : null,
   });
 }
 
-// Task 1 — "where is symbol X defined"
-{
-  const s = must(ui(["symbols", symbol]), `symbols ${symbol}`);
-  const { res, files } = baselineSearch(symbol);
-  const reads = readAll(files);
-  record(
-    "symbol-definition",
-    `where is symbol "${symbol}" defined`,
-    { commands: [`symbols "${symbol}"`], tokens: tokens(s.out), ms: s.ms },
-    {
-      commands: [`${searchTool} -n "${symbol}"`, `read ${files.length} matched file(s) in full`],
-      tokens: tokens(res.out) + reads.tokens,
-      ms: round1(res.ms + reads.ms),
-      filesRead: files.length,
-    },
-  );
-}
-
-// Task 2 — "who calls X": symbols to locate the definition, then impact on it.
-{
-  const s = must(ui(["symbols", symbol]), `symbols ${symbol}`);
-  // Parse the definition file from the symbols output, as the agent would
-  // (first non-reexport def; fall back to the first def).
-  const defs = [...s.out.matchAll(/^\s+def\s+(\S+):\d+\s+\((\w+)/gm)]
-    .map((m) => ({ file: m[1], kind: m[2] }));
-  const def = defs.find((d) => d.kind !== "reexport") ?? defs[0];
-  if (!def) {
-    process.stderr.write(`eval: no definition of "${symbol}" in symbols output\n${s.out}\n`);
-    process.exit(1);
-  }
-  const imp = must(ui(["impact", def.file]), `impact ${def.file}`);
-  const { res, files } = baselineSearch(symbol);
-  const reads = readAll(files);
-  record(
-    "callers",
-    `who calls "${symbol}"`,
-    {
-      commands: [`symbols "${symbol}"`, `impact ${def.file}`],
-      tokens: tokens(s.out) + tokens(imp.out),
-      ms: round1(s.ms + imp.ms),
-    },
-    {
-      commands: [`${searchTool} -n "${symbol}"`, `read ${files.length} matched file(s) in full`],
-      tokens: tokens(res.out) + reads.tokens,
-      ms: round1(res.ms + reads.ms),
-      filesRead: files.length,
-    },
-  );
-}
-
-// Task 3 — "overview of module Y"
+// Task 1 — "what does module Y do, and why".
 {
   const m = must(ui(["map", "--module", moduleSlug]), `map --module ${moduleSlug}`);
   const { res, files } = baselineList(modulePath);
   const reads = readAll(files);
   record(
-    "module-overview",
-    `overview of module "${moduleSlug}"`,
+    "module-purpose",
+    `what does module "${moduleSlug}" do, and why does it exist`,
     { commands: [`map --module ${moduleSlug}`], tokens: tokens(m.out), ms: m.ms },
     {
       commands: [`${searchTool} --files ${modulePath}`, `read all ${files.length} file(s) in full`],
       tokens: tokens(res.out) + reads.tokens,
       ms: round1(res.ms + reads.ms),
       filesRead: files.length,
+      // Stated, not hidden: after all those tokens the baseline still has only
+      // what the code DOES. "Why it exists" is not written down anywhere in it.
+      answersWhy: false,
     },
   );
 }
+
+// Task 2 — "answer a question from real source".
+{
+  const a = must(ui(["ask", question, "--repo", target]), `ask ${question}`);
+  const { res, files } = baselineSearch(question);
+  const reads = readAll(files);
+  record(
+    "grounded-evidence",
+    question,
+    { commands: [`ask "${question}"`], tokens: tokens(a.out), ms: a.ms },
+    {
+      commands: [`${searchTool} -n -i "<terms>"`, `read ${files.length} matched file(s) in full`],
+      tokens: tokens(res.out) + reads.tokens,
+      ms: round1(res.ms + reads.ms),
+      filesRead: files.length,
+    },
+  );
+}
+
+// Task 3 — the grounding gate. Reported as a capability, NOT as a token ratio:
+// the baseline cannot do this at all, and inventing a speedup for it would be
+// exactly the kind of unearned claim this project exists to prevent.
+const grounding = (() => {
+  const answerPath = join(outDir, "ANSWER.md");
+  const good = `The module is described in its entry [${firstMember}:1].\n`;
+  const bad = `The module is described in its entry [${firstMember}:99999].\n`;
+
+  writeFileSync(answerPath, good);
+  const okRes = ui(["check", "--answer", answerPath, "--repo", target]);
+  writeFileSync(answerPath, bad);
+  const badRes = ui(["check", "--answer", answerPath, "--repo", target]);
+
+  return {
+    id: "grounding-gate",
+    question: "is that answer actually founded in the source it cites",
+    ultraindex: {
+      commands: ["check --answer ANSWER.md"],
+      resolvableCitationExit: okRes.status,
+      unresolvableCitationExit: badRes.status,
+      catchesUnfoundedCitation: okRes.status === 0 && badRes.status !== 0,
+      ms: round1(okRes.ms + badRes.ms),
+    },
+    baseline: { commands: [], note: "no equivalent — a search tool has nothing to check a claim against" },
+  };
+})();
 
 rmSync(outDir, { recursive: true, force: true });
 
@@ -228,11 +260,14 @@ const report = {
   target: relative(REPO_ROOT, target) || ".",
   bundle: relative(REPO_ROOT, BUNDLE),
   searchTool,
-  symbol,
   module: moduleSlug,
+  question,
   tokenizer: "ceil(chars/4)",
+  measures: "cost of an EXPLAINED, GROUNDED answer — retrieval is the codeindex engine's job and is benchmarked there",
   indexBuild,
+  enrichCost,
   tasks,
+  grounding,
   totals,
 };
 
@@ -252,7 +287,26 @@ process.stdout.write(
     ...rows,
     `| **total** | **${totals.ultraindex}** | **${totals.baseline}** | **${totals.ratio}x** | | |`,
     "",
-    `Index build (one-off, amortized across all subsequent tasks — reported separately, not included above): ${indexBuild.ms} ms, ${indexBuild.tokens} output tokens.`,
+    `Grounding gate: resolvable citation exits ${grounding.ultraindex.resolvableCitationExit}, ` +
+      `unresolvable exits ${grounding.ultraindex.unresolvableCitationExit} — ` +
+      `${grounding.ultraindex.catchesUnfoundedCitation ? "the unfounded answer is REJECTED" : "GATE FAILED"}. ` +
+      "No baseline equivalent, so no ratio is claimed.",
+    "",
+    `One-off, amortized across every later question (never counted inside a task): ` +
+      `index build ${indexBuild.ms} ms / ${indexBuild.tokens} output tokens; enrichment ${enrichCost.tokens} tokens.`,
+    "",
+    "Note: the module-purpose baseline reads every file and still cannot answer WHY the module exists —",
+    "that is not written in the source. The token ratio therefore understates the gap.",
+    ...(totals.ratio < 1
+      ? [
+          "",
+          `HONEST FLOOR: ratio ${totals.ratio}x — on THIS target the baseline is cheaper. That is the`,
+          "expected result on a repo small enough to read whole (the default fixture is 14 tiny files):",
+          "an index costs more than the thing it indexes. The value is a function of repo size, so this",
+          "number is reported, not hidden. Re-run with --repo <a real repo> to see the other side of the",
+          "crossover. If a repo fits in context, you do not need ultraindex — say so.",
+        ]
+      : []),
     "",
   ].join("\n"),
 );

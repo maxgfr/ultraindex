@@ -11,7 +11,6 @@ export function indexPaths(outDir: string): {
   mermaid: string;
   encyclopedia: string;
   vectors: string;
-  semantic: string;
   symbols: string;
   cache: string;
 } {
@@ -22,7 +21,6 @@ export function indexPaths(outDir: string): {
     mermaid: join(outDir, "graph.mmd"),
     encyclopedia: join(outDir, "encyclopedia"),
     vectors: join(outDir, "vectors.json"),
-    semantic: join(outDir, "semantic.json"),
     symbols: join(outDir, "symbols.json"),
     cache: join(outDir, "cache.json"),
   };

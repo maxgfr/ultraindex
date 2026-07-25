@@ -38,11 +38,16 @@ describe("SKILL.md is installable", () => {
     expect(() => parse(frontmatter)).not.toThrow();
   });
 
-  it("exposes the expected name and a non-empty description", () => {
+  it("exposes the expected name and a description within the host's length cap", () => {
     const data = parse(frontmatter) as Record<string, unknown>;
     expect(data.name).toBe("ultraindex");
     expect(typeof data.description).toBe("string");
-    expect((data.description as string).length).toBeGreaterThan(0);
+    const len = (data.description as string).length;
+    expect(len).toBeGreaterThan(0);
+    // Hosts cap the description around 1024 chars; past it the skill is
+    // truncated or SILENTLY dropped. This whole file exists to guard "the skill
+    // stays installable", and that is the one limit it never checked.
+    expect(len, `SKILL.md description is ${len} chars — over the host cap`).toBeLessThanOrEqual(1024);
   });
 
   it("describes BOTH trigger sets (build it AND navigate it)", () => {
@@ -135,8 +140,11 @@ describe("navigate.md teaches escalation", () => {
 
 describe("semantic.md teaches the optional embeddings layer", () => {
   const text = refBodies["semantic.md"]!;
-  it("covers the provider, embed, and graceful degradation", () => {
-    expect(text).toContain("docker compose");
+  it("covers the keyless tiers, embed, and graceful degradation", () => {
+    // The adoption promise: no key, no provider to stand up. If this text ever
+    // reintroduces a required provider, that is a regression, not a doc edit.
+    expect(text).toMatch(/keyless|no API key/i);
+    expect(text).toContain("CODEINDEX_EMBED_ENDPOINT");
     expect(text).toMatch(/ultraindex\.mjs embed/);
     expect(text).toMatch(/lexical/i);
     expect(text).toContain("vectors.json");

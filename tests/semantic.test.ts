@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SCHEMA_VERSION, VERSION } from "../src/types.js";
 import type { FileNode, Graph, ModuleNode, Tier } from "../src/types.js";
-import { loadSemanticConfig, embeddingsUrl, embedTexts, cosine } from "../src/semantic.js";
-import { loadVectors, runEmbed } from "../src/vectors.js";
+import { encode } from "../src/engine.js";
+import type { StaticEmbedModel } from "../src/engine.js";
+import { resolveEmbedTier, encodeQuery, embedTexts, similarity, moduleEmbedText } from "../src/semantic.js";
+import type { EmbedTier } from "../src/semantic.js";
+import { loadVectors, runEmbed, encodeVector, decodeVector } from "../src/vectors.js";
 import { runFindHybrid } from "../src/find.js";
 
 function fileNode(rel: string, module: string): FileNode {
@@ -38,93 +41,137 @@ function writeIndex(dir: string, g: Graph): void {
   writeFileSync(join(dir, "graph.json"), JSON.stringify(g));
 }
 
-// An OpenAI-shaped /v1/embeddings mock: vector chosen per input text.
-function embeddingsFetch(vecFor: (text: string) => number[]) {
-  return vi.fn(async (_url: string, init: { body: string; headers: Record<string, string> }) => {
-    const inputs = (JSON.parse(init.body) as { input: string[] }).input;
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ data: inputs.map((t, i) => ({ index: i, embedding: vecFor(t) })) }),
-      text: async () => "",
-    };
+// A hand-built StaticEmbedModel — the SAME shape `loadEmbedModel` returns, so
+// these tests exercise the engine's real keyless encoder (tokenize → mean-pool →
+// L2-normalize → int8) rather than a stand-in. dim 2 keeps the vectors readable:
+// each vocabulary word points at one axis.
+function staticModel(axes: Record<string, [number, number]>, modelId = "test-static-v1"): StaticEmbedModel {
+  const words = Object.keys(axes);
+  const dim = 2;
+  const weights = new Float64Array((words.length + 1) * dim);
+  const vocab = new Map<string, number>();
+  words.forEach((w, i) => {
+    vocab.set(w, i);
+    weights[i * dim] = axes[w]![0];
+    weights[i * dim + 1] = axes[w]![1];
+  });
+  return { modelId, dim, unk: "[UNK]", unkId: words.length, vocabSize: words.length + 1, vocab, weights };
+}
+
+function staticTier(model: StaticEmbedModel): EmbedTier {
+  return { kind: "static", model, label: `${model.modelId} (dim ${model.dim})` };
+}
+
+// The engine's endpoint protocol: POST <base>/embed {texts} -> {vectors}.
+function endpointFetch(vecFor: (text: string) => number[]) {
+  return vi.fn(async (_url: string, init: { body: string }) => {
+    const texts = (JSON.parse(init.body) as { texts: string[] }).texts;
+    return { ok: true, status: 200, json: async () => ({ vectors: texts.map(vecFor) }), text: async () => "" };
   });
 }
 
-const ENV_KEYS = ["ULTRAINDEX_EMBED_BASE_URL", "ULTRAINDEX_EMBED_MODEL", "ULTRAINDEX_EMBED_API_KEY"] as const;
-const CFG = { baseUrl: "http://localhost:8080/v1", model: "test-model" };
+const ENDPOINT = "http://localhost:8756";
 
 let dir: string;
+let cache: string;
+let priorXdg: string | undefined;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "uidx-sem-"));
-  for (const k of ENV_KEYS) delete process.env[k];
+  // Point the shared model cache at an empty temp dir. Without this the suite
+  // is not hermetic: `resolveEmbedTier` falls back to the real per-machine
+  // cache, so "no tier resolvable" becomes unreachable on any machine that has
+  // ever run `ultraindex embed`.
+  cache = mkdtempSync(join(tmpdir(), "uidx-cache-"));
+  priorXdg = process.env.XDG_CACHE_HOME;
+  process.env.XDG_CACHE_HOME = cache;
+  delete process.env.CODEINDEX_EMBED_ENDPOINT;
+  delete process.env.CODEINDEX_EMBED_DIR;
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
-  for (const k of ENV_KEYS) delete process.env[k];
+  rmSync(cache, { recursive: true, force: true });
+  if (priorXdg === undefined) delete process.env.XDG_CACHE_HOME;
+  else process.env.XDG_CACHE_HOME = priorXdg;
+  delete process.env.CODEINDEX_EMBED_ENDPOINT;
+  delete process.env.CODEINDEX_EMBED_DIR;
   vi.unstubAllGlobals();
 });
 
-describe("loadSemanticConfig", () => {
-  it("returns undefined with neither env nor file", () => {
-    expect(loadSemanticConfig(dir)).toBeUndefined();
+describe("resolveEmbedTier", () => {
+  it("is off when neither a model nor an endpoint is resolvable", () => {
+    expect(resolveEmbedTier(dir)).toBeUndefined();
   });
 
-  it("reads semantic.json and lets env override it", () => {
-    writeFileSync(join(dir, "semantic.json"), JSON.stringify({ baseUrl: "http://file:1", model: "file-model", apiKey: "fk" }));
-    expect(loadSemanticConfig(dir)).toEqual({ baseUrl: "http://file:1", model: "file-model", apiKey: "fk" });
-    process.env.ULTRAINDEX_EMBED_BASE_URL = "http://env:2";
-    expect(loadSemanticConfig(dir)?.baseUrl).toBe("http://env:2");
-    expect(loadSemanticConfig(dir)?.model).toBe("file-model");
-  });
-
-  it("requires both baseUrl and model", () => {
-    process.env.ULTRAINDEX_EMBED_BASE_URL = "http://env:2";
-    expect(loadSemanticConfig(dir)).toBeUndefined();
+  it("prefers the endpoint — setting the env var is explicit intent", () => {
+    process.env.CODEINDEX_EMBED_ENDPOINT = ENDPOINT;
+    const tier = resolveEmbedTier(dir);
+    expect(tier?.kind).toBe("endpoint");
+    expect(tier?.label).toContain(ENDPOINT);
   });
 });
 
-describe("embeddingsUrl", () => {
-  it("normalizes with/without /v1 and trailing slashes", () => {
-    expect(embeddingsUrl("http://x:8080")).toBe("http://x:8080/v1/embeddings");
-    expect(embeddingsUrl("http://x:8080/")).toBe("http://x:8080/v1/embeddings");
-    expect(embeddingsUrl("http://x:8080/v1")).toBe("http://x:8080/v1/embeddings");
-    expect(embeddingsUrl("http://x:8080/v1/")).toBe("http://x:8080/v1/embeddings");
+describe("similarity", () => {
+  const model = staticModel({ alpha: [1, 0], beta: [0, 1] });
+
+  it("is 1 for identical text and 0 for orthogonal text", () => {
+    const a = encodeVectorRoundTrip(model, "alpha");
+    const b = encodeVectorRoundTrip(model, "beta");
+    expect(similarity(a, a)).toBeCloseTo(1, 3);
+    expect(similarity(a, b)).toBeCloseTo(0, 3);
+  });
+
+  it("guards a dimension mismatch instead of throwing", () => {
+    expect(similarity(new Int8Array([127, 0]), new Int8Array([127, 0, 0]))).toBe(-1);
+    expect(similarity(new Int8Array(), new Int8Array())).toBe(-1);
+  });
+
+  function encodeVectorRoundTrip(m: StaticEmbedModel, text: string): Int8Array {
+    // Round-trips through the on-disk encoding too, so a base64 regression
+    // shows up as a similarity failure rather than silently skewing ranking.
+    return decodeVector(encodeVector(encode(m, text)));
+  }
+});
+
+describe("vector serialization", () => {
+  it("round-trips int8 exactly, including negatives", () => {
+    const v = new Int8Array([127, -128, 0, 42, -7]);
+    expect([...decodeVector(encodeVector(v))]).toEqual([...v]);
   });
 });
 
 describe("embedTexts", () => {
-  it("batches inputs (97 -> 4 calls) and keeps order", async () => {
-    const f = embeddingsFetch((t) => [Number(t)]);
+  it("runs offline on the static tier — no network at all", async () => {
+    const f = vi.fn();
     vi.stubGlobal("fetch", f);
-    const texts = Array.from({ length: 97 }, (_, i) => String(i));
-    const out = await embedTexts(CFG, texts);
-    expect(f).toHaveBeenCalledTimes(4);
-    expect(out).toHaveLength(97);
-    expect(out[96]).toEqual([96]);
+    const out = await embedTexts(staticTier(staticModel({ alpha: [1, 0], beta: [0, 1] })), ["alpha", "beta"]);
+    expect(f).not.toHaveBeenCalled();
+    expect(out).toHaveLength(2);
+    expect(similarity(out[0]!, out[1]!)).toBeCloseTo(0, 3);
   });
 
-  it("sends the Authorization header only when apiKey is set", async () => {
-    const f = embeddingsFetch(() => [1]);
+  it("quantizes endpoint floats through the same path", async () => {
+    const f = endpointFetch((t) => (t === "alpha" ? [1, 0] : [0, 1]));
     vi.stubGlobal("fetch", f);
-    await embedTexts(CFG, ["a"]);
-    expect(f.mock.calls[0]![1].headers).not.toHaveProperty("authorization");
-    await embedTexts({ ...CFG, apiKey: "sk-x" }, ["a"]);
-    expect((f.mock.calls[1]![1].headers as Record<string, string>).authorization).toBe("Bearer sk-x");
+    const tier: EmbedTier = { kind: "endpoint", url: ENDPOINT, label: `endpoint ${ENDPOINT}` };
+    const out = await embedTexts(tier, ["alpha", "beta"]);
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(out[0]).toBeInstanceOf(Int8Array);
+    expect(similarity(out[0]!, out[0]!)).toBeCloseTo(1, 3);
   });
 
-  it("throws a clear error on a non-2xx response", async () => {
+  it("propagates an endpoint failure so callers can degrade", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503, text: async () => "overloaded" })));
-    await expect(embedTexts(CFG, ["a"])).rejects.toThrow(/503.*overloaded/s);
+    const tier: EmbedTier = { kind: "endpoint", url: ENDPOINT, label: `endpoint ${ENDPOINT}` };
+    await expect(embedTexts(tier, ["a"])).rejects.toThrow(/503/);
   });
 });
 
-describe("cosine", () => {
-  it("computes similarity and guards dimension mismatch", () => {
-    expect(cosine([1, 0], [1, 0])).toBeCloseTo(1);
-    expect(cosine([1, 0], [0, 1])).toBeCloseTo(0);
-    expect(cosine([1, 0], [1, 0, 0])).toBe(-1);
-    expect(cosine([], [])).toBe(-1);
+describe("moduleEmbedText", () => {
+  it("folds the agent-written prose in — the signal the engine's file-level index cannot have", () => {
+    const m = moduleNode("alpha", "src/alpha", 1, ["src/alpha/a.ts"]);
+    const withProse = moduleEmbedText(m, [fileNode("src/alpha/a.ts", "alpha")], "handles invoicing retries");
+    expect(withProse).toContain("handles invoicing retries");
+    expect(moduleEmbedText(m, [fileNode("src/alpha/a.ts", "alpha")])).not.toContain("invoicing");
   });
 });
 
@@ -133,48 +180,46 @@ describe("runEmbed", () => {
     { slug: "alpha", path: "src/alpha", files: ["src/alpha/a.ts"] },
     { slug: "beta", path: "src/beta", files: ["src/beta/b.ts"] },
   ]);
-  const vecFor = (t: string) => (t.includes("alpha") ? [1, 0] : [0, 1]);
+  const model = staticModel({ alpha: [1, 0], beta: [0, 1], src: [0.5, 0.5], a: [1, 0], b: [0, 1], ts: [0.5, 0.5] });
+  const tier = () => staticTier(model);
 
   it("embeds all modules, then reuses everything on a no-change re-run", async () => {
     writeIndex(dir, g());
-    const f = embeddingsFetch(vecFor);
-    vi.stubGlobal("fetch", f);
-    const first = await runEmbed(dir, CFG);
+    const first = await runEmbed(dir, tier());
     expect(first).toMatchObject({ total: 2, embedded: 2, reused: 0, removed: 0, dim: 2 });
-    expect(loadVectors(dir)?.vectors.alpha?.v).toEqual([1, 0]);
+    expect(loadVectors(dir)?.modelId).toBe("test-static-v1");
+    expect(typeof loadVectors(dir)?.vectors.alpha?.v).toBe("string");
 
-    const second = await runEmbed(dir, CFG);
+    const second = await runEmbed(dir, tier());
     expect(second).toMatchObject({ embedded: 0, reused: 2 });
-    expect(f).toHaveBeenCalledTimes(1); // no network for the unchanged run
   });
 
   it("prunes slugs gone from the graph", async () => {
     writeIndex(dir, g());
-    vi.stubGlobal("fetch", embeddingsFetch(vecFor));
-    await runEmbed(dir, CFG);
+    await runEmbed(dir, tier());
     writeIndex(dir, graph([{ slug: "alpha", path: "src/alpha", files: ["src/alpha/a.ts"] }]));
-    const report = await runEmbed(dir, CFG);
+    const report = await runEmbed(dir, tier());
     expect(report).toMatchObject({ total: 1, removed: 1 });
     expect(loadVectors(dir)?.vectors).not.toHaveProperty("beta");
   });
 
   it("re-embeds everything on a model change or --force", async () => {
     writeIndex(dir, g());
-    const f = embeddingsFetch(vecFor);
-    vi.stubGlobal("fetch", f);
-    await runEmbed(dir, CFG);
-    const changed = await runEmbed(dir, { ...CFG, model: "other-model" });
+    await runEmbed(dir, tier());
+    const other = staticTier(staticModel({ alpha: [0, 1], beta: [1, 0] }, "other-model"));
+    const changed = await runEmbed(dir, other);
     expect(changed).toMatchObject({ embedded: 2, reused: 0 });
-    expect(loadVectors(dir)?.model).toBe("other-model");
-    const forced = await runEmbed(dir, { ...CFG, model: "other-model" }, true);
+    expect(loadVectors(dir)?.modelId).toBe("other-model");
+    const forced = await runEmbed(dir, other, true);
     expect(forced).toMatchObject({ embedded: 2, reused: 0 });
   });
 
-  it("rounds stored floats deterministically", async () => {
+  it("is byte-identical across runs on the static tier", async () => {
     writeIndex(dir, g());
-    vi.stubGlobal("fetch", embeddingsFetch(() => [0.123456789, 0.9999999999]));
-    await runEmbed(dir, CFG);
-    expect(loadVectors(dir)?.vectors.alpha?.v).toEqual([0.123457, 1]);
+    await runEmbed(dir, tier());
+    const a = JSON.stringify(loadVectors(dir));
+    await runEmbed(dir, tier(), true);
+    expect(JSON.stringify(loadVectors(dir))).toBe(a);
   });
 });
 
@@ -198,13 +243,12 @@ describe("runFindHybrid", () => {
 
   it("surfaces a semantic-only module with matched: [] and a semanticRank", async () => {
     writeIndex(dir, g());
-    process.env.ULTRAINDEX_EMBED_BASE_URL = CFG.baseUrl;
-    process.env.ULTRAINDEX_EMBED_MODEL = CFG.model;
+    process.env.CODEINDEX_EMBED_ENDPOINT = ENDPOINT;
     // "facturation" shares no keyword with the query but sits next to it in
     // embedding space — exactly the case lexical search can't cover.
     const vecFor = (t: string) => (t.includes("facturation") || t.includes("invoicing") ? [1, 0] : [0, 1]);
-    vi.stubGlobal("fetch", embeddingsFetch(vecFor));
-    await runEmbed(dir, CFG);
+    vi.stubGlobal("fetch", endpointFetch(vecFor));
+    await runEmbed(dir, { kind: "endpoint", url: ENDPOINT, label: `endpoint ${ENDPOINT}` });
 
     const res = await runFindHybrid(dir, "invoicing", 5);
     expect(res?.semantic).toBe(true);
@@ -216,12 +260,11 @@ describe("runFindHybrid", () => {
     expect(fact?.files).toContain("src/facturation/main.ts");
   });
 
-  it("degrades to lexical with a warning when the provider is down", async () => {
+  it("degrades to lexical with a warning when the endpoint is down", async () => {
     writeIndex(dir, g());
-    process.env.ULTRAINDEX_EMBED_BASE_URL = CFG.baseUrl;
-    process.env.ULTRAINDEX_EMBED_MODEL = CFG.model;
-    vi.stubGlobal("fetch", embeddingsFetch(() => [1, 0]));
-    await runEmbed(dir, CFG);
+    process.env.CODEINDEX_EMBED_ENDPOINT = ENDPOINT;
+    vi.stubGlobal("fetch", endpointFetch(() => [1, 0]));
+    await runEmbed(dir, { kind: "endpoint", url: ENDPOINT, label: `endpoint ${ENDPOINT}` });
     expect(existsSync(join(dir, "vectors.json"))).toBe(true);
 
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ECONNREFUSED"); }));
@@ -231,28 +274,25 @@ describe("runFindHybrid", () => {
     expect(res?.results[0]?.slug).toBe("billing");
   });
 
-  it("warns instead of fusing when vectors.json exists but config is gone", async () => {
+  it("warns instead of fusing when vectors.json exists but no tier is resolvable", async () => {
     writeIndex(dir, g());
-    process.env.ULTRAINDEX_EMBED_BASE_URL = CFG.baseUrl;
-    process.env.ULTRAINDEX_EMBED_MODEL = CFG.model;
-    vi.stubGlobal("fetch", embeddingsFetch(() => [1, 0]));
-    await runEmbed(dir, CFG);
-    delete process.env.ULTRAINDEX_EMBED_BASE_URL;
-    delete process.env.ULTRAINDEX_EMBED_MODEL;
+    process.env.CODEINDEX_EMBED_ENDPOINT = ENDPOINT;
+    vi.stubGlobal("fetch", endpointFetch(() => [1, 0]));
+    await runEmbed(dir, { kind: "endpoint", url: ENDPOINT, label: `endpoint ${ENDPOINT}` });
+    delete process.env.CODEINDEX_EMBED_ENDPOINT;
 
     const f = vi.fn();
     vi.stubGlobal("fetch", f);
     const res = await runFindHybrid(dir, "billing", 5);
     expect(f).not.toHaveBeenCalled();
-    expect(res?.warning).toMatch(/no semantic config/);
+    expect(res?.warning).toMatch(/no embedding model resolvable/);
   });
 
   it("is deterministic across runs", async () => {
     writeIndex(dir, g());
-    process.env.ULTRAINDEX_EMBED_BASE_URL = CFG.baseUrl;
-    process.env.ULTRAINDEX_EMBED_MODEL = CFG.model;
-    vi.stubGlobal("fetch", embeddingsFetch((t) => (t.includes("billing") ? [1, 0] : [0.6, 0.4])));
-    await runEmbed(dir, CFG);
+    process.env.CODEINDEX_EMBED_ENDPOINT = ENDPOINT;
+    vi.stubGlobal("fetch", endpointFetch((t) => (t.includes("billing") ? [1, 0] : [0.6, 0.4])));
+    await runEmbed(dir, { kind: "endpoint", url: ENDPOINT, label: `endpoint ${ENDPOINT}` });
     const a = await runFindHybrid(dir, "billing invoice", 5);
     const b = await runFindHybrid(dir, "billing invoice", 5);
     expect(a).toEqual(b);

@@ -7,15 +7,16 @@ import { buildHaystack, queryTerms, scoreHaystack, splitIdentifier } from "./lex
 import type { QueryTerm } from "./lex.js";
 import { exportedNamesByFile } from "./symbols.js";
 import { rrf, byStr } from "./engine.js";
-import { loadVectors } from "./vectors.js";
-import { loadSemanticConfig, embedTexts, cosine } from "./semantic.js";
+import { loadVectors, decodeVector } from "./vectors.js";
+import { resolveEmbedTier, encodeQuery, similarity } from "./semantic.js";
 
 const DEFAULT_K = 8;
 const MAX_FILES = 8;
-// Below this cosine, a "semantic match" is noise. bge/nomic-class models put
-// genuinely related text well above it; some hosted models (OpenAI v3) score
-// related pairs in the 0.2–0.4 band, so the floor stays low. Dropping the noise
-// just degrades hybrid toward lexical for that query — it never errors.
+// Below this cosine-equivalent score, a "semantic match" is noise. The engine's
+// static tier puts genuinely related text well above it; the endpoint tier
+// (MiniLM-class) scores related pairs in the 0.2–0.4 band, so the floor stays
+// low. Dropping the noise just degrades hybrid toward lexical for that query —
+// it never errors.
 const MIN_COSINE = 0.25;
 
 // Related module slugs, both directions, deduped and capped.
@@ -441,12 +442,18 @@ export interface HybridFind {
   warning?: string; // why the semantic side was skipped, when it was
 }
 
-// Hybrid find: fuse the lexical ranking with a cosine ranking over the stored
+// Hybrid find: fuse the lexical ranking with a semantic ranking over the stored
 // module vectors (Reciprocal Rank Fusion — no score-scale juggling). The
 // semantic side is strictly additive and strictly optional: without
-// vectors.json this NEVER touches the network and returns exactly the lexical
-// results; with it, any provider failure degrades to lexical with a warning.
-export async function runFindHybrid(outDir: string, query: string, k = DEFAULT_K): Promise<HybridFind | undefined> {
+// vectors.json this returns exactly the lexical results. On the engine's static
+// tier it never touches the network either; on the endpoint tier an unreachable
+// server degrades to lexical with a warning.
+export async function runFindHybrid(
+  outDir: string,
+  query: string,
+  k = DEFAULT_K,
+  repo?: string,
+): Promise<HybridFind | undefined> {
   const graph = loadGraph(outDir);
   if (!graph) return undefined;
   const prose = loadEnrichedProse(outDir, graph);
@@ -463,25 +470,28 @@ export async function runFindHybrid(outDir: string, query: string, k = DEFAULT_K
   if (!store) return { results: expand(lexical.slice(0, k)), semantic: false };
 
   const lexOnly = (warning: string): HybridFind => ({ results: expand(lexical.slice(0, k)), semantic: false, warning });
-  const cfg = loadSemanticConfig(outDir);
-  if (!cfg) {
-    return lexOnly("vectors.json present but no semantic config (env or semantic.json) — lexical-only results");
+  const tier = resolveEmbedTier(repo ?? outDir);
+  if (!tier) {
+    return lexOnly(
+      "vectors.json present but no embedding model resolvable — run `codeindex embed pull` (keyless) or set CODEINDEX_EMBED_ENDPOINT; lexical-only results",
+    );
   }
-  let queryVector: number[];
+  let queryVector: Int8Array;
   try {
-    const [v] = await embedTexts(cfg, [query]);
-    queryVector = v!;
+    queryVector = await encodeQuery(tier, query);
   } catch (e) {
-    return lexOnly(`semantic provider unavailable (${(e as Error).message}) — lexical-only results`);
+    return lexOnly(`semantic tier unavailable (${(e as Error).message}) — lexical-only results`);
   }
   if (queryVector.length !== store.dim) {
-    return lexOnly(`query embedding dim ${queryVector.length} != vectors.json dim ${store.dim} (model changed?) — re-run \`ultraindex embed\`; lexical-only results`);
+    return lexOnly(
+      `query embedding dim ${queryVector.length} != vectors.json dim ${store.dim} (model changed?) — re-run \`ultraindex embed\`; lexical-only results`,
+    );
   }
 
   const moduleBySlug = new Map(graph.modules.map((m) => [m.slug, m]));
   const semanticSlugs = Object.entries(store.vectors)
     .filter(([slug]) => moduleBySlug.has(slug)) // a stale store may carry gone modules
-    .map(([slug, rec]) => ({ slug, cos: cosine(queryVector, rec.v) }))
+    .map(([slug, rec]) => ({ slug, cos: similarity(queryVector, decodeVector(rec.v)) }))
     .filter((s) => s.cos >= MIN_COSINE) // drop noise floor before fusing
     .sort((a, b) => b.cos - a.cos || byStr(a.slug, b.slug))
     .slice(0, pool)

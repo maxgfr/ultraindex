@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve as resolve4, join as join28, dirname as dirname8 } from "path";
-import { existsSync as existsSync9 } from "fs";
+import { resolve as resolve4, join as join29, dirname as dirname9 } from "path";
+import { existsSync as existsSync10 } from "fs";
 import { pathToFileURL, fileURLToPath as fileURLToPath2 } from "url";
 import { realpathSync as realpathSync2 } from "fs";
 
@@ -12230,6 +12230,7 @@ function mergeEntry(spec, existing, migrated) {
         content: existing,
         humanKeys: [],
         migratedKeys: [],
+        regions: [],
         conflict: "unparseable region fences \u2014 kept existing entry, refused to rewrite"
       };
     }
@@ -12269,7 +12270,7 @@ function mergeEntry(spec, existing, migrated) {
     out2.push({ type: "human", key, body: appended.get(key) });
   }
   const humanKeys = out2.filter((r) => r.type === "human").map((r) => r.key);
-  return { content: serializeRegions(out2), humanKeys, migratedKeys: migratedKeysUsed, conflict: dupConflict };
+  return { content: serializeRegions(out2), humanKeys, migratedKeys: migratedKeysUsed, regions: out2, conflict: dupConflict };
 }
 
 // src/render/encyclopedia.ts
@@ -12612,18 +12613,45 @@ function renderMermaid2(graph, opts = {}) {
   };
 }
 
+// src/prose.ts
+function proseDigest(regions) {
+  const parts2 = regions.filter((r) => r.type === "human" && isEnrichedBody(r.body)).map((r) => `${r.key}\0${r.body}`).sort(byStr);
+  return parts2.length === 0 ? "" : sha1(parts2.join("\n"));
+}
+function proseSourceHash(members, hashes) {
+  const parts2 = members.slice().sort(byStr).map((rel) => `${rel}\0${hashes[rel] ?? "<deleted>"}`);
+  return sha1(parts2.join("\n"));
+}
+function proseFreshness(rec, liveDigest, members, hashes) {
+  if (liveDigest === "") return "none";
+  if (!rec) return "unknown";
+  if (rec.digest !== liveDigest) return "fresh";
+  return proseSourceHash(members, hashes) === rec.source ? "fresh" : "stale";
+}
+
 // src/render/manifest.ts
 function sortedRecord(obj) {
   const out2 = {};
   for (const k of Object.keys(obj).sort(byStr)) out2[k] = obj[k];
   return out2;
 }
-function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = [], filters = {}) {
+function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = [], filters = {}, prev) {
   const fileHashes = {};
   for (const f of scan2.files) fileHashes[f.rel] = f.hash;
   const modules = {};
   for (const m of graph.modules) {
-    modules[m.slug] = { members: m.members, humanKeys: (sync.humanKeys[m.slug] ?? []).slice().sort(byStr) };
+    const entry = {
+      members: m.members,
+      humanKeys: (sync.humanKeys[m.slug] ?? []).slice().sort(byStr)
+    };
+    const digest = sync.proseDigests[m.slug];
+    if (digest) {
+      const from = sync.migrations[m.slug];
+      const prevMod = prev?.modules[m.slug] ?? (from ? prev?.modules[from] : void 0);
+      const carried = prevMod?.prose?.digest === digest ? prevMod.prose.source : void 0;
+      entry.prose = { digest, source: carried ?? proseSourceHash(m.members, fileHashes) };
+    }
+    modules[m.slug] = entry;
   }
   const communityMembers = /* @__PURE__ */ new Map();
   for (const m of graph.modules) {
@@ -12712,6 +12740,8 @@ function syncEntries(outDir, entries, prevModules) {
   const consumed = /* @__PURE__ */ new Set();
   const notes = [];
   const humanKeys = {};
+  const proseDigests = {};
+  const migrations = {};
   const goneOld = Object.keys(prevModules).filter((s) => !currentSlugs.has(s));
   for (const e of entries.slice().sort((a, b) => byStr(a.slug, b.slug))) {
     const path = entryPath(e.slug);
@@ -12729,6 +12759,7 @@ function syncEntries(outDir, entries, prevModules) {
         if (oldText) {
           migrated = humanBodies(oldText);
           consumed.add(best.slug);
+          migrations[e.slug] = best.slug;
           notes.push(`migrated prose from "${best.slug}" \u2192 "${e.slug}" (member overlap ${best.score.toFixed(2)})`);
         }
       }
@@ -12737,6 +12768,8 @@ function syncEntries(outDir, entries, prevModules) {
     if (merged.conflict) notes.push(`${e.slug}: ${merged.conflict}`);
     writeFileIfChanged(path, merged.content);
     humanKeys[e.slug] = merged.humanKeys;
+    const digest = proseDigest(merged.regions);
+    if (digest) proseDigests[e.slug] = digest;
   }
   const orphaned = [];
   for (const old of goneOld) {
@@ -12758,7 +12791,7 @@ function syncEntries(outDir, entries, prevModules) {
     }
   }
   orphaned.sort(byStr);
-  return { orphaned, notes, humanKeys };
+  return { orphaned, notes, humanKeys, proseDigests, migrations };
 }
 
 // src/store.ts
@@ -12771,7 +12804,6 @@ function indexPaths(outDir) {
     mermaid: join18(outDir, "graph.mmd"),
     encyclopedia: join18(outDir, "encyclopedia"),
     vectors: join18(outDir, "vectors.json"),
-    semantic: join18(outDir, "semantic.json"),
     symbols: join18(outDir, "symbols.json"),
     cache: join18(outDir, "cache.json")
   };
@@ -12884,7 +12916,7 @@ function runBuild(opts, builtAt) {
     maxBytes: opts.maxBytes,
     maxFiles: opts.maxFiles,
     gitignore: opts.gitignore
-  });
+  }, prev);
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
   if (!opts.noCache) {
     const files = {};
@@ -12896,7 +12928,7 @@ function runBuild(opts, builtAt) {
 }
 
 // src/find.ts
-import { join as join19, basename as basename4, extname as extname2 } from "path";
+import { join as join20, basename as basename4, extname as extname2 } from "path";
 
 // src/lex.ts
 function splitIdentifier(token) {
@@ -13125,93 +13157,44 @@ function runSymbols(outDir, query) {
 }
 
 // src/semantic.ts
-function loadSemanticConfig(outDir) {
-  const env = {
-    baseUrl: process.env.ULTRAINDEX_EMBED_BASE_URL,
-    model: process.env.ULTRAINDEX_EMBED_MODEL,
-    apiKey: process.env.ULTRAINDEX_EMBED_API_KEY
-  };
-  let file = {};
-  const raw = readIfExists(indexPaths(outDir).semantic);
-  if (raw !== void 0) {
-    try {
-      file = JSON.parse(raw);
-    } catch {
-    }
-  }
-  const baseUrl = env.baseUrl || file.baseUrl;
-  const model = env.model || file.model;
-  if (!baseUrl || !model) return void 0;
-  const apiKey = env.apiKey || file.apiKey;
-  return { baseUrl, model, ...apiKey ? { apiKey } : {} };
+import { join as join19, dirname as dirname5 } from "path";
+import { existsSync as existsSync7 } from "fs";
+function sharedEmbedCacheDir() {
+  return join19(dirname5(dirname5(sharedGrammarsCacheDir())), "models");
 }
-function embeddingsUrl(baseUrl) {
-  let base = baseUrl.replace(/\/+$/, "");
-  if (!/\/v\d+$/.test(base)) base += "/v1";
-  return base + "/embeddings";
+function resolveEmbedTier(repo) {
+  const url = resolveEmbedEndpoint();
+  if (url) return { kind: "endpoint", url, label: `endpoint ${url}` };
+  const dir = resolveEmbedModelDir(repo) ?? cachedModelDir();
+  if (!dir) return void 0;
+  const model = loadEmbedModel(dir);
+  if (!model) return void 0;
+  return { kind: "static", model, label: `${model.modelId} (dim ${model.dim})` };
 }
-var BATCH_SIZE = 32;
-var TIMEOUT_MS = 3e4;
-async function embedTexts(cfg, texts) {
-  const url = embeddingsUrl(cfg.baseUrl);
-  const out2 = [];
-  for (let i2 = 0; i2 < texts.length; i2 += BATCH_SIZE) {
-    const batch = texts.slice(i2, i2 + BATCH_SIZE);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    let res;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}
-        },
-        body: JSON.stringify({ model: cfg.model, input: batch }),
-        signal: controller.signal
-      });
-    } catch (e) {
-      throw new Error(`embeddings provider unreachable at ${url}: ${e.message}`);
-    } finally {
-      clearTimeout(timer);
-    }
-    if (!res.ok) {
-      const body2 = clip(await res.text().catch(() => ""), 200);
-      throw new Error(`embeddings provider returned ${res.status} for ${url}${body2 ? `: ${body2}` : ""}`);
-    }
-    const json = await res.json();
-    const data = json.data;
-    if (!Array.isArray(data) || data.length !== batch.length) {
-      throw new Error(`embeddings provider returned ${data?.length ?? 0} vectors for ${batch.length} inputs`);
-    }
-    const rows = new Array(batch.length);
-    data.forEach((d, j) => {
-      const idx = typeof d.index === "number" ? d.index : j;
-      if (!Array.isArray(d.embedding)) throw new Error("embeddings provider returned a row without an embedding");
-      rows[idx] = d.embedding;
-    });
-    out2.push(...rows);
-  }
-  return out2;
+function cachedModelDir() {
+  const dir = sharedEmbedCacheDir();
+  return existsSync7(join19(dir, "model.json")) ? dir : void 0;
+}
+var QUANT2 = 127;
+var QUANT_SQ = QUANT2 * QUANT2;
+function similarity(a, b) {
+  if (a.length !== b.length || a.length === 0) return -1;
+  return intDot(a, b) / QUANT_SQ;
+}
+async function embedTexts(tier, texts) {
+  if (tier.kind === "static") return texts.map((t) => encode(tier.model, t));
+  const floats = await embedViaEndpoint(texts, { url: tier.url });
+  return floats.map((v) => quantize(v));
+}
+async function encodeQuery(tier, query) {
+  if (tier.kind === "static") return encode(tier.model, query);
+  return encodeQueryViaEndpoint(query, { url: tier.url });
 }
 var EMBED_TEXT_MAX = 4e3;
 function moduleEmbedText(m, files, prose) {
   const members = files.slice().sort((a, b) => byStr(a.rel, b.rel)).map((f) => [f.rel, f.title, f.summary].filter(Boolean).join(" \u2014 "));
   const parts2 = [m.title, m.path, m.slug, m.summary, ...members, prose ?? ""];
   return clip(parts2.filter(Boolean).join("\n"), EMBED_TEXT_MAX);
-}
-function cosine(a, b) {
-  if (a.length !== b.length || a.length === 0) return -1;
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i2 = 0; i2 < a.length; i2++) {
-    dot += a[i2] * b[i2];
-    na += a[i2] * a[i2];
-    nb += b[i2] * b[i2];
-  }
-  if (na === 0 || nb === 0) return -1;
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
 // src/vectors.ts
@@ -13225,13 +13208,17 @@ function loadVectors(outDir) {
     return void 0;
   }
 }
-function round6(v) {
-  return v.map((x) => Number(x.toFixed(6)));
+function encodeVector(v) {
+  return Buffer.from(v.buffer, v.byteOffset, v.byteLength).toString("base64");
+}
+function decodeVector(b64) {
+  const buf = Buffer.from(b64, "base64");
+  return new Int8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 }
 function saveVectors(outDir, store) {
   const sorted = {
     schemaVersion: store.schemaVersion,
-    model: store.model,
+    modelId: store.modelId,
     dim: store.dim,
     vectors: Object.fromEntries(
       Object.keys(store.vectors).sort(byStr).map((slug) => [slug, store.vectors[slug]])
@@ -13259,15 +13246,21 @@ function groupFiles(graph) {
   }
   return byModule;
 }
-async function runEmbed(outDir, cfg, force = false) {
+async function runEmbed(outDir, tier, force = false) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
+  const modelId = tier.kind === "static" ? tier.model.modelId : `endpoint:${tier.url}`;
   const prior = loadVectors(outDir);
-  const reusable = !force && prior && prior.model === cfg.model ? prior.vectors : {};
+  const reusable = !force && prior && prior.modelId === modelId ? prior.vectors : {};
   const prose = loadEnrichedProse(outDir, graph);
   const filesByModule = groupFiles(graph);
   const modules = graph.modules.slice().sort((a, b) => byStr(a.slug, b.slug));
-  const next = { schemaVersion: SCHEMA_VERSION2, model: cfg.model, dim: prior?.model === cfg.model ? prior.dim : 0, vectors: {} };
+  const next = {
+    schemaVersion: SCHEMA_VERSION2,
+    modelId,
+    dim: prior?.modelId === modelId ? prior.dim : 0,
+    vectors: {}
+  };
   const toEmbed = [];
   let reused = 0;
   for (const m of modules) {
@@ -13282,20 +13275,23 @@ async function runEmbed(outDir, cfg, force = false) {
     }
   }
   if (toEmbed.length) {
-    const vectors = await embedTexts(cfg, toEmbed.map((t) => t.text));
+    const vectors = await embedTexts(
+      tier,
+      toEmbed.map((t) => t.text)
+    );
     const dim = vectors[0]?.length ?? 0;
     if (next.dim && dim !== next.dim) {
-      return runEmbed(outDir, cfg, true);
+      return runEmbed(outDir, tier, true);
     }
     next.dim = dim;
     toEmbed.forEach((t, i2) => {
-      next.vectors[t.slug] = { hash: t.hash, v: round6(vectors[i2]) };
+      next.vectors[t.slug] = { hash: t.hash, v: encodeVector(vectors[i2]) };
     });
   }
   const removed = prior ? Object.keys(prior.vectors).filter((slug) => !(slug in next.vectors)).length : 0;
   saveVectors(outDir, next);
   return {
-    model: cfg.model,
+    modelId,
     dim: next.dim,
     total: graph.modules.length,
     embedded: toEmbed.length,
@@ -13323,7 +13319,7 @@ function loadEnrichedProse(outDir, graph) {
   const enc = indexPaths(outDir).encyclopedia;
   const out2 = /* @__PURE__ */ new Map();
   for (const m of graph.modules) {
-    const text = readIfExists(join19(enc, `${m.slug}.md`));
+    const text = readIfExists(join20(enc, `${m.slug}.md`));
     if (!text) continue;
     const bodies = [...humanBodies(text).values()].filter(isEnrichedBody);
     if (!bodies.length) continue;
@@ -13546,7 +13542,7 @@ function bareRow(graph, m, members, enriched) {
     enriched
   };
 }
-async function runFindHybrid(outDir, query, k = DEFAULT_K) {
+async function runFindHybrid(outDir, query, k = DEFAULT_K, repo) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
   const prose = loadEnrichedProse(outDir, graph);
@@ -13558,22 +13554,25 @@ async function runFindHybrid(outDir, query, k = DEFAULT_K) {
   const store = loadVectors(outDir);
   if (!store) return { results: expand(lexical.slice(0, k)), semantic: false };
   const lexOnly = (warning) => ({ results: expand(lexical.slice(0, k)), semantic: false, warning });
-  const cfg = loadSemanticConfig(outDir);
-  if (!cfg) {
-    return lexOnly("vectors.json present but no semantic config (env or semantic.json) \u2014 lexical-only results");
+  const tier = resolveEmbedTier(repo ?? outDir);
+  if (!tier) {
+    return lexOnly(
+      "vectors.json present but no embedding model resolvable \u2014 run `codeindex embed pull` (keyless) or set CODEINDEX_EMBED_ENDPOINT; lexical-only results"
+    );
   }
   let queryVector;
   try {
-    const [v] = await embedTexts(cfg, [query]);
-    queryVector = v;
+    queryVector = await encodeQuery(tier, query);
   } catch (e) {
-    return lexOnly(`semantic provider unavailable (${e.message}) \u2014 lexical-only results`);
+    return lexOnly(`semantic tier unavailable (${e.message}) \u2014 lexical-only results`);
   }
   if (queryVector.length !== store.dim) {
-    return lexOnly(`query embedding dim ${queryVector.length} != vectors.json dim ${store.dim} (model changed?) \u2014 re-run \`ultraindex embed\`; lexical-only results`);
+    return lexOnly(
+      `query embedding dim ${queryVector.length} != vectors.json dim ${store.dim} (model changed?) \u2014 re-run \`ultraindex embed\`; lexical-only results`
+    );
   }
   const moduleBySlug = new Map(graph.modules.map((m) => [m.slug, m]));
-  const semanticSlugs = Object.entries(store.vectors).filter(([slug]) => moduleBySlug.has(slug)).map(([slug, rec]) => ({ slug, cos: cosine(queryVector, rec.v) })).filter((s) => s.cos >= MIN_COSINE).sort((a, b) => b.cos - a.cos || byStr(a.slug, b.slug)).slice(0, pool).map((s) => s.slug);
+  const semanticSlugs = Object.entries(store.vectors).filter(([slug]) => moduleBySlug.has(slug)).map(([slug, rec]) => ({ slug, cos: similarity(queryVector, decodeVector(rec.v)) })).filter((s) => s.cos >= MIN_COSINE).sort((a, b) => b.cos - a.cos || byStr(a.slug, b.slug)).slice(0, pool).map((s) => s.slug);
   const lexicalSlugs = lexical.map((r) => r.slug);
   const fused = rrf([lexicalSlugs, semanticSlugs], (s) => s);
   const lexRank = new Map(lexicalSlugs.map((s, i2) => [s, i2]));
@@ -13693,17 +13692,17 @@ function runImpact(outDir, target, depth = Infinity) {
 }
 
 // src/mapcmd.ts
-import { join as join20 } from "path";
+import { join as join21 } from "path";
 function runMap(outDir, moduleSlug) {
   const paths = indexPaths(outDir);
   if (moduleSlug) {
-    return readIfExists(join20(paths.encyclopedia, `${moduleSlug}.md`));
+    return readIfExists(join21(paths.encyclopedia, `${moduleSlug}.md`));
   }
   return readIfExists(paths.index);
 }
 
 // src/delta.ts
-import { join as join21, relative as relative2, isAbsolute as isAbsolute2 } from "path";
+import { join as join22, relative as relative2, isAbsolute as isAbsolute2 } from "path";
 import { statSync as statSync5 } from "fs";
 var RISK_WEIGHTS = {
   exportedChange: 25,
@@ -13969,7 +13968,7 @@ function runDelta(outDir, repo, opts) {
       }
       if (include && !include(f.path)) continue;
       if (exclude && exclude(f.path)) continue;
-      const abs = join21(repo, f.path);
+      const abs = join22(repo, f.path);
       let text;
       try {
         const st = statSync5(abs);
@@ -14021,15 +14020,17 @@ function formatDeltaPanel(res) {
 }
 
 // src/status.ts
-import { join as join22 } from "path";
+import { join as join23 } from "path";
 function runStatus(outDir) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
   const enc = indexPaths(outDir).encyclopedia;
+  const manifest = loadManifest(outDir);
   const modules = graph.modules.map((m) => {
     let total = 0;
     let filled = 0;
-    const text = readIfExists(join22(enc, `${m.slug}.md`));
+    let prose = "none";
+    const text = readIfExists(join23(enc, `${m.slug}.md`));
     if (text) {
       const parsed = parseRegions(text);
       if (parsed.ok) {
@@ -14038,6 +14039,13 @@ function runStatus(outDir) {
           total++;
           if (isEnrichedBody(r.body)) filled++;
         }
+        const recorded = manifest?.modules[m.slug];
+        prose = proseFreshness(
+          recorded?.prose,
+          proseDigest(parsed.regions),
+          recorded?.members ?? m.members,
+          manifest?.fileHashes ?? {}
+        );
       }
     }
     return {
@@ -14047,7 +14055,8 @@ function runStatus(outDir) {
       degree: m.degIn + m.degOut,
       enriched: filled > 0,
       tested: Boolean(m.testedBy?.length),
-      regions: { enriched: filled, total }
+      regions: { enriched: filled, total },
+      prose
     };
   });
   const nonTestCode = /* @__PURE__ */ new Set();
@@ -14057,28 +14066,31 @@ function runStatus(outDir) {
   const untested = graph.modules.filter(
     (m) => m.tier <= 1 && m.symbols > 0 && nonTestCode.has(m.slug) && !m.testedBy?.length
   ).length;
+  const rank = (m) => m.prose === "stale" ? 0 : m.enriched ? 2 : 1;
   modules.sort(
-    (a, b) => Number(a.enriched) - Number(b.enriched) || // work first, done last
+    (a, b) => rank(a) - rank(b) || // stale prose, then never-enriched, then done
     Number(a.tier === 2) - Number(b.tier === 2) || // tail enriches last
     b.degree - a.degree || // most-connected first
     byStr(a.slug, b.slug)
   );
   const enriched = modules.filter((m) => m.enriched).length;
+  const needsWork = modules.filter((m) => !m.enriched || m.prose === "stale");
   return {
     enriched,
     total: modules.length,
     untested,
-    suggestedNext: modules.filter((m) => !m.enriched).slice(0, 5).map((m) => m.slug),
+    proseStale: modules.filter((m) => m.prose === "stale").length,
+    suggestedNext: needsWork.slice(0, 5).map((m) => m.slug),
     modules
   };
 }
 
 // src/check.ts
-import { dirname as dirname6, join as join24 } from "path";
+import { dirname as dirname7, join as join25 } from "path";
 
 // src/verify.ts
-import { existsSync as existsSync7, readFileSync as readFileSync10, writeFileSync as writeFileSync6 } from "fs";
-import { dirname as dirname5, join as join23 } from "path";
+import { existsSync as existsSync8, readFileSync as readFileSync10, writeFileSync as writeFileSync6 } from "fs";
+import { dirname as dirname6, join as join24 } from "path";
 
 // src/cite.ts
 var EXT_TOKEN = /\[((?:[^[\]\n]|\[(?:[^[\]\n]|\[[^\]\n]*\])*\])*?\.[A-Za-z0-9]{1,8}(?::\d+(?:-\d+)?)?)\]/g;
@@ -14266,7 +14278,7 @@ function claimPairs(text) {
 function readExcerpt(repo, c2) {
   let full;
   try {
-    full = readFileSync10(join23(repo, c2.path), "utf8");
+    full = readFileSync10(join24(repo, c2.path), "utf8");
   } catch {
     return "";
   }
@@ -14299,10 +14311,10 @@ function runVerify(answerPath, repo, opts = {}) {
   const max = Math.max(1, Math.floor(opts.maxVerify ?? VERIFY_MAX));
   const kept = pairs.length > max ? pairs.slice(0, max) : pairs;
   const worklist = { answer: answerPath, pairs: kept };
-  const dir = dirname5(answerPath);
+  const dir = dirname6(answerPath);
   const todo = { answer: answerPath, pairs: kept.map((p) => ({ ...p, verdict: null, note: "" })) };
-  writeFileSync6(join23(dir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
-  writeFileSync6(join23(dir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
+  writeFileSync6(join24(dir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
+  writeFileSync6(join24(dir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
   return worklist;
 }
 function renderWorklistMd(wl, total, kept) {
@@ -14327,8 +14339,8 @@ _Showing ${kept} of ${total} pair(s) \u2014 capped._`);
   return out2.join("\n");
 }
 function loadTodoPairs(dir) {
-  const p = join23(dir, "VERIFY.todo.json");
-  if (!existsSync7(p)) return void 0;
+  const p = join24(dir, "VERIFY.todo.json");
+  if (!existsSync8(p)) return void 0;
   let todo;
   try {
     todo = JSON.parse(readFileSync10(p, "utf8"));
@@ -14389,7 +14401,7 @@ function applyVerdicts(dir, verdictsPath) {
   - ${errors.join("\n  - ")}`);
   }
   const result = reduceVerdicts(verdicts);
-  writeFileSync6(join23(dir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
+  writeFileSync6(join24(dir, "VERIFY.json"), JSON.stringify({ ...result, verdicts }, null, 2));
   return result;
 }
 function citationlessClaims(text) {
@@ -14459,8 +14471,8 @@ function reduceVerdicts(verdicts) {
   };
 }
 function loadVerify(dir) {
-  const p = join23(dir, "VERIFY.json");
-  if (!existsSync7(p)) return void 0;
+  const p = join24(dir, "VERIFY.json");
+  if (!existsSync8(p)) return void 0;
   try {
     return JSON.parse(readFileSync10(p, "utf8"));
   } catch {
@@ -14491,15 +14503,17 @@ function hashRepo(repo, outAbs, filters) {
   }
   return out2;
 }
-function runCheck(outDir, repo) {
+function runCheck(outDir, repo, opts = {}) {
   const errors = [];
   const warnings = [];
+  const proseStale = [];
+  const proseUnknown = [];
   const graph = loadGraph(outDir);
   const manifest = loadManifest(outDir);
   if (!graph) errors.push("graph.json is missing or written by an incompatible engine version");
   if (!manifest) errors.push("manifest.json is missing or written by an incompatible engine version");
   if (!graph || !manifest) {
-    return { ok: false, stale: false, changed: [], added: [], removed: [], errors, warnings };
+    return { ok: false, stale: false, changed: [], added: [], removed: [], errors, warnings, proseStale, proseUnknown };
   }
   const current = hashRepo(repo, outDir, manifest.scan);
   const recorded = manifest.fileHashes;
@@ -14516,7 +14530,7 @@ function runCheck(outDir, repo) {
   removed.sort(byStr);
   const enc = indexPaths(outDir).encyclopedia;
   for (const m of graph.modules) {
-    if (readIfExists(join24(enc, `${m.slug}.md`)) === void 0) {
+    if (readIfExists(join25(enc, `${m.slug}.md`)) === void 0) {
       errors.push(`module "${m.slug}" has no encyclopedia entry`);
     }
   }
@@ -14526,7 +14540,7 @@ function runCheck(outDir, repo) {
   }
   const fileLines = fileLineTable(graph);
   for (const m of graph.modules) {
-    const text = readIfExists(join24(enc, `${m.slug}.md`));
+    const text = readIfExists(join25(enc, `${m.slug}.md`));
     if (!text) continue;
     const parsed = parseRegions(text);
     if (!parsed.ok) {
@@ -14541,11 +14555,22 @@ function runCheck(outDir, repo) {
         errors.push(`encyclopedia/${m.slug}.md [${r.key}]: citation [${u.citation.raw}] \u2014 ${u.reason}`);
       }
     }
+    const recorded2 = manifest.modules[m.slug];
+    const state = proseFreshness(
+      recorded2?.prose,
+      proseDigest(parsed.regions),
+      recorded2?.members ?? m.members,
+      current
+    );
+    if (state === "stale") proseStale.push(m.slug);
+    else if (state === "unknown") proseUnknown.push(m.slug);
   }
+  proseStale.sort(byStr);
+  proseUnknown.sort(byStr);
   const vectors = loadVectors(outDir);
   if (vectors) {
-    if (!vectors.model || !vectors.dim) {
-      warnings.push("vectors.json is corrupt (missing model/dim) \u2014 re-run `ultraindex embed`");
+    if (!vectors.modelId || !vectors.dim) {
+      warnings.push("vectors.json is corrupt (missing modelId/dim) \u2014 re-run `ultraindex embed`");
     } else {
       const staleVecs = staleVectorSlugs(outDir, graph, vectors);
       if (staleVecs.length) {
@@ -14559,8 +14584,24 @@ function runCheck(outDir, repo) {
   for (const note of manifest.notes) {
     if (/conflict|unparseable/i.test(note)) warnings.push(note);
   }
+  if (proseUnknown.length) {
+    warnings.push(
+      `${proseUnknown.length} enriched entr(y|ies) have no recorded source state (index predates prose tracking) \u2014 run \`ultraindex build\``
+    );
+  }
   const stale = changed.length + added.length + removed.length > 0;
-  return { ok: errors.length === 0 && !stale, stale, changed, added, removed, errors, warnings };
+  const proseBlocks = opts.prose === true && proseStale.length > 0;
+  return {
+    ok: errors.length === 0 && !stale && !proseBlocks,
+    stale,
+    changed,
+    added,
+    removed,
+    errors,
+    warnings,
+    proseStale,
+    proseUnknown
+  };
 }
 function checkAnswer(outDir, answerPath, opts = {}) {
   const errors = [];
@@ -14583,7 +14624,7 @@ function checkAnswer(outDir, answerPath, opts = {}) {
     const cited = [...new Set(cc.resolved.map((c2) => c2.path))];
     const drifted = cited.filter((rel) => {
       const recorded = manifest.fileHashes[rel];
-      return recorded !== void 0 && sha1(readText(join24(repoRoot, rel))) !== recorded;
+      return recorded !== void 0 && sha1(readText(join25(repoRoot, rel))) !== recorded;
     });
     if (drifted.length) {
       warnings.push(
@@ -14593,7 +14634,7 @@ function checkAnswer(outDir, answerPath, opts = {}) {
   }
   const result = { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
   if (opts.semantic) {
-    const sem = loadVerify(dirname6(answerPath));
+    const sem = loadVerify(dirname7(answerPath));
     if (!sem) {
       result.ok = false;
       errors.push(
@@ -14654,14 +14695,14 @@ function checkAnswer(outDir, answerPath, opts = {}) {
 }
 
 // src/evidence.ts
-import { join as join25, extname as extname3 } from "path";
+import { join as join26, extname as extname3 } from "path";
 var HEAD_LINES = 120;
 var MAX_SYMS = 25;
 var ASK_FILE_CAP = 20;
 function gatherEvidence(repo, rels, headLines = HEAD_LINES) {
   const out2 = [];
   for (const rel of rels) {
-    const content = readText(join25(repo, rel));
+    const content = readText(join26(repo, rel));
     if (!content) continue;
     const lines = content.split(/\r?\n/);
     const code = extractCode(rel, extname3(rel).toLowerCase(), content);
@@ -14816,11 +14857,11 @@ async function runAsk(outDir, repo, question, k = 5, budget) {
 }
 
 // src/orchestrate.ts
-import { existsSync as existsSync8, mkdirSync as mkdirSync5, readFileSync as readFileSync11, writeFileSync as writeFileSync7 } from "fs";
-import { dirname as dirname7, join as join27, resolve as resolve3 } from "path";
+import { existsSync as existsSync9, mkdirSync as mkdirSync5, readFileSync as readFileSync11, writeFileSync as writeFileSync7 } from "fs";
+import { dirname as dirname8, join as join28, resolve as resolve3 } from "path";
 
 // src/orchestrate-templates.ts
-import { join as join26 } from "path";
+import { join as join27 } from "path";
 var ENRICH_SCHEMA = {
   type: "object",
   required: ["entries"],
@@ -14886,7 +14927,7 @@ function toBatches(ids, batchSize) {
 }
 function phaseWorkflowScript(ph, ctx, batchSize) {
   const spec = phaseSpec(ph.name);
-  const scriptPath = join26(ctx.out, "orchestration", `${ph.name}.workflow.mjs`);
+  const scriptPath = join27(ctx.out, "orchestration", `${ph.name}.workflow.mjs`);
   const meta = { name: `ultraindex-${ph.name}`, description: spec.description(ph.items), phases: [{ title: spec.title }] };
   const source = ph.name === "enrich" ? "the CURRENT enrichment queue (exactly what `status --json` reports)" : "the CURRENT claim\u2194citation worklist";
   return [
@@ -14955,7 +14996,7 @@ Index: \`${ctx.out}\` \xB7 Repo: \`${ctx.repo}\`. The queue you were drawn from 
 For EACH of your slugs:
 
 1. Run \`${engine} dossier <slug> --out ${ctx.out}\` (read-only) and read ONLY that packet \u2014 the module's real key source + graph neighbours. A docs/config-only module (often \`root\`) shows no code \u2014 cite its README/config files instead.
-2. Edit \`${join26(ctx.out, "encyclopedia")}/<slug>.md\`: fill the \`ui:human\` regions (\`business\` \u2014 what it does for the product and how it connects; \`gotchas\` \u2014 caveats) with 2\u20135 sentences of genuine analysis, **citing the evidence** as \`[file]\`, \`[file:line]\` or \`[file:start-end]\`. Write only what the source supports \u2014 no guessing. Remove the \`<!-- ui:enrich -->\` stub marker; leave every \`ui:gen\` region alone.
+2. Edit \`${join27(ctx.out, "encyclopedia")}/<slug>.md\`: fill the \`ui:human\` regions (\`business\` \u2014 what it does for the product and how it connects; \`gotchas\` \u2014 caveats) with 2\u20135 sentences of genuine analysis, **citing the evidence** as \`[file]\`, \`[file:line]\` or \`[file:start-end]\`. Write only what the source supports \u2014 no guessing. Remove the \`<!-- ui:enrich -->\` stub marker; leave every \`ui:gen\` region alone.
 3. Cite only files inside that module (you may open a file the dossier lists to cite a line past the excerpt \u2014 never a file outside your module).
 
 Return (structured output): \`{ "entries": [{ "slug", "entry", "note" }] }\` \u2014 the entries you wrote (absolute paths) + a one-line note per entry, so the orchestrator can route \`check\` failures back to you.
@@ -14985,14 +15026,14 @@ Return (structured output): \`{ "pairs": [{ "claimId", "citation", "verdict", "n
 
 ## Return, don't write
 
-Return ONLY the structured output specified above. Do NOT write, edit, or delete any file; do NOT run any engine command that writes (\`build\`, \`embed\`, \`verify --apply\`). The orchestrator is the sole writer \u2014 it folds your verdicts into a verdicts file itself and runs the fail-closed \`verify --apply\` gate. Exception: if a justification is prose too large to return, write ONLY to \`${join26(ctx.out, "orchestration", "out")}/<role>-<batch>.md\` (a file namespaced to you alone) and return its path.
+Return ONLY the structured output specified above. Do NOT write, edit, or delete any file; do NOT run any engine command that writes (\`build\`, \`embed\`, \`verify --apply\`). The orchestrator is the sole writer \u2014 it folds your verdicts into a verdicts file itself and runs the fail-closed \`verify --apply\` gate. Exception: if a justification is prose too large to return, write ONLY to \`${join27(ctx.out, "orchestration", "out")}/<role>-<batch>.md\` (a file namespaced to you alone) and return its path.
 `
   };
 }
 function runbookMd(phases, ctx) {
   const status = phases.map((p) => `| ${p.name} | \`${p.worklist}\` | ${p.ready ? `ready (${p.items} item(s))` : "not ready"} | \`${p.prerequisite}\` |`).join("\n");
   const engine = `node ${ctx.engine}`;
-  const agents = join26(ctx.out, "orchestration", "agents");
+  const agents = join27(ctx.out, "orchestration", "agents");
   return `# ultraindex \u2014 sequential RUNBOOK (eco / no-subagent fallback)
 
 Index: \`${ctx.out}\` \xB7 Repo: \`${ctx.repo}\` \xB7 Engine: \`${engine}\`
@@ -15010,29 +15051,29 @@ ${status}
 ## The loop (play every role yourself, one item at a time)
 
 1. **Build** (if not done): \`${engine} build --repo ${ctx.repo} --out ${ctx.out}\` \u2014 once, before any enrichment.
-2. **Queue**: \`${engine} status --out ${ctx.out} --json\` \u2014 every module in the exact order to enrich (unenriched first, hubs first). The enrich phase fans out over \`${join26(ctx.out, "graph.json")}\` + the entries exactly as this queue reports them.
-3. **Enrich each module** \u2014 apply \`${join26(agents, "enricher.md")}\` yourself: \`${engine} dossier <slug> --out ${ctx.out}\`, then write 2\u20135 sentences of cited \`[file:line]\` prose into the \`ui:human\` regions of \`${join26(ctx.out, "encyclopedia")}/<slug>.md\`. One module at a time; the hard rule holds here too \u2014 no \`build\` or \`map\` mid-loop.
+2. **Queue**: \`${engine} status --out ${ctx.out} --json\` \u2014 every module in the exact order to enrich (unenriched first, hubs first). The enrich phase fans out over \`${join27(ctx.out, "graph.json")}\` + the entries exactly as this queue reports them.
+3. **Enrich each module** \u2014 apply \`${join27(agents, "enricher.md")}\` yourself: \`${engine} dossier <slug> --out ${ctx.out}\`, then write 2\u20135 sentences of cited \`[file:line]\` prose into the \`ui:human\` regions of \`${join27(ctx.out, "encyclopedia")}/<slug>.md\`. One module at a time; the hard rule holds here too \u2014 no \`build\` or \`map\` mid-loop.
 4. **Gate**: \`${engine} check --out ${ctx.out} --repo ${ctx.repo}\` \u2014 repo-wide; it keys each grounding failure to its entry. Fix and re-run until green (never delete a citation just to pass).
 5. **Semantic layer** (only if \`vectors.json\` exists): \`${engine} embed --out ${ctx.out}\`.
-6. **Verify an answer** (high assurance): \`${engine} verify --answer <answer.md> --repo ${ctx.repo}\` writes \`VERIFY.todo.json\` next to the answer. For EVERY pair, apply \`${join26(agents, "refuter.md")}\` yourself (verdict + note), save your rows as \`verdicts.json\`, then \`${engine} verify --apply verdicts.json --answer <answer.md>\` and gate with \`${engine} check --answer <answer.md> --semantic --out ${ctx.out}\`.
+6. **Verify an answer** (high assurance): \`${engine} verify --answer <answer.md> --repo ${ctx.repo}\` writes \`VERIFY.todo.json\` next to the answer. For EVERY pair, apply \`${join27(agents, "refuter.md")}\` yourself (verdict + note), save your rows as \`verdicts.json\`, then \`${engine} verify --apply verdicts.json --answer <answer.md>\` and gate with \`${engine} check --answer <answer.md> --semantic --out ${ctx.out}\`.
 
-With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${ctx.out} --phase <p>\` then \`Workflow({ scriptPath: "${join26(ctx.out, "orchestration", "<p>.workflow.mjs")}" })\` \u2014 one repo-wide \`check\` after the join either way, and no \`build\` or \`map\` while agents are in flight.
+With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${ctx.out} --phase <p>\` then \`Workflow({ scriptPath: "${join27(ctx.out, "orchestration", "<p>.workflow.mjs")}" })\` \u2014 one repo-wide \`check\` after the join either way, and no \`build\` or \`map\` while agents are in flight.
 `;
 }
 
 // src/orchestrate.ts
 var PHASES = ["enrich", "verify-answer"];
 var SMALL_WORKLIST = 3;
-var BATCH_SIZE2 = 8;
+var BATCH_SIZE = 8;
 function listPhases(ctx) {
   const st = runStatus(ctx.out);
-  const enrichIds = st ? st.modules.filter((m) => !m.enriched).map((m) => m.slug) : [];
-  const verifyWl = join27(ctx.answer ? dirname7(ctx.answer) : ctx.repo, "VERIFY.todo.json");
+  const enrichIds = st ? st.modules.filter((m) => !m.enriched || m.prose === "stale").map((m) => m.slug) : [];
+  const verifyWl = join28(ctx.answer ? dirname8(ctx.answer) : ctx.repo, "VERIFY.todo.json");
   const verifyPrereq = `node ${ctx.engine} verify --answer ${ctx.answer ?? "<answer.md>"} --repo ${ctx.repo}` + (ctx.answer ? "" : ` (then re-run orchestrate with --answer <answer.md>)`);
   let verifyIds = [];
   let verifyReady = false;
   let verifyReason;
-  if (existsSync8(verifyWl)) {
+  if (existsSync9(verifyWl)) {
     try {
       const todo = JSON.parse(readFileSync11(verifyWl, "utf8"));
       const owner = todo && typeof todo.answer === "string" ? todo.answer : void 0;
@@ -15101,9 +15142,9 @@ function orchestrateRun(ctx, opts = {}) {
     }
     selected = [ph];
   }
-  const orchDir = join27(ctx.out, "orchestration");
-  const agentsDir = join27(orchDir, "agents");
-  mkdirSync5(join27(orchDir, "out"), { recursive: true });
+  const orchDir = join28(ctx.out, "orchestration");
+  const agentsDir = join28(orchDir, "agents");
+  mkdirSync5(join28(orchDir, "out"), { recursive: true });
   mkdirSync5(agentsDir, { recursive: true });
   const written = [];
   const notices = [];
@@ -15111,7 +15152,7 @@ function orchestrateRun(ctx, opts = {}) {
     if (!ph.ready && ph.reason) notices.push(`phase "${ph.name}": ${ph.reason}`);
   }
   for (const [name2, content] of Object.entries(agentContracts(ctx))) {
-    const p = join27(agentsDir, `${name2}.md`);
+    const p = join28(agentsDir, `${name2}.md`);
     writeFileSync7(p, content);
     written.push(p);
   }
@@ -15124,12 +15165,12 @@ function orchestrateRun(ctx, opts = {}) {
       if (ph.items <= SMALL_WORKLIST) {
         notices.push(`phase "${ph.name}": only ${ph.items} item(s) \u2014 the sequential --eco path is equivalent and cheaper.`);
       }
-      const p = join27(orchDir, `${ph.name}.workflow.mjs`);
-      writeFileSync7(p, phaseWorkflowScript(ph, ctx, BATCH_SIZE2));
+      const p = join28(orchDir, `${ph.name}.workflow.mjs`);
+      writeFileSync7(p, phaseWorkflowScript(ph, ctx, BATCH_SIZE));
       written.push(p);
     }
   }
-  const rb = join27(orchDir, "RUNBOOK.md");
+  const rb = join28(orchDir, "RUNBOOK.md");
   writeFileSync7(rb, runbookMd(phases, ctx));
   written.push(rb);
   return { exitCode: 0, written, notices, errors: [], phases };
@@ -15153,11 +15194,10 @@ Usage:
   ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
   ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
-  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
+  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic] [--prose]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
   ultraindex grammars [status|pull]
-  ultraindex mcp
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -15165,9 +15205,9 @@ Commands:
              preserves your enriched prose.
   find       Rank modules for a task and print the exact files to open. Hybrid
              (lexical + semantic) when vectors.json exists; pure lexical otherwise.
-  embed      Build/refresh vectors.json: embed each module through the configured
-             provider (see Semantic below). Incremental \u2014 unchanged modules keep
-             their vectors.
+  embed      Build/refresh vectors.json: embed each module through the engine's
+             keyless embedding tier, pulling the model on first use (see Semantic
+             below). Incremental \u2014 unchanged modules keep their vectors.
   neighbors  Show graph neighbours of a file or module (what links to/from it).
   symbols    Find where a symbol is defined (file:line, kind, owning module) and
              which files reference it \u2014 from symbols.json, no repo re-scan.
@@ -15202,11 +15242,6 @@ Commands:
              active tier and whether a pull is needed. \`build\` pulls
              automatically on first use, so this is only for pre-warming (e.g.
              before going offline) or diagnostics.
-  mcp        Run the vendored engine's MCP server: newline-delimited JSON-RPC 2.0
-             over stdio (initialize / tools/list / tools/call), exposing its
-             repo-analysis tools (find_symbol, search, repo_map, \u2026) to MCP
-             clients. Each tool takes the repo path as an argument; runs until
-             stdin closes. Server name is "codeindex" (the engine's).
 
 Options:
   --repo <dir>      Repo to index / check / read source from  (default: .)
@@ -15238,27 +15273,28 @@ Options:
   --list            orchestrate: print the phases + readiness as JSON, emit nothing
   --force           embed: re-embed every module even if unchanged
   --json            Machine-readable output
+  --prose           check: also FAIL when an entry's prose was written against
+                    source that has since changed (reported either way)
   --quiet           check: print nothing, use the exit code only
   -h, --help        Show this help
   -v, --version     Show version
 
-Semantic (optional):
-  \`find\` stays deterministic and offline by default. To add semantic ranking,
-  point ultraindex at any OpenAI-compatible /v1/embeddings endpoint \u2014 e.g. the
-  local container in docker-compose.yml (\`docker compose up -d\`) \u2014 via env
-  (ULTRAINDEX_EMBED_BASE_URL, ULTRAINDEX_EMBED_MODEL, ULTRAINDEX_EMBED_API_KEY)
-  or <out>/semantic.json, then run \`ultraindex embed\`. If the provider is down,
-  \`find\` degrades to pure lexical with a warning. Delete vectors.json to turn
-  the semantic layer off entirely.
+Semantic (optional, keyless):
+  \`find\` is lexical by default. \`ultraindex embed\` adds semantic ranking on top,
+  using the vendored engine's embedding tiers \u2014 no API key, no provider to run.
+  The first \`embed\` pulls the official model asset (sha256-verified) into the
+  shared codeindex cache; after that it is offline and byte-deterministic. Set
+  CODEINDEX_EMBED_ENDPOINT to prefer a local embedding server instead. With
+  neither, \`find\` simply stays lexical. Delete vectors.json to turn it off.
 
 Grounding:
   Analysis is verified, not trusted. Cite claims with [path], [path:line] or
   [path:start-end]. \`check\` (encyclopedia prose) and \`check --answer\` fail if a
   citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars", "mcp"]);
+var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars"]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "eco", "list", "staged"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "prose", "eco", "list", "staged"]);
 var REASON_HINTS = {
   "missing-module": "a relative import's target file does not exist \u2014 usually a real broken import in the repo, worth reporting",
   "alias-unresolved": "a tsconfig path alias matched but its target file is missing \u2014 check the tsconfig paths or uncommitted build artifacts",
@@ -15353,10 +15389,10 @@ function splitList(s) {
 }
 function resolveOut(p, base) {
   if (p.values.out) return resolve4(p.values.out);
-  const dotted = join28(base, ".ultraindex");
-  if (existsSync9(dotted)) return dotted;
-  const docs = join28(base, "docs", "ultraindex");
-  if (existsSync9(docs)) return docs;
+  const dotted = join29(base, ".ultraindex");
+  if (existsSync10(dotted)) return dotted;
+  const docs = join29(base, "docs", "ultraindex");
+  if (existsSync10(docs)) return docs;
   return dotted;
 }
 function resolveRepoRoot(p, out2) {
@@ -15365,8 +15401,8 @@ function resolveRepoRoot(p, out2) {
 }
 async function cmdBuild(p) {
   const repo = resolve4(p.values.repo ?? ".");
-  if (!existsSync9(repo)) fail(`repo not found: ${repo}`);
-  const out2 = p.values.out ? resolve4(p.values.out) : join28(repo, ".ultraindex");
+  if (!existsSync10(repo)) fail(`repo not found: ${repo}`);
+  const out2 = p.values.out ? resolve4(p.values.out) : join29(repo, ".ultraindex");
   const maxBytes = p.values["max-bytes"] ? Number(p.values["max-bytes"]) : void 0;
   if (maxBytes !== void 0 && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
   const maxFiles = p.values["max-files"] ? Number(p.values["max-files"]) : void 0;
@@ -15447,7 +15483,7 @@ async function cmdFind(p) {
   if (!query) fail('missing query \u2014 usage: ultraindex find "<task keywords>"');
   const k = p.values.k ? Number(p.values.k) : 8;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
-  const found = await runFindHybrid(out2, query, k);
+  const found = await runFindHybrid(out2, query, k, base);
   if (found === void 0) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
   if (found.warning) process.stderr.write(`ultraindex: warning: ${found.warning}
 `);
@@ -15475,13 +15511,28 @@ async function cmdFind(p) {
 async function cmdEmbed(p) {
   const base = resolve4(p.values.repo ?? ".");
   const out2 = resolveOut(p, base);
-  const cfg = loadSemanticConfig(out2);
-  if (!cfg) {
+  let tier = resolveEmbedTier(base);
+  if (!tier) {
+    const cache = sharedEmbedCacheDir();
+    process.stderr.write(`ultraindex: no embedding model found \u2014 pulling the keyless model once into ${cache}\u2026
+`);
+    const prior = process.env.CODEINDEX_EMBED_DIR;
+    process.env.CODEINDEX_EMBED_DIR = cache;
+    try {
+      await runCli(["embed", "pull", "--repo", base]);
+    } catch {
+    } finally {
+      if (prior === void 0) delete process.env.CODEINDEX_EMBED_DIR;
+      else process.env.CODEINDEX_EMBED_DIR = prior;
+    }
+    tier = resolveEmbedTier(base);
+  }
+  if (!tier) {
     fail(
-      `no semantic config \u2014 set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join28(out2, "semantic.json")} ({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`
+      "no embedding tier available \u2014 `codeindex embed pull` fetches the keyless model, or set CODEINDEX_EMBED_ENDPOINT to a local embedding server. `find` works without either; it just stays lexical."
     );
   }
-  const report = await runEmbed(out2, cfg, p.bools.has("force"));
+  const report = await runEmbed(out2, tier, p.bools.has("force"));
   if (report === void 0) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");
@@ -15489,7 +15540,7 @@ async function cmdEmbed(p) {
   }
   const lines = [
     `ultraindex: embedded ${report.embedded}/${report.total} module(s) (${report.reused} reused, ${report.removed} pruned)`,
-    `  model:    ${report.model} (dim ${report.dim})`,
+    `  tier:     ${tier.label}`,
     `  next:     \`ultraindex find "<query>"\` now ranks hybrid (lexical + semantic)`
   ];
   process.stderr.write(lines.join("\n") + "\n");
@@ -15627,12 +15678,14 @@ function cmdStatus(p) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     return;
   }
-  const lines = [`ultraindex: ${res.enriched}/${res.total} modules enriched`];
+  const header = `ultraindex: ${res.enriched}/${res.total} modules enriched`;
+  const lines = [res.proseStale ? `${header} \xB7 ${res.proseStale} with STALE prose` : header];
   if (res.suggestedNext.length) lines.push(`  next:     ${res.suggestedNext.join(", ")}`);
   lines.push("");
   for (const m of res.modules.slice(0, 15)) {
-    const state = m.enriched ? "\u2713" : "\xB7";
-    lines.push(`  ${state} ${m.slug}  (${m.path}, tier ${m.tier}, degree ${m.degree}) \u2014 ${m.regions.enriched}/${m.regions.total} regions`);
+    const state = m.prose === "stale" ? "!" : m.enriched ? "\u2713" : "\xB7";
+    const drift = m.prose === "stale" ? ", source changed since written" : "";
+    lines.push(`  ${state} ${m.slug}  (${m.path}, tier ${m.tier}, degree ${m.degree}) \u2014 ${m.regions.enriched}/${m.regions.total} regions${drift}`);
   }
   if (res.modules.length > 15) lines.push(`  \u2026and ${res.modules.length - 15} more (use --json for all)`);
   lines.push("", `  enrich:   \`ultraindex dossier <slug>\` then fill the ui:human regions, then \`ultraindex check\``);
@@ -15691,7 +15744,7 @@ function cmdCheck(p) {
     if (!res2.ok) process.exit(1);
     return;
   }
-  const res = runCheck(out2, repo);
+  const res = runCheck(out2, repo, { prose: p.bools.has("prose") });
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     if (!res.ok) process.exit(1);
@@ -15699,14 +15752,26 @@ function cmdCheck(p) {
   }
   if (!p.bools.has("quiet")) {
     const lines = [];
-    const status = res.errors.length ? "BROKEN" : res.stale ? "STALE" : "FRESH";
+    const proseBlocks = p.bools.has("prose") && res.proseStale.length > 0;
+    const status = res.errors.length || proseBlocks ? "BROKEN" : res.stale ? "STALE" : "FRESH";
     lines.push(`ultraindex: index is ${status} (${out2})`);
     if (res.changed.length) lines.push(`  changed:  ${res.changed.length} \u2014 ${res.changed.slice(0, 8).join(", ")}${res.changed.length > 8 ? " \u2026" : ""}`);
     if (res.added.length) lines.push(`  added:    ${res.added.length} \u2014 ${res.added.slice(0, 8).join(", ")}${res.added.length > 8 ? " \u2026" : ""}`);
     if (res.removed.length) lines.push(`  removed:  ${res.removed.length} \u2014 ${res.removed.slice(0, 8).join(", ")}${res.removed.length > 8 ? " \u2026" : ""}`);
     for (const e of res.errors) lines.push(`  error:    ${e}`);
+    if (res.proseStale.length) {
+      const label = proseBlocks ? "error" : "prose";
+      lines.push(
+        `  ${label}:    ${res.proseStale.length} module(s) written against source that has since changed`
+      );
+      for (const slug of res.proseStale.slice(0, 8)) lines.push(`              ${slug}`);
+      if (res.proseStale.length > 8) lines.push(`              \u2026and ${res.proseStale.length - 8} more`);
+    }
     for (const w of res.warnings) lines.push(`  warning:  ${w}`);
     if (res.stale) lines.push(`  fix:      re-run \`ultraindex build\` to refresh`);
+    if (res.proseStale.length) {
+      lines.push(`  re-enrich: \`ultraindex dossier <slug>\`, revise the prose, then \`check\``);
+    }
     process.stdout.write(lines.join("\n") + "\n");
   }
   if (!res.ok) process.exit(1);
@@ -15715,7 +15780,7 @@ function cmdVerify(p) {
   const answer = p.values.answer;
   if (!answer) fail("missing --answer <file> \u2014 usage: ultraindex verify --answer <file> [--repo <dir>]");
   const answerPath = resolve4(answer);
-  const dir = dirname8(answerPath);
+  const dir = dirname9(answerPath);
   if (p.values.apply) {
     let res;
     try {
@@ -15728,7 +15793,7 @@ function cmdVerify(p) {
     if (!res.ok) process.exit(1);
     return;
   }
-  if (!existsSync9(answerPath)) fail(`answer file not found: ${answerPath}`);
+  if (!existsSync10(answerPath)) fail(`answer file not found: ${answerPath}`);
   const out2 = resolveOut(p, resolve4(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   const maxVerify = p.values["max-verify"] ? Number(p.values["max-verify"]) : VERIFY_MAX;
@@ -15768,7 +15833,7 @@ function cmdOrchestrate(p) {
   const workflows = res.written.filter((w) => w.endsWith(".workflow.mjs"));
   if (workflows.length) {
     for (const ph of res.phases) {
-      const w = workflows.find((x) => x === join28(out2, "orchestration", `${ph.name}.workflow.mjs`));
+      const w = workflows.find((x) => x === join29(out2, "orchestration", `${ph.name}.workflow.mjs`));
       if (!w) continue;
       lines.push(`  launch:   Workflow({ scriptPath: ${JSON.stringify(w)} })`);
       lines.push(
@@ -15776,7 +15841,7 @@ function cmdOrchestrate(p) {
       );
     }
   } else {
-    lines.push(`  next:     follow ${join28(out2, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
+    lines.push(`  next:     follow ${join29(out2, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
   }
   process.stderr.write(lines.join("\n") + "\n");
 }
@@ -15813,8 +15878,6 @@ async function main() {
       return cmdOrchestrate(p);
     case "grammars":
       return runCli(["grammars", ...p.positional, ...p.values.out ? ["--out", p.values.out] : []]);
-    case "mcp":
-      return runMcpServer();
   }
 }
 function isInvokedDirectly() {

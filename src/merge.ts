@@ -99,6 +99,11 @@ export interface MergeResult {
   content: string;
   humanKeys: string[];
   migratedKeys: string[];
+  // The merged region list, so callers can fingerprint the prose that was
+  // actually written without re-parsing what they just serialized. Empty when
+  // the existing entry was kept un-rewritten (no prose state should be
+  // re-stamped for a file we refused to touch).
+  regions: Region[];
   conflict?: string; // set when the existing file was kept un-rewritten
 }
 
@@ -124,6 +129,7 @@ export function mergeEntry(
         content: existing,
         humanKeys: [],
         migratedKeys: [],
+        regions: [],
         conflict: "unparseable region fences — kept existing entry, refused to rewrite",
       };
     }
@@ -170,5 +176,5 @@ export function mergeEntry(
   }
 
   const humanKeys = out.filter((r) => r.type === "human").map((r) => r.key);
-  return { content: serializeRegions(out), humanKeys, migratedKeys: migratedKeysUsed, conflict: dupConflict };
+  return { content: serializeRegions(out), humanKeys, migratedKeys: migratedKeysUsed, regions: out, conflict: dupConflict };
 }

@@ -1,25 +1,102 @@
 # ultraindex
 
-> Deterministically index a whole repo (code **+** docs) into a navigable
-> encyclopedia — a small map, per-module entries, and a typed link-graph — so an
-> AI can work in huge codebases **without filling its context window**.
+> **[codeindex](https://github.com/maxgfr/codeindex) tells you where things are.
+> ultraindex tells you what they mean — and proves it.**
+>
+> The verified knowledge layer an AI agent writes on top of the codeindex
+> engine: a durable, per-module encyclopedia of what a repo *means*, where every
+> sentence must cite real source and every citation is mechanically checked.
 
-On a large project the model's context fills before it can find what matters.
-`ultraindex` scans the entire repo **with code** (a zero-dependency Node bundle —
-no `npm install`, no API keys, no LLM read of the repo) and writes a *layered*
-artifact you load piece by piece:
+Search answers questions whose answers are already in the code. *Why does this
+module exist? What breaks in the product if it's wrong?* — nobody wrote that
+down. A model has to work it out, and then it has to live somewhere that
+survives the session, the context window, and the next refactor.
+
+That is what `ultraindex` builds: a *layered* artifact you load piece by piece,
+whose prose regions the model owns and the tooling refuses to let it fake.
 
 ```
 .ultraindex/
   INDEX.md              # the map — always-loadable: summary, hubs, bridges, tests, module table
   encyclopedia/
     <module>.md         # per-module entry: business view + code view + links + sources
+    _orphaned/<m>.md    # prose of a module that disappeared — kept, never deleted
   graph.json            # the full typed link-graph (file + module level)
   symbols.json          # symbol → definition sites + referencing files (`symbols` cmd)
   graph.mmd             # a Mermaid module diagram
   manifest.json         # per-file hashes (staleness) + merge bookkeeping
   cache.json            # incremental-build extraction cache (regenerable; gitignore for committed indexes)
+  vectors.json          # optional per-module embeddings (`embed`, keyless)
+  orchestration/        # optional multi-agent fan-out (`orchestrate`): workflows, contracts, RUNBOOK
 ```
+
+## Two repos, one boundary
+
+ultraindex is built on **[codeindex](https://github.com/maxgfr/codeindex)** and
+vendors it verbatim — `src/vendor/codeindex-engine.mjs`, byte-pinned by sha256
+in `engine.meta.json`, re-pinned automatically on every codeindex release. The
+split between the two projects is a rule, not a habit:
+
+- **codeindex is the engine, and no model is ever in the loop.** Walking the
+  repo, extracting symbols (tree-sitter for 13 languages, regex for 15),
+  resolving imports across 9 ecosystems, the typed link-graph, PageRank and
+  betweenness, Louvain communities, the tests→code map, BM25 and keyless
+  deterministic semantic search, SCIP output, repo maps, and its own MCP server.
+  Deterministic, zero-dependency, keyless. **If a capability returns the same
+  answer whether or not an AI is present, it belongs to codeindex.**
+
+- **ultraindex exists only because a model is in the loop.** Its whole surface
+  is about a model's *understanding* of a repo and whether that understanding
+  can be trusted: the encyclopedia (durable memory that outlives every context
+  window), grounded evidence assembly (`dossier`, `ask`), the citation and
+  support-check gates (`check`, `verify`), the enrichment work-queue (`status`),
+  multi-agent fan-out (`orchestrate`), and the skill prompt layer. **Nothing
+  here would still make sense with no LLM present.**
+
+The rule has a consequence we hold ourselves to: **when ultraindex needs a
+deterministic capability, it gets contributed upstream to codeindex rather than
+reimplemented here.** That is why ultraindex has no search engine, no parser and
+no graph code of its own, why it is small enough to read in an afternoon, and
+why "re-pin the engine" is a boring automated event rather than a merge.
+
+**Which one do you want?**
+
+| You want to… | Use |
+|---|---|
+| Find code, symbols, callers, references, a repo map — fast, offline, no model | **[codeindex](https://github.com/maxgfr/codeindex). You don't need ultraindex.** |
+| Have an agent *understand* a codebase, write that understanding down so it survives the session, and be structurally unable to claim anything it can't back with a real `[file:line]` | **ultraindex** |
+
+### Why not just codeindex, or its MCP server?
+
+Use it. codeindex's MCP server is excellent and ultraindex ships the same engine
+underneath: 26 deterministic tools answering *where* something is and *what
+exists*. Every question already answered by the code, it answers — faster and
+more cheaply than any model could.
+
+ultraindex is for the questions whose answers are **not** in the code:
+
+**"Why does this module exist, and what breaks if it's wrong?"** That is
+`encyclopedia/<slug>.md`. Generated regions are the engine's and are rebuilt
+every time; `ui:human` regions are yours — preserved across every rebuild,
+migrated across module renames, and never deleted (a removed module's prose is
+kept under `encyclopedia/_orphaned/`).
+
+**"Is that explanation actually true?"** A tool that returns source cannot tell
+you whether the paragraph a model wrote *about* it is supported by it. `check`
+fails on any `[file:line]` that doesn't resolve — and decorative citations
+inside code fences don't count. `verify` goes further: it emits a claim↔citation
+worklist, a model adjudicates each pair against the real excerpt, and the gate
+re-reduces the verdict from the raw `verdicts[]` while re-reading every excerpt
+from the live repo — so a doctored `VERIFY.json` or drifted source fails rather
+than passes.
+
+**"What should the model do next, and in what order?"** `status` is a
+work-queue ordered by where an explanation buys the most navigation value;
+`orchestrate` fans it out to subagents with real contracts and a sequential
+fallback. Retrieval has no notion of unfinished work.
+
+Search retrieves. ultraindex **accumulates** — and refuses to accumulate
+anything it can't prove.
 
 ## Install
 
@@ -41,52 +118,38 @@ only the files the index points at and answering with **grounded,
 citation-checked** analysis (`dossier`/`ask` hand the agent the real source;
 `check` rejects any citation that doesn't resolve).
 
-## MCP server
+## MCP server — use codeindex's
 
-The same bundle also runs as an **MCP server**: `ultraindex mcp` speaks
-newline-delimited JSON-RPC 2.0 over stdio (`initialize`, `tools/list`,
-`tools/call`) and exposes the engine's repo-analysis tools (`find_symbol`,
-`search`, `repo_map`, …). Each tool takes the repo path as an argument; the
-server runs until stdin closes.
+ultraindex used to expose `ultraindex mcp`, which was a verbatim re-export of
+the vendored engine's server: the same 26 repo-analysis tools, announcing
+themselves under the engine's own name (`codeindex`). That is the engine's job,
+so it now lives only in the engine — one server, one name, no collision when a
+client has both registered:
 
 ```bash
-# Claude Code
-claude mcp add ultraindex -- node skills/ultraindex/scripts/ultraindex.mjs mcp
-
-# Codex
-codex mcp add ultraindex -- node skills/ultraindex/scripts/ultraindex.mjs mcp
+claude mcp add codeindex -- codeindex mcp      # brew install maxgfr/tap/codeindex
 ```
 
-Codex also accepts the equivalent `~/.codex/config.toml` entry:
 
-```toml
-[mcp_servers.ultraindex]
-command = "node"
-args = ["skills/ultraindex/scripts/ultraindex.mjs", "mcp"]
-```
-
-The paths above assume a checkout of this repo; if the skill was installed with
-`npx skills add`, point at that install's copy of `scripts/ultraindex.mjs`
-instead. The server announces itself as `codeindex` — the vendored engine's own
-name.
 
 ## CLI
 
 ```
-ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--no-mermaid]
+ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid] [--no-gitignore]
 ultraindex find    "<query>" [--out <dir>] [--k <n>]
 ultraindex embed   [--out <dir>] [--force]
-ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
+ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>] [--kind <k>]
 ultraindex symbols "<name>" [--out <dir>] [--json]
 ultraindex impact  <file|module-slug> [--out <dir>] [--depth <n>] [--json]
 ultraindex delta   [--base <ref>] [--staged] [--out <dir>] [--repo <dir>] [--depth <n>] [--json]
-ultraindex map     [--out <dir>] [--module <slug>]
+ultraindex map     [--out <dir>] [--module <slug>] [--json]
 ultraindex status  [--out <dir>]
-ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
-ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
-ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
+ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
+ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
+ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic] [--quiet]
 ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
-ultraindex mcp
+ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
+ultraindex grammars [status|pull]
 ```
 
 - **build** — scan + (re)write the index. Idempotent: regenerates the code view
@@ -110,8 +173,9 @@ ultraindex mcp
   PageRank-percentile hub, blast size, test gap, surprising cross-community
   coupling, dangling imports). Needs a fresh index — fails closed when a
   changed file drifted since the build. Empty diff exits 0.
-- **embed** — build/refresh `vectors.json` for semantic `find` (optional, needs
-  a provider — see below). Incremental: unchanged modules keep their vectors.
+- **embed** — build/refresh `vectors.json` for semantic `find` (optional, no key
+  and no provider to run — see below). Incremental: unchanged modules keep their
+  vectors.
 - **neighbors** — walk the graph from a file or module.
 - **map** — print `INDEX.md` (or one module's entry) cheaply.
 - **status** — the enrichment work-queue: which modules to enrich next
@@ -128,15 +192,22 @@ ultraindex mcp
   claim↔citation worklist, adjudicate each (supported / partial / refuted /
   unsupported), then `--apply` reduces the verdicts to a pass/fail — so a cited
   excerpt must actually *support* its claim, not merely resolve.
-- **mcp** — run the same bundle as an MCP server over stdio (see
-  [MCP server](#mcp-server) above).
+- **orchestrate** — emit the multi-agent fan-out for the CURRENT index state
+  into `<out>/orchestration/`: one workflow script per ready phase (`enrich` =
+  the `status` work-queue; `verify-answer` = the claim↔citation worklist), the
+  dispatch contracts, and a sequential `RUNBOOK.md` fallback. Deterministic and
+  idempotent — re-run it whenever the queue changes.
+- **grammars** `[status|pull]` — inspect or pre-warm the tree-sitter wasm cache.
+  `build` pulls on first use, so this is only for going offline or diagnostics.
 
 Default output is `<repo>/.ultraindex` (gitignored). Use `--out docs/ultraindex`
 to commit a PR-reviewable index — deterministic, byte-stable rebuilds keep diffs small.
 
 ## How it works
 
-A **deterministic engine** (no model, no keys) does the mechanical work:
+The **vendored codeindex engine** (no model, no keys) does all the mechanical
+work below. None of it is authored here — see [Two repos, one
+boundary](#two-repos-one-boundary):
 
 - **Scan** — gitignore-aware walk; per-file extraction of markdown (title /
   headings / links) and code. Symbols come from **tree-sitter** (AST-exact: real
@@ -161,7 +232,8 @@ A **deterministic engine** (no model, no keys) does the mechanical work:
   unique exported symbol without importing it. Unresolved local targets become
   **dangling** edges (surfaced, never silently dropped); third-party/stdlib and
   asset imports are external (no edge).
-- **Graph** — typed edges (`doc-link`, `import`, conservative `mention`),
+- **Graph** — typed edges (`import`, `call`, `use`, `doc-link`, conservative
+  `mention` — the set `neighbors --kind` filters on),
   file-level and lifted to module level; deterministic **PageRank** ranks the
   hubs and **Brandes betweenness** finds the bridges between subsystems, a
   derived **tests→code** map records which tests cover each module, and Louvain
@@ -170,7 +242,7 @@ A **deterministic engine** (no model, no keys) does the mechanical work:
   `ui:gen` regions and author-owned `ui:human` regions, plus `graph.json` /
   `graph.mmd` / `manifest.json`.
 
-Then a **grounded AI layer** (the skills, via the agent) adds the *understanding*:
+Then a **grounded AI layer** (this skill, via the agent) adds the *understanding*:
 `dossier`/`ask` hand the agent the real source, it writes business analysis /
 answers that cite `[file:line]`, and `check` mechanically **rejects any citation
 that doesn't resolve** — the anti-hallucination guard (ultradoc's model, applied
@@ -194,63 +266,77 @@ a conservative stemmer bridges plural/-ing variants, and a small code-domain
 synonym table bridges `auth`↔`authentication`↔`login` — all deterministic,
 offline, dependency-free.
 
-## Measured token savings
+## Measured cost of an explained, grounded answer
 
-`evals/token-savings/run.mjs` meters three representative agent tasks
-end-to-end — counting every byte of output the agent would read, tokens =
-ceil(chars/4) — against a naive baseline (ripgrep the symbol, read each matched
-file in full). On the pinned fixture `tests/fixtures/mini-repo`:
+`evals/token-savings/run.mjs` meters what ultraindex alone provides. It used to
+compare `symbols`/`impact` against ripgrep — but that is *retrieval*, which is
+the codeindex engine's job and is benchmarked
+[there](https://github.com/maxgfr/codeindex/blob/main/BENCHMARKS.md). Measuring
+it here was crediting ultraindex with the engine's work.
+
+What it measures now: the tokens an agent spends reaching an **explained** and
+**founded** answer, counting every byte it would read (tokens = ceil(chars/4)),
+against a naive read-the-source baseline. Run on **this repository**:
 
 | Task | ultraindex tokens | baseline tokens | ratio (baseline / ultraindex) |
 | --- | ---: | ---: | ---: |
-| where is symbol `backoff` defined | 30 | 296 | 9.87× |
-| who calls `backoff` | 74 | 296 | 4× |
-| overview of module `src` | 398 | 146 | 0.37× |
-| **total** | **502** | **738** | **1.47×** |
+| what does module `src` do, and why does it exist | 3 863 | 185 854 | 48.1× |
+| how does the citation grounding gate work | 20 324 | 716 976 | 35.3× |
+| **total** | **24 187** | **902 830** | **37.3×** |
 
-The one-off index build costs ~60 ms and 84 output tokens on the fixture —
-reported separately because it amortizes across every subsequent task. Two
-honest caveats: the module-overview task *loses* on the fixture (the generated
-encyclopedia entry, ~1.6 KB, is richer than the module's entire raw source,
-~600 B), and per-query wall-clock is slower there (~25–50 ms vs ~5 ms — node
-startup dominates on a tiny repo). Both are fixture-size artifacts: the same
-eval run on this repository itself measured 4873×, 1364× and 47× (total 213×;
-build overhead 532 ms / 86 tokens). Ratios grow with repo size; the tiny
-fixture is the worst case.
+Two things that table deliberately does not flatter:
+
+- **It understates the first row.** After 185 854 tokens the baseline has read
+  every file and still cannot say *why* the module exists — that is nowhere in
+  the source. The entry answers it in 3 863.
+- **On a small repo ultraindex LOSES, and the eval says so.** On the pinned
+  fixture (`tests/fixtures/mini-repo`, 14 tiny files) the total is **0.43×** —
+  the index costs more than the thing it indexes. The run prints that verdict
+  rather than hiding it. If a repo fits in your context window, you do not need
+  this tool.
+
+The grounding gate is reported as a capability, not a ratio: a resolvable
+citation exits 0, an unresolvable one exits 1, and the baseline has no
+equivalent — a search tool has nothing to check a claim against. Inventing a
+speedup there would be exactly the unearned claim this project exists to
+prevent.
+
+One-off costs are never folded into a task: index build ~600 ms / 86 output
+tokens on this repo, plus the enrichment pass itself.
 
 Reproduce with `node evals/token-savings/run.mjs` (defaults pin the fixture;
-`--repo <dir> --symbol <name> --module <slug> --module-path <dir>` retarget it).
+`--repo <dir> --module <slug> --module-path <dir> --question "<q>"` retarget it).
 
-## Semantic search (optional)
+## Semantic search (optional, keyless)
 
 Lexical search can't bridge a real vocabulary gap ("invoicing" vs a module that
 only ever says "billing"). The optional semantic layer embeds each module and
-makes `find` **hybrid**: lexical and cosine rankings fused with Reciprocal Rank
-Fusion. It is strictly additive — without it, nothing changes and the engine
-never touches the network.
+makes `find` **hybrid**: lexical and semantic rankings fused with Reciprocal
+Rank Fusion. It is strictly additive — without it, nothing changes.
+
+There is **no API key and no provider to stand up**. The embedding tiers belong
+to the vendored codeindex engine; ultraindex only decides what gets embedded —
+one vector per module, folding in the prose you wrote, which is the one signal a
+file-level index cannot have.
 
 ```bash
-docker compose up -d                                    # local Ollama, no API key, multi-arch
-export ULTRAINDEX_EMBED_BASE_URL=http://localhost:11434/v1
-export ULTRAINDEX_EMBED_MODEL=nomic-embed-text
-ultraindex embed                                        # writes vectors.json (incremental)
-ultraindex find "invoicing"                             # now hybrid — results carry semanticRank
+ultraindex embed                # pulls the keyless model on first use, writes vectors.json
+ultraindex find "invoicing"     # now hybrid — results carry semanticRank
 ```
 
-Any OpenAI-compatible `POST /v1/embeddings` endpoint is a drop-in provider:
-huggingface text-embeddings-inference on amd64/GPU hosts
-(`http://localhost:8080/v1`, `BAAI/bge-small-en-v1.5`), or a hosted API
-(`https://api.openai.com/v1`, `text-embedding-3-small`, plus
-`ULTRAINDEX_EMBED_API_KEY`). Instead of env vars you can write
-`<out>/semantic.json` (`{"baseUrl": …, "model": …}`) — but keep API keys in the
-env, never in a committed `semantic.json` (mind `docs/ultraindex` indexes).
+Precedence is the engine's: **endpoint > static > none**. Prefer a richer local
+model? `codeindex embed serve` prints the container one-liner; then set
+`CODEINDEX_EMBED_ENDPOINT` — setting it is explicit intent, so it wins over the
+local model.
 
-Degradation is graceful: provider down ⇒ lexical-only results + a stderr
-warning; no `vectors.json` ⇒ pure lexical, silent, zero network (delete the
-file to switch the layer off). `check` warns when vectors drift stale.
-**Reproducibility caveat:** two artifacts are excluded from the byte-identical
-rebuild guarantee — `manifest.json` (its `builtAt` timestamp) and `vectors.json`
-(its floats depend on the provider/model).
+Degradation is graceful: endpoint unreachable ⇒ lexical-only results + a stderr
+warning; no `vectors.json` ⇒ pure lexical, silent, zero network (delete the file
+to switch the layer off). `check` warns when vectors drift stale.
+**Reproducibility:** `manifest.json` is the only artifact outside the
+byte-identical rebuild guarantee (its `builtAt` timestamp). `vectors.json` is
+*inside* it on the static tier — the encoder is a pure lookup table with
+banker's rounding and integer ranking. Only the endpoint tier, whose floats come
+from a server, falls outside.
 
 ## Develop
 
