@@ -13351,7 +13351,7 @@ ${HELP}`);
 }
 
 // src/types.ts
-var VERSION = "6.0.0";
+var VERSION = "6.0.1";
 var SCHEMA_VERSION2 = 4;
 
 // src/build.ts

@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [6.0.1](https://github.com/maxgfr/ultraindex/compare/v6.0.0...v6.0.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* **delta:** stop refusing forever on a file the indexer never indexes ([961388f](https://github.com/maxgfr/ultraindex/commit/961388f8f1bce9a4b2c201f7937a0f487dee6f70))
+
 # [6.0.0](https://github.com/maxgfr/ultraindex/compare/v5.8.0...v6.0.0) (2026-07-25)
 
 
