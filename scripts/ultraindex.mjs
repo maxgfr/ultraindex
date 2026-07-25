@@ -13981,6 +13981,7 @@ function proseFreshness(rec, liveDigest, members, hashes) {
   if (liveDigest === "") return "none";
   if (!rec) return "unknown";
   if (rec.digest !== liveDigest) return "fresh";
+  if (rec.baselined) return "unknown";
   return proseSourceHash(members, hashes) === rec.source ? "fresh" : "stale";
 }
 
@@ -14003,19 +14004,19 @@ function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = [], fil
     const prevMod = prev?.modules[m.slug] ?? (from ? prev?.modules[from] : void 0);
     const digest = sync.proseDigests[m.slug];
     if (digest) {
-      const carried = prevMod?.prose?.digest === digest ? prevMod.prose.source : void 0;
-      entry.prose = { digest, source: carried ?? proseSourceHash(m.members, fileHashes) };
+      const priorProse = prevMod?.prose;
+      const carried = priorProse?.digest === digest ? priorProse.source : void 0;
+      const unearned = carried === void 0 && prev === void 0;
+      const keepFlag = carried !== void 0 && priorProse?.baselined === true;
+      entry.prose = {
+        digest,
+        source: carried ?? proseSourceHash(m.members, fileHashes),
+        ...unearned || keepFlag ? { baselined: true } : {}
+      };
     } else if (prevMod?.prose) {
       entry.prose = prevMod.prose;
     }
     modules[m.slug] = entry;
-  }
-  const baselined = prev === void 0 ? Object.keys(sync.proseDigests).length : 0;
-  const notes = [...extraNotes];
-  if (baselined > 0) {
-    notes.push(
-      `prose freshness baselined without evidence for ${baselined} entr${baselined === 1 ? "y" : "ies"} \u2014 no previous manifest.json to compare against, so their source pointers were stamped from the current state; re-verify anything you rely on`
-    );
   }
   const communityMembers = /* @__PURE__ */ new Map();
   for (const m of graph.modules) {
@@ -14040,7 +14041,7 @@ function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = [], fil
     fileHashes: sortedRecord(fileHashes),
     modules: sortedRecord(modules),
     orphaned: sync.orphaned.slice().sort(byStr),
-    notes: [...notes, ...sync.notes],
+    notes: [...extraNotes, ...sync.notes],
     ...Object.keys(communities).length ? { communities: sortedRecord(communities) } : {},
     ...Object.keys(scanFilters).length ? { scan: scanFilters } : {}
   };
@@ -15671,11 +15672,11 @@ function runCheck(outDir, repo, opts = {}) {
     warnings.push(`orphaned prose kept at encyclopedia/_orphaned/${slug}.md (module removed)`);
   }
   for (const note of manifest.notes) {
-    if (/conflict|unparseable|baselined/i.test(note)) warnings.push(note);
+    if (/conflict|unparseable/i.test(note)) warnings.push(note);
   }
   if (proseUnknown.length) {
     warnings.push(
-      `${proseUnknown.length} enriched entr(y|ies) have no recorded source state (index predates prose tracking) \u2014 run \`ultraindex build\``
+      `${proseUnknown.length} enriched entr${proseUnknown.length === 1 ? "y" : "ies"} cannot be verified for freshness (${proseUnknown.slice(0, 5).join(", ")}) \u2014 no recorded source state, or one stamped without evidence because manifest.json was missing. Revising the prose earns a real stamp.`
     );
   }
   const stale = changed.length + added.length + removed.length > 0;

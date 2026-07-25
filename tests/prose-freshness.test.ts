@@ -29,7 +29,7 @@ function enrich(slug: string, body: string): void {
   writeFileSync(path, next);
 }
 
-function proseOf(slug: string): { digest: string; source: string } | undefined {
+function proseOf(slug: string): { digest: string; source: string; baselined?: true } | undefined {
   return loadManifest(out)?.modules[slug]?.prose;
 }
 
@@ -245,7 +245,7 @@ describe("prose freshness end to end", () => {
     expect(strip(readFileSync(join(out, "manifest.json"), "utf8"))).toBe(a);
   });
 
-  it("admits it has no evidence when the manifest is deleted, instead of stamping silently", () => {
+  it("refuses to claim freshness from a pointer stamped without evidence", () => {
     build();
     enrich("src", "Handles login. [src/auth.ts:1]");
     build();
@@ -254,25 +254,38 @@ describe("prose freshness end to end", () => {
     expect(runCheck(out, repo).proseStale).toEqual(["src"]);
 
     // Deleting manifest.json destroys the only record of what the prose was
-    // written against, so the rebuild HAS to stamp the pointer from the current
-    // state — which on its own would quietly turn this stale entry into a fresh
-    // one. It cannot recover the evidence, but it must not pretend to have it.
+    // written against. The rebuild has to stamp the pointer from the current
+    // state, which on its own would quietly turn this stale entry fresh. It
+    // cannot recover the evidence, so it records that it never had any.
     rmSync(join(out, "manifest.json"));
     build();
-    const notes = loadManifest(out)!.notes;
-    expect(notes.some((n) => /baselined without evidence/.test(n))).toBe(true);
-    expect(runCheck(out, repo).warnings.some((w) => /baselined without evidence/.test(w))).toBe(true);
+    expect(proseOf("src")?.baselined).toBe(true);
+    const res = runCheck(out, repo);
+    expect(res.proseStale).toEqual([]);
+    expect(res.proseUnknown).toEqual(["src"]); // unknown, never fresh
+    expect(res.ok).toBe(true);
 
-    // Self-clearing: the next build has a record to compare against.
+    // The flag PERSISTS — it is a property of the pointer, not of one build — so
+    // consecutive builds of an unchanged repo stay byte-identical.
+    const strip = (s: string): string => s.replace(/"builtAt": "[^"]*"/, '"builtAt": "-"');
+    const a = strip(readFileSync(join(out, "manifest.json"), "utf8"));
     build();
-    expect(loadManifest(out)!.notes.some((n) => /baselined/.test(n))).toBe(false);
+    expect(strip(readFileSync(join(out, "manifest.json"), "utf8"))).toBe(a);
+    expect(runCheck(out, repo).proseUnknown).toEqual(["src"]);
+
+    // Revising the prose earns a real stamp and clears the flag.
+    enrich("src", "Handles login, revised against current source. [src/auth.ts:1]");
+    build();
+    expect(proseOf("src")?.baselined).toBeUndefined();
+    expect(runCheck(out, repo).proseUnknown).toEqual([]);
   });
 
-  it("does not warn about baselining on an ordinary first enrichment", () => {
+  it("does not flag an ordinary first enrichment as unearned", () => {
     build();
     enrich("src", "Handles login. [src/auth.ts:1]");
     build(); // prev manifest exists — stamping current source is correct here
-    expect(loadManifest(out)!.notes.some((n) => /baselined/.test(n))).toBe(false);
+    expect(proseOf("src")?.baselined).toBeUndefined();
+    expect(runCheck(out, repo).proseUnknown).toEqual([]);
   });
 
   it("reports prose with no recorded source state as unknown, not as fresh", () => {

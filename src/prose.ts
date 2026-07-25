@@ -45,7 +45,7 @@ export type ProseFreshness =
 // The ONE predicate, used identically by `check` (live hashes) and `status`
 // (the manifest's hashes). `liveDigest` is the digest of the prose ON DISK NOW.
 export function proseFreshness(
-  rec: { digest: string; source: string } | undefined,
+  rec: { digest: string; source: string; baselined?: true } | undefined,
   liveDigest: string,
   members: string[],
   hashes: Record<string, string>,
@@ -62,5 +62,9 @@ export function proseFreshness(
   // new as that record. Without this branch, revising an entry and then running
   // `status` before rebuilding would report the just-written prose as stale.
   if (rec.digest !== liveDigest) return "fresh";
+  // The pointer was stamped without evidence, so a match against it proves
+  // nothing: it was stamped FROM the state it is now being compared to. Only a
+  // revision (which moves the digest, handled above) can earn a verdict.
+  if (rec.baselined) return "unknown";
   return proseSourceHash(members, hashes) === rec.source ? "fresh" : "stale";
 }

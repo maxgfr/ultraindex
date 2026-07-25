@@ -53,6 +53,14 @@ export { EXTRACTOR_VERSION } from "./engine.js";
 export interface ProseState {
   digest: string; // fingerprint of the enriched human regions themselves
   source: string; // fingerprint of the member files at the build where `digest` last moved
+  // Set when `source` was stamped with NO evidence behind it — the build had no
+  // previous manifest to carry a pointer from (manifest.json was deleted, or the
+  // index predates prose tracking), so the pointer describes whatever the source
+  // happened to be at that moment rather than what the prose was written
+  // against. Persists until the prose is revised, at which point the stamp is
+  // earned and the flag goes. `proseFreshness` reports such an entry as
+  // "unknown", never "fresh".
+  baselined?: true;
 }
 
 // Per-build bookkeeping, persisted as manifest.json. The staleness oracle

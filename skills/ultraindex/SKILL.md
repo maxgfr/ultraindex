@@ -37,7 +37,9 @@ codeindex; they do not need this skill for that.**
 >    that has since changed still reads as true, and downstream trusts it MORE.
 >    `check` and `status` report, per entry, whether its prose predates its
 >    source. A stale entry is **unverified**: don't quote it and don't build on
->    it. Re-run `dossier <slug>`, revise the prose, then `check`.
+>    it. Re-run `dossier <slug>`, revise the prose, then `check`. An entry
+>    reported as *unverifiable* (no recorded source state, or one stamped when
+>    `manifest.json` was missing) is not a pass either — nothing proves it fresh.
 
 Most commands accept `--json` — prefer it whenever you branch on the result
 rather than read it as prose.

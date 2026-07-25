@@ -138,11 +138,13 @@ export function runCheck(outDir: string, repo: string, opts: CheckOptions = {}):
     warnings.push(`orphaned prose kept at encyclopedia/_orphaned/${slug}.md (module removed)`);
   }
   for (const note of manifest.notes) {
-    if (/conflict|unparseable|baselined/i.test(note)) warnings.push(note);
+    if (/conflict|unparseable/i.test(note)) warnings.push(note);
   }
   if (proseUnknown.length) {
     warnings.push(
-      `${proseUnknown.length} enriched entr(y|ies) have no recorded source state (index predates prose tracking) — run \`ultraindex build\``,
+      `${proseUnknown.length} enriched entr${proseUnknown.length === 1 ? "y" : "ies"} cannot be verified for freshness ` +
+        `(${proseUnknown.slice(0, 5).join(", ")}) — no recorded source state, or one stamped without evidence ` +
+        "because manifest.json was missing. Revising the prose earns a real stamp.",
     );
   }
 

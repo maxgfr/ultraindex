@@ -44,8 +44,26 @@ export function buildManifest(
       // the source it was actually written against, even though the source may
       // have moved underneath it. A moved digest means it was edited since the
       // last build, so it was written against the source as of now.
-      const carried = prevMod?.prose?.digest === digest ? prevMod.prose.source : undefined;
-      entry.prose = { digest, source: carried ?? proseSourceHash(m.members, fileHashes) };
+      const priorProse = prevMod?.prose;
+      const carried = priorProse?.digest === digest ? priorProse.source : undefined;
+      // Stamping with no prior manifest AT ALL is a pointer with nothing behind
+      // it: manifest.json was deleted, or the index predates this tracking, so
+      // it records whatever the source happens to be now rather than what the
+      // prose was written against. Flag it — a match against such a pointer
+      // proves nothing, because it was stamped FROM the state it would be
+      // compared to. Whole-manifest on purpose: a per-module "no prior record"
+      // also fires on ordinary first enrichment, where stamping current source
+      // IS correct, and a warning on every healthy first build is one people
+      // learn to ignore.
+      const unearned = carried === undefined && prev === undefined;
+      // Carry the flag with the pointer; a revision (digest moved) earns a fresh
+      // stamp and clears it.
+      const keepFlag = carried !== undefined && priorProse?.baselined === true;
+      entry.prose = {
+        digest,
+        source: carried ?? proseSourceHash(m.members, fileHashes),
+        ...(unearned || keepFlag ? { baselined: true as const } : {}),
+      };
     } else if (prevMod?.prose) {
       // No digest this build, but there was a record. Carry it forward VERBATIM.
       //
@@ -63,27 +81,6 @@ export function buildManifest(
       entry.prose = prevMod.prose;
     }
     modules[m.slug] = entry;
-  }
-
-  // Prose baselining. A stamped source pointer asserts "this prose was written
-  // against this source". When there is no PREVIOUS MANIFEST at all but entries
-  // already carry prose, that assertion is unearned: manifest.json was deleted
-  // (or the index predates prose tracking), so the pointer is being stamped from
-  // whatever the source happens to be now — which silently turns a stale entry
-  // into a fresh-looking one.
-  //
-  // The condition is deliberately whole-manifest, not per-module. A per-module
-  // "no prior record" fires on ordinary first enrichment, where stamping the
-  // current state IS correct — that mistake would put a warning on every healthy
-  // first build and train people to ignore it.
-  const baselined = prev === undefined ? Object.keys(sync.proseDigests).length : 0;
-  const notes = [...extraNotes];
-  if (baselined > 0) {
-    notes.push(
-      `prose freshness baselined without evidence for ${baselined} entr${baselined === 1 ? "y" : "ies"} — ` +
-        "no previous manifest.json to compare against, so their source pointers were stamped from the " +
-        "current state; re-verify anything you rely on",
-    );
   }
 
   // Navigation communities: community-id string → sorted member slugs. Recorded so
@@ -119,7 +116,7 @@ export function buildManifest(
     fileHashes: sortedRecord(fileHashes),
     modules: sortedRecord(modules),
     orphaned: sync.orphaned.slice().sort(byStr),
-    notes: [...notes, ...sync.notes],
+    notes: [...extraNotes, ...sync.notes],
     ...(Object.keys(communities).length ? { communities: sortedRecord(communities) } : {}),
     ...(Object.keys(scanFilters!).length ? { scan: scanFilters } : {}),
   };
