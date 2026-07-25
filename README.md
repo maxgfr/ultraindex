@@ -266,32 +266,46 @@ a conservative stemmer bridges plural/-ing variants, and a small code-domain
 synonym table bridges `auth`↔`authentication`↔`login` — all deterministic,
 offline, dependency-free.
 
-## Measured token savings
+## Measured cost of an explained, grounded answer
 
-`evals/token-savings/run.mjs` meters three representative agent tasks
-end-to-end — counting every byte of output the agent would read, tokens =
-ceil(chars/4) — against a naive baseline (ripgrep the symbol, read each matched
-file in full). On the pinned fixture `tests/fixtures/mini-repo`:
+`evals/token-savings/run.mjs` meters what ultraindex alone provides. It used to
+compare `symbols`/`impact` against ripgrep — but that is *retrieval*, which is
+the codeindex engine's job and is benchmarked
+[there](https://github.com/maxgfr/codeindex/blob/main/BENCHMARKS.md). Measuring
+it here was crediting ultraindex with the engine's work.
+
+What it measures now: the tokens an agent spends reaching an **explained** and
+**founded** answer, counting every byte it would read (tokens = ceil(chars/4)),
+against a naive read-the-source baseline. Run on **this repository**:
 
 | Task | ultraindex tokens | baseline tokens | ratio (baseline / ultraindex) |
 | --- | ---: | ---: | ---: |
-| where is symbol `backoff` defined | 30 | 296 | 9.87× |
-| who calls `backoff` | 74 | 296 | 4× |
-| overview of module `src` | 398 | 146 | 0.37× |
-| **total** | **502** | **738** | **1.47×** |
+| what does module `src` do, and why does it exist | 3 863 | 185 854 | 48.1× |
+| how does the citation grounding gate work | 20 324 | 716 976 | 35.3× |
+| **total** | **24 187** | **902 830** | **37.3×** |
 
-The one-off index build costs ~60 ms and 84 output tokens on the fixture —
-reported separately because it amortizes across every subsequent task. Two
-honest caveats: the module-overview task *loses* on the fixture (the generated
-encyclopedia entry, ~1.6 KB, is richer than the module's entire raw source,
-~600 B), and per-query wall-clock is slower there (~25–50 ms vs ~5 ms — node
-startup dominates on a tiny repo). Both are fixture-size artifacts: the same
-eval run on this repository itself measured 4873×, 1364× and 47× (total 213×;
-build overhead 532 ms / 86 tokens). Ratios grow with repo size; the tiny
-fixture is the worst case.
+Two things that table deliberately does not flatter:
+
+- **It understates the first row.** After 185 854 tokens the baseline has read
+  every file and still cannot say *why* the module exists — that is nowhere in
+  the source. The entry answers it in 3 863.
+- **On a small repo ultraindex LOSES, and the eval says so.** On the pinned
+  fixture (`tests/fixtures/mini-repo`, 14 tiny files) the total is **0.43×** —
+  the index costs more than the thing it indexes. The run prints that verdict
+  rather than hiding it. If a repo fits in your context window, you do not need
+  this tool.
+
+The grounding gate is reported as a capability, not a ratio: a resolvable
+citation exits 0, an unresolvable one exits 1, and the baseline has no
+equivalent — a search tool has nothing to check a claim against. Inventing a
+speedup there would be exactly the unearned claim this project exists to
+prevent.
+
+One-off costs are never folded into a task: index build ~600 ms / 86 output
+tokens on this repo, plus the enrichment pass itself.
 
 Reproduce with `node evals/token-savings/run.mjs` (defaults pin the fixture;
-`--repo <dir> --symbol <name> --module <slug> --module-path <dir>` retarget it).
+`--repo <dir> --module <slug> --module-path <dir> --question "<q>"` retarget it).
 
 ## Semantic search (optional, keyless)
 
