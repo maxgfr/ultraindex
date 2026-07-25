@@ -1,13 +1,19 @@
 # ultraindex
 
-> Deterministically index a whole repo (code **+** docs) into a navigable
-> encyclopedia — a small map, per-module entries, and a typed link-graph — so an
-> AI can work in huge codebases **without filling its context window**.
+> **[codeindex](https://github.com/maxgfr/codeindex) tells you where things are.
+> ultraindex tells you what they mean — and proves it.**
+>
+> The verified knowledge layer an AI agent writes on top of the codeindex
+> engine: a durable, per-module encyclopedia of what a repo *means*, where every
+> sentence must cite real source and every citation is mechanically checked.
 
-On a large project the model's context fills before it can find what matters.
-`ultraindex` scans the entire repo **with code** (a zero-dependency Node bundle —
-no `npm install`, no API keys, no LLM read of the repo) and writes a *layered*
-artifact you load piece by piece:
+Search answers questions whose answers are already in the code. *Why does this
+module exist? What breaks in the product if it's wrong?* — nobody wrote that
+down. A model has to work it out, and then it has to live somewhere that
+survives the session, the context window, and the next refactor.
+
+That is what `ultraindex` builds: a *layered* artifact you load piece by piece,
+whose prose regions the model owns and the tooling refuses to let it fake.
 
 ```
 .ultraindex/
@@ -23,6 +29,74 @@ artifact you load piece by piece:
   vectors.json          # optional per-module embeddings (`embed`, keyless)
   orchestration/        # optional multi-agent fan-out (`orchestrate`): workflows, contracts, RUNBOOK
 ```
+
+## Two repos, one boundary
+
+ultraindex is built on **[codeindex](https://github.com/maxgfr/codeindex)** and
+vendors it verbatim — `src/vendor/codeindex-engine.mjs`, byte-pinned by sha256
+in `engine.meta.json`, re-pinned automatically on every codeindex release. The
+split between the two projects is a rule, not a habit:
+
+- **codeindex is the engine, and no model is ever in the loop.** Walking the
+  repo, extracting symbols (tree-sitter for 13 languages, regex for 15),
+  resolving imports across 9 ecosystems, the typed link-graph, PageRank and
+  betweenness, Louvain communities, the tests→code map, BM25 and keyless
+  deterministic semantic search, SCIP output, repo maps, and its own MCP server.
+  Deterministic, zero-dependency, keyless. **If a capability returns the same
+  answer whether or not an AI is present, it belongs to codeindex.**
+
+- **ultraindex exists only because a model is in the loop.** Its whole surface
+  is about a model's *understanding* of a repo and whether that understanding
+  can be trusted: the encyclopedia (durable memory that outlives every context
+  window), grounded evidence assembly (`dossier`, `ask`), the citation and
+  support-check gates (`check`, `verify`), the enrichment work-queue (`status`),
+  multi-agent fan-out (`orchestrate`), and the skill prompt layer. **Nothing
+  here would still make sense with no LLM present.**
+
+The rule has a consequence we hold ourselves to: **when ultraindex needs a
+deterministic capability, it gets contributed upstream to codeindex rather than
+reimplemented here.** That is why ultraindex has no search engine, no parser and
+no graph code of its own, why it is small enough to read in an afternoon, and
+why "re-pin the engine" is a boring automated event rather than a merge.
+
+**Which one do you want?**
+
+| You want to… | Use |
+|---|---|
+| Find code, symbols, callers, references, a repo map — fast, offline, no model | **[codeindex](https://github.com/maxgfr/codeindex). You don't need ultraindex.** |
+| Have an agent *understand* a codebase, write that understanding down so it survives the session, and be structurally unable to claim anything it can't back with a real `[file:line]` | **ultraindex** |
+
+### Why not just codeindex, or its MCP server?
+
+Use it. codeindex's MCP server is excellent and ultraindex ships the same engine
+underneath: 26 deterministic tools answering *where* something is and *what
+exists*. Every question already answered by the code, it answers — faster and
+more cheaply than any model could.
+
+ultraindex is for the questions whose answers are **not** in the code:
+
+**"Why does this module exist, and what breaks if it's wrong?"** That is
+`encyclopedia/<slug>.md`. Generated regions are the engine's and are rebuilt
+every time; `ui:human` regions are yours — preserved across every rebuild,
+migrated across module renames, and never deleted (a removed module's prose is
+kept under `encyclopedia/_orphaned/`).
+
+**"Is that explanation actually true?"** A tool that returns source cannot tell
+you whether the paragraph a model wrote *about* it is supported by it. `check`
+fails on any `[file:line]` that doesn't resolve — and decorative citations
+inside code fences don't count. `verify` goes further: it emits a claim↔citation
+worklist, a model adjudicates each pair against the real excerpt, and the gate
+re-reduces the verdict from the raw `verdicts[]` while re-reading every excerpt
+from the live repo — so a doctored `VERIFY.json` or drifted source fails rather
+than passes.
+
+**"What should the model do next, and in what order?"** `status` is a
+work-queue ordered by where an explanation buys the most navigation value;
+`orchestrate` fans it out to subagents with real contracts and a sequential
+fallback. Retrieval has no notion of unfinished work.
+
+Search retrieves. ultraindex **accumulates** — and refuses to accumulate
+anything it can't prove.
 
 ## Install
 
@@ -131,7 +205,9 @@ to commit a PR-reviewable index — deterministic, byte-stable rebuilds keep dif
 
 ## How it works
 
-A **deterministic engine** (no model, no keys) does the mechanical work:
+The **vendored codeindex engine** (no model, no keys) does all the mechanical
+work below. None of it is authored here — see [Two repos, one
+boundary](#two-repos-one-boundary):
 
 - **Scan** — gitignore-aware walk; per-file extraction of markdown (title /
   headings / links) and code. Symbols come from **tree-sitter** (AST-exact: real

@@ -1,24 +1,28 @@
 ---
 name: ultraindex
-description: "Use when a repo is too big to hold in context — to BUILD a compact, navigable, AI-analyzed map of it AND to NAVIGATE that map for later tasks or questions. Auto-routed: no index → it builds one; stale → it rebuilds; a task/question → it navigates. A deterministic zero-dependency engine scans the WHOLE repo (code + markdown) — no API keys, no LLM read of the repo — and emits a layered artifact: a small always-loadable INDEX.md, per-module encyclopedia entries, a typed link-graph, and a staleness manifest. You write grounded, citation-checked analysis per module (`dossier` hands you real source; `check`/`verify` REJECT citations that don't resolve — anti-hallucination), then answer questions with `find`/`neighbors`/`ask`, loading only the files a task needs. Optional local semantic search. Triggers: 'index/map/analyze this codebase', 'where is X handled', 'how does Z work in this repo', 'which files do I change for Z', 'review this branch/PR', 'this repo is too big for context'."
+description: "Use when an AI agent must UNDERSTAND a big repo, not merely search it — and its claims must be provable. ultraindex is the verified knowledge layer over codeindex, the deterministic zero-dep engine it vendors: codeindex tells you WHERE things are, ultraindex tells you what they MEAN and proves it. It builds an encyclopedia (a small always-loadable INDEX.md plus per-module entries): generated regions rebuild every time, human regions hold YOUR cited analysis, preserved across rebuilds and renames. dossier/ask hand you real source to write from; check REJECTS any [file:line] citation that does not resolve; verify proves each cited excerpt supports its claim. status is the enrichment work-queue, orchestrate fans it out to subagents. Triggers: index/map/document/analyze this codebase, where is X handled, how does Z work in this repo, which files do I change for Z, review this branch/PR, this repo is too big for context. Want plain code search, no model in the loop? Use codeindex directly."
 license: MIT
 metadata:
   version: 5.8.0
 ---
 
-# ultraindex — build and navigate an AI-analyzed encyclopedia of a whole repo
+# ultraindex — the verified knowledge layer over codeindex
 
-On a huge repo the context window fills before you find what matters.
-`ultraindex` fixes that with a **division of labour**: the deterministic,
-zero-dependency engine (`node scripts/ultraindex.mjs <command>` — no
-`npm install`, no API keys, run `--help` for the full surface) does the
-*mechanical* work — scanning the project, building the link-graph, laying out
-the encyclopedia; **you** do the *understanding* — grounded, cited analysis —
-and later **navigate** the result instead of reading the repo.
+The mechanical work is not ours. `ultraindex` vendors
+**[codeindex](https://github.com/maxgfr/codeindex)** — a deterministic,
+zero-dependency, keyless engine — and *it* does the scanning, symbol
+extraction, import resolution and link-graph (`node scripts/ultraindex.mjs
+<command>` — no `npm install`, no API keys, run `--help` for the full surface).
+
+Everything ultraindex adds exists only because **you** are in the loop: the
+encyclopedia is your durable memory of this repo — it outlives the session and
+the context window — and the gates exist so nothing you write into it can be
+unfounded. **If the user only needs to find code fast, say so and point them at
+codeindex; they do not need this skill for that.**
 
 > **The core rules:**
-> 1. The engine owns the *code view* and the *graph* (`ui:gen` regions) —
->    regenerated every build; never hand-edit them.
+> 1. The **codeindex engine** owns the *code view* and the *graph* (`ui:gen`
+>    regions) — regenerated every build; never hand-edit them.
 > 2. You own the *business view* (`ui:human` regions). `build` preserves your
 >    prose across rebuilds and renames.
 > 3. **Analyze from evidence, not memory.** Write analysis only from the real
@@ -90,7 +94,7 @@ review of a branch is 2 → 4; a high-assurance answer adds → 5.
 - `ask "<question>" [--budget <n>]` — assemble grounded evidence to answer from; `--budget` caps the inlined source at ~n tokens (also on `dossier`).
 - `check [--answer <file>] [--semantic] [--quiet]` — staleness + integrity + **grounding** (citations must resolve). Non-zero exit ⇒ stale, broken, or ungrounded (`--quiet` suppresses output — exit code only). `--semantic` also folds the verify gate (fails a claim whose cited excerpt refutes it, or that is fully adjudicated with no support); it re-reduces the verdict from the raw `verdicts[]` and re-reads every adjudicated excerpt from the live repo — a doctored summary or drifted source fails, never passes.
 - `verify --answer <file> [--apply <verdicts.json>] [--max-verify <n>]` — the high-assurance gate **above** `check --answer`: emit a claim↔citation worklist for adversarial support-checking, then `--apply` reduces your verdicts to a pass/fail gate. See [references/verify.md](references/verify.md).
-- `embed [--force]` — build/refresh vectors.json for semantic `find` (needs a provider — see [references/semantic.md](references/semantic.md)).
+- `embed [--force]` — build/refresh vectors.json for semantic `find`. Keyless: pulls the model on first use, no provider to stand up (see [references/semantic.md](references/semantic.md)).
 - `orchestrate [--phase enrich|verify-answer] [--answer <file>] [--eco] [--list]` — emit the multi-agent fan-out (workflow scripts + dispatch contracts + a sequential RUNBOOK) into `<index>/orchestration/` from the CURRENT enrichment queue / verify worklist. See **Orchestration — route by harness**.
 
 ## Orchestration — route by harness
@@ -123,13 +127,18 @@ produces it.
 
 ## Scope notes
 
+- **Everything below is the vendored codeindex engine's**, not ultraindex's.
+  Report engine defects upstream; ultraindex owns the encyclopedia, the gates
+  (`check`/`verify`), the work-queue and the fan-out — nothing else.
 - **No keys, deterministic, offline after a one-time setup** — the only network
-  touches are the optional semantic layer (degrades to lexical when its provider
-  is absent) and the first-use tree-sitter grammars pull (see AST-exact symbols
-  below; degrades to the regex extractor offline, then reuses the shared cache).
-  Two builds of an unchanged repo are byte-identical except for `manifest.json`'s
-  `builtAt` provenance timestamp; `vectors.json` is also excluded (its floats
-  depend on the provider).
+  touches are two first-use pulls into shared per-machine caches: the
+  tree-sitter grammars (see AST-exact symbols below) and the optional embedding
+  model. Both are sha256-verified and both degrade rather than fail (regex
+  extractor; lexical-only `find`). Two builds of an unchanged repo are
+  byte-identical except for `manifest.json`'s `builtAt` provenance timestamp —
+  `vectors.json` included, since the static embedding tier is byte-deterministic.
+  Only the optional `CODEINDEX_EMBED_ENDPOINT` tier, whose floats come from a
+  server, falls outside that guarantee.
 - **AST-exact symbols** via tree-sitter grammars for JS/TS/TSX, Python, Go,
   Rust, Java, C, C++, C#, Ruby, PHP — real nesting, precise kinds, structural
   export. Other languages fall back to regex extractors (still searchable). The
