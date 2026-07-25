@@ -146,9 +146,17 @@ reflects the subagents' writes without a rebuild.
   file/line numbers against the real source. **Never delete a citation just to
   make `check` pass** — an uncited claim is worse than a failing one; if the
   evidence moved, re-read it and re-cite.
-- **`check` reports stale** — re-run `build`; your prose survives. Then run
-  `status` and re-visit only the modules whose member files changed
+- **`check` reports the INDEX stale** — re-run `build`; your prose survives.
+  Then run `status` and re-visit only the modules whose member files changed
   (`check --json` lists `changed`/`added`/`removed`).
+- **`check` reports PROSE stale** (`proseStale` in `--json`) — a rebuild does
+  NOT fix this, and that is the whole point: the code view refreshed, but a
+  model's *explanation* of those modules was written against source that has
+  since moved. Rebuilding only re-confirms it. For each listed slug: re-run
+  `dossier <slug>`, read the real source again, and REVISE the prose in place —
+  do not append a second explanation next to the outdated one. Then `check`.
+  Until you do, treat those entries as unverified: do not quote them, and if you
+  answer anyway, say which entries you did not re-verify.
 - **`build` reports orphaned prose** — a module was removed (or renamed in a
   way the migrator missed). Review `encyclopedia/_orphaned/<slug>.md` and fold
   anything still true into the successor module's entry by hand.
@@ -159,5 +167,13 @@ reflects the subagents' writes without a rebuild.
 ## Maintenance visits (the freshness loop)
 
 On returning to an already-indexed repo:
-`check --json` → if `stale`, `build` → `status` → enrich only what the change
-touched (new modules surface as unenriched; changed hubs deserve a re-read).
+`check --json` → if `stale`, `build` → `check --json` again → `status` → work
+the queue. `status` puts entries whose prose went stale FIRST, ahead of the
+never-enriched ones, because an outdated explanation misleads more than a
+missing one — `find` reports enriched prose as higher-trust and boosts it in
+ranking, so a stale entry is actively load-bearing. New modules surface as
+unenriched; changed hubs deserve a re-read either way.
+
+In CI, `check --prose` promotes stale prose from a warning to a failure. Use it
+on a committed `docs/ultraindex` index if the team wants explanations kept
+current; leave it off otherwise, since the state is persistent by nature.

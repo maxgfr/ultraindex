@@ -8,8 +8,12 @@ the risky changes, decide whether they are correct, and write grounded findings.
 ## Workflow
 
 1. **Build fresh — a hard precondition.** `delta` maps diff line numbers onto
-   the indexed symbols, so it FAILS CLOSED (exit 1) when any changed file
-   drifted since the last build:
+   the indexed symbols, so it FAILS CLOSED (exit 1) when a changed file the
+   index KNOWS has drifted from its recorded content — a wrong attribution
+   would be worse than refusing. A changed file the index has never seen does
+   not block (nothing can be misdescribed about it): those are reported in
+   `notes` and listed under `unindexed`, which is also what you get for a path
+   the walker skips by design, such as a vendored bundle.
 
    ```
    node scripts/ultraindex.mjs build --repo <dir> [--out <dir>]
