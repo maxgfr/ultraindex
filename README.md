@@ -14,11 +14,14 @@ artifact you load piece by piece:
   INDEX.md              # the map — always-loadable: summary, hubs, bridges, tests, module table
   encyclopedia/
     <module>.md         # per-module entry: business view + code view + links + sources
+    _orphaned/<m>.md    # prose of a module that disappeared — kept, never deleted
   graph.json            # the full typed link-graph (file + module level)
   symbols.json          # symbol → definition sites + referencing files (`symbols` cmd)
   graph.mmd             # a Mermaid module diagram
   manifest.json         # per-file hashes (staleness) + merge bookkeeping
   cache.json            # incremental-build extraction cache (regenerable; gitignore for committed indexes)
+  vectors.json          # optional per-module embeddings (`embed`, keyless)
+  orchestration/        # optional multi-agent fan-out (`orchestrate`): workflows, contracts, RUNBOOK
 ```
 
 ## Install
@@ -153,7 +156,8 @@ A **deterministic engine** (no model, no keys) does the mechanical work:
   unique exported symbol without importing it. Unresolved local targets become
   **dangling** edges (surfaced, never silently dropped); third-party/stdlib and
   asset imports are external (no edge).
-- **Graph** — typed edges (`doc-link`, `import`, conservative `mention`),
+- **Graph** — typed edges (`import`, `call`, `use`, `doc-link`, conservative
+  `mention` — the set `neighbors --kind` filters on),
   file-level and lifted to module level; deterministic **PageRank** ranks the
   hubs and **Brandes betweenness** finds the bridges between subsystems, a
   derived **tests→code** map records which tests cover each module, and Louvain
@@ -162,7 +166,7 @@ A **deterministic engine** (no model, no keys) does the mechanical work:
   `ui:gen` regions and author-owned `ui:human` regions, plus `graph.json` /
   `graph.mmd` / `manifest.json`.
 
-Then a **grounded AI layer** (the skills, via the agent) adds the *understanding*:
+Then a **grounded AI layer** (this skill, via the agent) adds the *understanding*:
 `dossier`/`ask` hand the agent the real source, it writes business analysis /
 answers that cite `[file:line]`, and `check` mechanically **rejects any citation
 that doesn't resolve** — the anti-hallucination guard (ultradoc's model, applied

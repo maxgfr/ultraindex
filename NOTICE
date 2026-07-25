@@ -1,0 +1,26 @@
+ultraindex
+Copyright (c) 2026 maxgfr
+Licensed under the MIT License (see LICENSE).
+
+--------------------------------------------------------------------------------
+Vendored third-party code
+--------------------------------------------------------------------------------
+
+This distribution embeds the codeindex engine verbatim. It is copied — not
+installed — into src/vendor/, and the build inlines it into the shipped bundle
+(scripts/ultraindex.mjs and its mirror under skills/ultraindex/scripts/), so the
+engine's bytes travel inside every artifact this project ships.
+
+  Component: codeindex (the deterministic repo-indexing engine)
+  Homepage:  https://github.com/maxgfr/codeindex
+  License:   MIT
+  Copyright: (c) 2026 maxgfr
+  Files:     src/vendor/codeindex-engine.mjs
+             src/vendor/codeindex-engine.d.mts
+
+The exact upstream revision is pinned, with sha256 digests of both files, in
+src/vendor/engine.meta.json. scripts/sync-engine.mjs --check re-hashes the
+vendored bytes against that pin offline; the daily engine-repin workflow moves
+the pin forward only when every gate of this repo stays green.
+
+Nothing in src/vendor/ is authored here. Report engine defects upstream.
