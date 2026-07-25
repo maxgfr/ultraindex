@@ -176,19 +176,103 @@ describe("prose freshness end to end", () => {
     expect(loadManifest(out)!.orphaned).toContain("src");
   });
 
-  it("stays byte-identical across rebuilds, and after the manifest is deleted", () => {
+  it("does not launder staleness through a mangled-then-repaired fence", () => {
+    build();
+    enrich("src", "Handles login. [src/auth.ts:1]");
+    build();
+    writeFileSync(join(repo, "src", "auth.ts"), "export function login(): void { /* moved on */ }\n");
+    build();
+    expect(runCheck(out, repo).proseStale).toEqual(["src"]);
+
+    // A hand-edit mangles a region fence. `build` refuses to rewrite the entry
+    // and reports no prose digest for it — so the manifest must KEEP the last
+    // known record rather than dropping it, otherwise repairing the fence
+    // re-stamps the pointer against current source and the stale prose comes
+    // back reporting fresh.
+    const entry = join(out, "encyclopedia", "src.md");
+    const good = readFileSync(entry, "utf8");
+    writeFileSync(entry, good + "\n<!-- /ui:human key=bogus -->\n");
+    build();
+    expect(proseOf("src"), "the record must survive an unreadable entry").toBeDefined();
+
+    writeFileSync(entry, good); // repair
+    build();
+    expect(runCheck(out, repo).proseStale, "still stale after the round trip").toEqual(["src"]);
+  });
+
+  it("reports a module whose member list grew as stale — the explanation is now partial", () => {
+    build();
+    enrich("src", "Handles login. [src/auth.ts:1]");
+    build();
+    expect(runCheck(out, repo).proseStale).toEqual([]);
+
+    // A new file joins the module. Nothing the prose cites changed, but the
+    // thing the prose DESCRIBES did: the module now contains something the
+    // explanation never accounted for. Intentional, and the reason
+    // proseSourceHash covers the member list and not just member content.
+    writeFileSync(join(repo, "src", "session.ts"), "export const ttl = 60;\n");
+    build();
+    expect(runCheck(out, repo).proseStale).toEqual(["src"]);
+  });
+
+  it("keeps staleness through a slug rename caused by a path collision", () => {
+    // `src/foo/bar` slugifies to `src-foo-bar`. Adding a sibling `src/foo-bar`
+    // collides on that slug, so the module's slug shifts — a rename nobody asked
+    // for. Staleness must survive it: the prose still describes source that
+    // moved, and a slug change is not evidence that anyone revisited it.
+    mkdirSync(join(repo, "src", "foo", "bar"), { recursive: true });
+    writeFileSync(join(repo, "src", "foo", "bar", "a.ts"), "export function helper(): number { return 1; }\n");
+    build();
+    enrich("src-foo-bar", "Shared helpers. [src/foo/bar/a.ts:1]");
+    build();
+    expect(runCheck(out, repo).proseStale).toEqual([]);
+
+    writeFileSync(join(repo, "src", "foo", "bar", "a.ts"), "export function helper(): number { return 2; }\n");
+    mkdirSync(join(repo, "src", "foo-bar"), { recursive: true });
+    writeFileSync(join(repo, "src", "foo-bar", "x.ts"), "export const x = 1;\n");
+    build();
+
+    expect(runCheck(out, repo).proseStale).toHaveLength(1);
+  });
+
+  it("stays byte-identical across rebuilds", () => {
     build();
     enrich("src", "Handles login. [src/auth.ts:1]");
     build();
     const strip = (s: string): string => s.replace(/"builtAt": "[^"]*"/, '"builtAt": "-"');
     const a = strip(readFileSync(join(out, "manifest.json"), "utf8"));
-
     build();
     expect(strip(readFileSync(join(out, "manifest.json"), "utf8"))).toBe(a);
+  });
 
+  it("admits it has no evidence when the manifest is deleted, instead of stamping silently", () => {
+    build();
+    enrich("src", "Handles login. [src/auth.ts:1]");
+    build();
+    writeFileSync(join(repo, "src", "auth.ts"), "export function login(): void { /* moved on */ }\n");
+    build();
+    expect(runCheck(out, repo).proseStale).toEqual(["src"]);
+
+    // Deleting manifest.json destroys the only record of what the prose was
+    // written against, so the rebuild HAS to stamp the pointer from the current
+    // state — which on its own would quietly turn this stale entry into a fresh
+    // one. It cannot recover the evidence, but it must not pretend to have it.
     rmSync(join(out, "manifest.json"));
     build();
-    expect(strip(readFileSync(join(out, "manifest.json"), "utf8"))).toBe(a);
+    const notes = loadManifest(out)!.notes;
+    expect(notes.some((n) => /baselined without evidence/.test(n))).toBe(true);
+    expect(runCheck(out, repo).warnings.some((w) => /baselined without evidence/.test(w))).toBe(true);
+
+    // Self-clearing: the next build has a record to compare against.
+    build();
+    expect(loadManifest(out)!.notes.some((n) => /baselined/.test(n))).toBe(false);
+  });
+
+  it("does not warn about baselining on an ordinary first enrichment", () => {
+    build();
+    enrich("src", "Handles login. [src/auth.ts:1]");
+    build(); // prev manifest exists — stamping current source is correct here
+    expect(loadManifest(out)!.notes.some((n) => /baselined/.test(n))).toBe(false);
   });
 
   it("reports prose with no recorded source state as unknown, not as fresh", () => {

@@ -138,7 +138,7 @@ export function runCheck(outDir: string, repo: string, opts: CheckOptions = {}):
     warnings.push(`orphaned prose kept at encyclopedia/_orphaned/${slug}.md (module removed)`);
   }
   for (const note of manifest.notes) {
-    if (/conflict|unparseable/i.test(note)) warnings.push(note);
+    if (/conflict|unparseable|baselined/i.test(note)) warnings.push(note);
   }
   if (proseUnknown.length) {
     warnings.push(

@@ -34,31 +34,57 @@ export function buildManifest(
       members: m.members,
       humanKeys: (sync.humanKeys[m.slug] ?? []).slice().sort(byStr),
     };
+    // Rename-aware lookup: prose that migrated from a predecessor inherits that
+    // predecessor's source pointer, so a rename cannot launder staleness.
+    const from = sync.migrations[m.slug];
+    const prevMod = prev?.modules[m.slug] ?? (from ? prev?.modules[from] : undefined);
     const digest = sync.proseDigests[m.slug];
     if (digest) {
-      // Rename-aware lookup: prose that migrated from a predecessor inherits
-      // that predecessor's source pointer, so a rename cannot launder staleness.
-      const from = sync.migrations[m.slug];
-      const prevMod = prev?.modules[m.slug] ?? (from ? prev?.modules[from] : undefined);
       // The digest is unchanged ⇒ nobody touched the prose ⇒ keep pointing at
       // the source it was actually written against, even though the source may
       // have moved underneath it. A moved digest means it was edited since the
       // last build, so it was written against the source as of now.
       const carried = prevMod?.prose?.digest === digest ? prevMod.prose.source : undefined;
       entry.prose = { digest, source: carried ?? proseSourceHash(m.members, fileHashes) };
+    } else if (prevMod?.prose) {
+      // No digest this build, but there was a record. Carry it forward VERBATIM.
+      //
+      // The load-bearing case is an unparseable entry: `mergeEntry` refuses to
+      // rewrite it and returns no regions, so `syncEntries` reports no digest.
+      // Dropping the record here would launder staleness through a transient
+      // hand-edit — mangle a fence, build, repair it, build, and the re-stamped
+      // pointer reports the prose as freshly written against current source.
+      // We could not READ the entry, so we learned nothing; the last known
+      // state stands.
+      //
+      // Safe when the prose was genuinely deleted, too: `proseFreshness` keys on
+      // the digest of the prose ON DISK, so an entry that is all stubs reports
+      // "none" regardless of what the manifest still remembers.
+      entry.prose = prevMod.prose;
     }
     modules[m.slug] = entry;
   }
 
-  // NOTE on prose baselining. Prose already on disk when this feature shipped
-  // gets its source state stamped from the CURRENT state, asserting it was
-  // written against source it may never have seen. We deliberately do NOT emit a
-  // note for that: from inside a build, "prose that predates tracking" and
-  // "prose the user just wrote between two builds" are indistinguishable — both
-  // are enriched-on-disk with no manifest record — so any note would fire on
-  // ordinary first enrichment and train people to ignore it. The honest signal
-  // lives in `check` instead, which reports an enriched entry with no recorded
-  // source state as `proseUnknown` rather than as fresh.
+  // Prose baselining. A stamped source pointer asserts "this prose was written
+  // against this source". When there is no PREVIOUS MANIFEST at all but entries
+  // already carry prose, that assertion is unearned: manifest.json was deleted
+  // (or the index predates prose tracking), so the pointer is being stamped from
+  // whatever the source happens to be now — which silently turns a stale entry
+  // into a fresh-looking one.
+  //
+  // The condition is deliberately whole-manifest, not per-module. A per-module
+  // "no prior record" fires on ordinary first enrichment, where stamping the
+  // current state IS correct — that mistake would put a warning on every healthy
+  // first build and train people to ignore it.
+  const baselined = prev === undefined ? Object.keys(sync.proseDigests).length : 0;
+  const notes = [...extraNotes];
+  if (baselined > 0) {
+    notes.push(
+      `prose freshness baselined without evidence for ${baselined} entr${baselined === 1 ? "y" : "ies"} — ` +
+        "no previous manifest.json to compare against, so their source pointers were stamped from the " +
+        "current state; re-verify anything you rely on",
+    );
+  }
 
   // Navigation communities: community-id string → sorted member slugs. Recorded so
   // the next build can remap ids and keep them stable across a small edit. Only
@@ -93,7 +119,7 @@ export function buildManifest(
     fileHashes: sortedRecord(fileHashes),
     modules: sortedRecord(modules),
     orphaned: sync.orphaned.slice().sort(byStr),
-    notes: [...extraNotes, ...sync.notes],
+    notes: [...notes, ...sync.notes],
     ...(Object.keys(communities).length ? { communities: sortedRecord(communities) } : {}),
     ...(Object.keys(scanFilters!).length ? { scan: scanFilters } : {}),
   };
