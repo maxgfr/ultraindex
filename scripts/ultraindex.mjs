@@ -14609,13 +14609,6 @@ function pickSeeds(scored, terms) {
   return seeds;
 }
 var EXPAND_DEPTH = 2;
-var HUB_FLOOR = 50;
-function hubThreshold2(degrees) {
-  const sorted = degrees.slice().sort((a, b) => a - b);
-  const n = sorted.length;
-  const p99 = n === 0 ? 0 : sorted[Math.min(n - 1, Math.floor(0.99 * n))];
-  return Math.max(HUB_FLOOR, p99);
-}
 function expandResults(graph, top, fullScored, seeds, k, enrichedSlugs) {
   const cap = k + 4;
   const out2 = [...top];
@@ -14634,7 +14627,7 @@ function expandResults(graph, top, fullScored, seeds, k, enrichedSlugs) {
     out2.push({ ...r, via: "term" });
     present.add(slug);
   }
-  const threshold = hubThreshold2(graph.modules.map((m) => m.degIn + m.degOut));
+  const threshold = hubThreshold(graph.modules.map((m) => m.degIn + m.degOut));
   const adj = /* @__PURE__ */ new Map();
   const link = (a, b) => {
     let s = adj.get(a);

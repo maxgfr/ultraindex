@@ -6,7 +6,7 @@ import { humanBodies, isEnrichedBody } from "./merge.js";
 import { buildHaystack, queryTerms, scoreHaystack, splitIdentifier } from "./lex.js";
 import type { QueryTerm } from "./lex.js";
 import { exportedNamesByFile } from "./symbols.js";
-import { rrf, byStr } from "./engine.js";
+import { rrf, byStr, hubThreshold } from "./engine.js";
 import { loadVectors, decodeVector } from "./vectors.js";
 import { resolveEmbedTier, encodeQuery, similarity } from "./semantic.js";
 
@@ -265,27 +265,11 @@ export function pickSeeds(scored: { r: FindResult; degree: number }[], terms: Qu
   return seeds;
 }
 
-// Graph-expansion depth and the hub floor. Below 50 there is no gating (the
-// intended never-worse behavior on small graphs); above it, a hyper-connected
-// module is visited but not expanded through so a hub can't drag in the world.
+// Graph-expansion depth. The hub gate itself — max(50, p99) over a degree
+// distribution — lives in the codeindex engine (`hubThreshold`), shared with the
+// traversals that used to duplicate it here. One definition, so expansion and
+// `neighbors` can never drift apart on what counts as a hub.
 const EXPAND_DEPTH = 2;
-const HUB_FLOOR = 50;
-
-// The hub-gating threshold over a degree distribution: max(50, p99). p99 = the
-// degree at index min(n-1, floor(0.99n)) of the ASCENDING degree array (numeric
-// sort — deterministic without byStr). Exported so `neighbors`' BFS gates on the
-// exact same rule this module's `expandResults` applies to graph expansion.
-// Deliberately DEGREE-based even though the graph carries pagerank/betweenness:
-// the gate exists to bound traversal fan-out, and degree IS the fan-out cost —
-// a high-pagerank/low-degree node is safe to expand through. `neighbors` also
-// computes this at query time on kind-filtered subgraphs, where no precomputed
-// metric applies.
-export function hubThreshold(degrees: number[]): number {
-  const sorted = degrees.slice().sort((a, b) => a - b);
-  const n = sorted.length;
-  const p99 = n === 0 ? 0 : sorted[Math.min(n - 1, Math.floor(0.99 * n))]!;
-  return Math.max(HUB_FLOOR, p99);
-}
 
 // Append graph context to the ranked top-k. Two kinds of rows are added after
 // `top` (unchanged, in order), deduped by slug, total length capped at k + 4:
