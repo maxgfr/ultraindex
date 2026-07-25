@@ -107,6 +107,14 @@ export function runDelta(outDir: string, repo: string, opts: { base?: string; st
         if (manifest.fileHashes[f.path] !== undefined) stale.push(f.path);
         continue;
       }
+      // A rename removes a path just as surely as a deletion does — git reports
+      // it under one entry with `oldPath`, so checking only `path` (the new
+      // location) misses it. If the index still records the old path, it
+      // describes a file that is no longer there, and every symbol it maps at
+      // that path is a wrong attribution waiting to happen.
+      if (f.oldPath !== undefined && manifest.fileHashes[f.oldPath] !== undefined) {
+        stale.push(f.oldPath);
+      }
       if (include && !include(f.path)) continue;
       if (exclude && exclude(f.path)) continue;
       const abs = join(repo, f.path);

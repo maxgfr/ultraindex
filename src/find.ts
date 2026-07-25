@@ -8,7 +8,7 @@ import type { QueryTerm } from "./lex.js";
 import { exportedNamesByFile } from "./symbols.js";
 import { rrf, byStr, hubThreshold } from "./engine.js";
 import { loadVectors, decodeVector } from "./vectors.js";
-import { resolveEmbedTier, encodeQuery, similarity } from "./semantic.js";
+import { resolveEmbedTier, encodeQuery, similarity, tierModelId } from "./semantic.js";
 
 const DEFAULT_K = 8;
 const MAX_FILES = 8;
@@ -458,6 +458,15 @@ export async function runFindHybrid(
   if (!tier) {
     return lexOnly(
       "vectors.json present but no embedding model resolvable — run `codeindex embed pull` (keyless) or set CODEINDEX_EMBED_ENDPOINT; lexical-only results",
+    );
+  }
+  // A store built by another model must not be ranked against this one. Two
+  // models can share a dimension, so the dim check below cannot catch it — and
+  // the failure mode is silent, confident nonsense rather than an error.
+  const liveModel = tierModelId(tier);
+  if (store.modelId !== liveModel) {
+    return lexOnly(
+      `vectors.json was built by "${store.modelId}" but the active tier is "${liveModel}" — re-run \`ultraindex embed\`; lexical-only results`,
     );
   }
   let queryVector: Int8Array;

@@ -63,9 +63,26 @@ export function resolveEmbedTier(repo: string): EmbedTier | undefined {
   if (url) return { kind: "endpoint", url, label: `endpoint ${url}` };
   const dir = resolveEmbedModelDir(repo) ?? cachedModelDir();
   if (!dir) return undefined;
-  const model = loadEmbedModel(dir);
+  // A truncated or malformed model.json (an interrupted pull, a botched copy)
+  // makes loadEmbedModel throw. The whole contract of this layer is that it
+  // degrades to lexical and never breaks `find`, so an unreadable model is
+  // treated exactly like an absent one.
+  let model: StaticEmbedModel | undefined;
+  try {
+    model = loadEmbedModel(dir);
+  } catch {
+    return undefined;
+  }
   if (!model) return undefined;
   return { kind: "static", model, label: `${model.modelId} (dim ${model.dim})` };
+}
+
+// The id a vectors.json built by this tier is stamped with. Compared at query
+// time: two different models can share a dimension, and ranking a store built
+// by one against a query encoded by the other yields confident nonsense that no
+// dimension check would catch.
+export function tierModelId(tier: EmbedTier): string {
+  return tier.kind === "static" ? tier.model.modelId : `endpoint:${tier.url}`;
 }
 
 function cachedModelDir(): string | undefined {

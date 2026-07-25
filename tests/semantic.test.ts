@@ -10,6 +10,7 @@ import { resolveEmbedTier, encodeQuery, embedTexts, similarity, moduleEmbedText 
 import type { EmbedTier } from "../src/semantic.js";
 import { loadVectors, runEmbed, encodeVector, decodeVector } from "../src/vectors.js";
 import { runFindHybrid } from "../src/find.js";
+import { runAsk } from "../src/explain.js";
 
 function fileNode(rel: string, module: string): FileNode {
   return {
@@ -296,5 +297,61 @@ describe("runFindHybrid", () => {
     const a = await runFindHybrid(dir, "billing invoice", 5);
     const b = await runFindHybrid(dir, "billing invoice", 5);
     expect(a).toEqual(b);
+  });
+});
+
+// A hand-written model.json in the ENGINE's own default location — where
+// `codeindex embed pull` puts it — so these tests exercise real tier resolution
+// off disk rather than an injected object.
+function writeModelFile(dir: string, modelId: string, permuteAxes = false): void {
+  mkdirSync(dir, { recursive: true });
+  const vocab = ["billing", "invoice", "auth", "token", "[UNK]"];
+  const dim = 4;
+  const weights = vocab.map((_, i) =>
+    Array.from({ length: dim }, (_, d) => (d === (permuteAxes ? (i + 2) % dim : i % dim) ? 1 : 0.1)),
+  );
+  writeFileSync(join(dir, "model.json"), JSON.stringify({ modelId, dim, vocab, weights }));
+}
+
+describe("ask resolves the same tier as find", () => {
+  it("does not silently fall back to lexical while find ranks hybrid", async () => {
+    const out = join(dir, ".ultraindex");
+    writeIndex(out, graph([{ slug: "billing", path: "src", files: ["src/b.ts"] }]));
+    writeModelFile(join(dir, ".codeindex", "models"), "in-repo-model");
+    await runEmbed(out, resolveEmbedTier(dir)!);
+
+    // `ask` used to call runFindHybrid without the repo, so the tier resolved
+    // against the INDEX dir and it missed the in-repo model that `find` and
+    // `embed` both use — same question, two different rankings.
+    const find = await runFindHybrid(out, "billing invoice", 5, dir);
+    expect(find?.semantic).toBe(true);
+    expect((await runAsk(out, dir, "billing invoice", 5))?.warning).toBeUndefined();
+  });
+});
+
+describe("tier resolution off disk", () => {
+  it("degrades instead of throwing when model.json is truncated", async () => {
+    // An interrupted pull or a botched copy. The contract of this whole layer is
+    // degrade-to-lexical; a throw here would take `find` down with it.
+    const modelDir = join(dir, ".codeindex", "models");
+    mkdirSync(modelDir, { recursive: true });
+    writeFileSync(join(modelDir, "model.json"), '{"modelId":"partial","dim":4,"vocab":["a"],"weig');
+    expect(() => resolveEmbedTier(dir)).not.toThrow();
+    expect(resolveEmbedTier(dir)).toBeUndefined();
+  });
+
+  it("refuses to rank a store built by a different model of the SAME dim", async () => {
+    writeIndex(join(dir, ".ultraindex"), graph([{ slug: "billing", path: "src", files: ["src/b.ts"] }]));
+    const out = join(dir, ".ultraindex");
+    writeModelFile(join(dir, ".codeindex", "models"), "model-A");
+    await runEmbed(out, resolveEmbedTier(dir)!);
+    expect(loadVectors(out)?.modelId).toBe("model-A");
+
+    // Same dimension, permuted axes: a dim check cannot see this, and ranking
+    // through it produces confident nonsense rather than an error.
+    writeModelFile(join(dir, ".codeindex", "models"), "model-B", true);
+    const res = await runFindHybrid(out, "billing invoice", 5, dir);
+    expect(res?.semantic).toBe(false);
+    expect(res?.warning).toMatch(/built by "model-A".*active tier is "model-B"/);
   });
 });

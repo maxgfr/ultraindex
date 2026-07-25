@@ -3,7 +3,7 @@ import type { EmbedReport, Graph, VectorStore } from "./types.js";
 import { indexPaths, loadGraph } from "./store.js";
 import { readIfExists, writeFileIfChanged } from "./output.js";
 import { sha1, byStr } from "./engine.js";
-import { embedTexts, moduleEmbedText } from "./semantic.js";
+import { embedTexts, moduleEmbedText, tierModelId } from "./semantic.js";
 import type { EmbedTier } from "./semantic.js";
 import { loadEnrichedProse } from "./find.js";
 
@@ -77,7 +77,7 @@ export async function runEmbed(outDir: string, tier: EmbedTier, force = false): 
   const graph = loadGraph(outDir);
   if (!graph) return undefined;
 
-  const modelId = tier.kind === "static" ? tier.model.modelId : `endpoint:${tier.url}`;
+  const modelId = tierModelId(tier);
   const prior = loadVectors(outDir);
   const reusable = !force && prior && prior.modelId === modelId ? prior.vectors : {};
 

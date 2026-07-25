@@ -25,7 +25,10 @@ export async function runAsk(
 ): Promise<{ content: string; modules: string[]; warning?: string } | undefined> {
   const graph = loadGraph(outDir);
   if (!graph) return undefined;
-  const found = await runFindHybrid(outDir, question, k);
+  // Pass `repo`: without it runFindHybrid resolves the embedding tier against
+  // the INDEX dir, so `ask` would silently miss the in-repo model that `find`
+  // and `embed` both use, and rank lexically while `find` ranks hybrid.
+  const found = await runFindHybrid(outDir, question, k, repo);
   if (!found) return undefined;
   const modules = found.results.map((r) => ({ slug: r.slug, files: r.files }));
   return {

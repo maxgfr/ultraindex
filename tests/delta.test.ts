@@ -284,7 +284,7 @@ describe("formatDeltaPanel", () => {
 
 // --- git integration -------------------------------------------------------
 
-import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDelta } from "../src/delta.js";
@@ -373,6 +373,26 @@ describe.skipIf(!have("git"))("runDelta — git integration", () => {
     const plain = mkdtempSync(join(tmpdir(), "ui-plain-"));
     const noRepo = runDelta(out, plain, {});
     expect("error" in noRepo && noRepo.error).toContain("not inside one");
+  });
+
+  it("refuses when a rename moved an INDEXED file out from under the index", () => {
+    // git reports a rename as ONE entry carrying `oldPath`, so checking only the
+    // new path misses it: the index still records src/a.ts with its symbols and
+    // their line numbers, but that file is gone. Anything mapped at the old path
+    // is a wrong attribution, which is exactly what this gate exists to stop.
+    const repo = mkdtempSync(join(tmpdir(), "ui-rename-"));
+    git(repo, "init", "-q", "-b", "main");
+    mkdirSync(join(repo, "src"), { recursive: true });
+    writeFileSync(join(repo, "src", "a.ts"), "export function alpha(): number { return 1; }\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    const out = build(repo);
+
+    renameSync(join(repo, "src", "a.ts"), join(repo, "src", "b.ts"));
+    git(repo, "add", "-A");
+    const res = runDelta(out, repo, { staged: true });
+    if (!("error" in res)) throw new Error("expected the gate to refuse a moved indexed file");
+    expect(res.stale).toContain("src/a.ts");
   });
 
   it("falls back to HEAD with a note when no default branch exists", () => {

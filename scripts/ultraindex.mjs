@@ -14531,9 +14531,17 @@ function resolveEmbedTier(repo) {
   if (url) return { kind: "endpoint", url, label: `endpoint ${url}` };
   const dir = resolveEmbedModelDir(repo) ?? cachedModelDir();
   if (!dir) return void 0;
-  const model = loadEmbedModel(dir);
+  let model;
+  try {
+    model = loadEmbedModel(dir);
+  } catch {
+    return void 0;
+  }
   if (!model) return void 0;
   return { kind: "static", model, label: `${model.modelId} (dim ${model.dim})` };
+}
+function tierModelId(tier) {
+  return tier.kind === "static" ? tier.model.modelId : `endpoint:${tier.url}`;
 }
 function cachedModelDir() {
   const dir = sharedEmbedCacheDir();
@@ -14613,7 +14621,7 @@ function groupFiles(graph) {
 async function runEmbed(outDir, tier, force = false) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
-  const modelId = tier.kind === "static" ? tier.model.modelId : `endpoint:${tier.url}`;
+  const modelId = tierModelId(tier);
   const prior = loadVectors(outDir);
   const reusable = !force && prior && prior.modelId === modelId ? prior.vectors : {};
   const prose = loadEnrichedProse(outDir, graph);
@@ -14917,6 +14925,12 @@ async function runFindHybrid(outDir, query, k = DEFAULT_K, repo) {
       "vectors.json present but no embedding model resolvable \u2014 run `codeindex embed pull` (keyless) or set CODEINDEX_EMBED_ENDPOINT; lexical-only results"
     );
   }
+  const liveModel = tierModelId(tier);
+  if (store.modelId !== liveModel) {
+    return lexOnly(
+      `vectors.json was built by "${store.modelId}" but the active tier is "${liveModel}" \u2014 re-run \`ultraindex embed\`; lexical-only results`
+    );
+  }
   let queryVector;
   try {
     queryVector = await encodeQuery(tier, query);
@@ -15023,6 +15037,9 @@ function runDelta(outDir, repo, opts) {
       if (f.status === "deleted") {
         if (manifest.fileHashes[f.path] !== void 0) stale.push(f.path);
         continue;
+      }
+      if (f.oldPath !== void 0 && manifest.fileHashes[f.oldPath] !== void 0) {
+        stale.push(f.oldPath);
       }
       if (include && !include(f.path)) continue;
       if (exclude && exclude(f.path)) continue;
@@ -15918,7 +15935,7 @@ function runDossier(outDir, repo, slug, budget) {
 async function runAsk(outDir, repo, question, k = 5, budget) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
-  const found = await runFindHybrid(outDir, question, k);
+  const found = await runFindHybrid(outDir, question, k, repo);
   if (!found) return void 0;
   const modules = found.results.map((r) => ({ slug: r.slug, files: r.files }));
   return {
