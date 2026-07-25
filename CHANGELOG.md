@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [6.0.0](https://github.com/maxgfr/ultraindex/compare/v5.8.0...v6.0.0) (2026-07-25)
+
+
+* feat(semantic)!: keyless embeddings, drop the Docker/provider prerequisite ([d05ba74](https://github.com/maxgfr/ultraindex/commit/d05ba740017ab7b8d5d92083dee3562a73387648))
+* refactor(mcp)!: drop the codeindex passthrough ([eb90af2](https://github.com/maxgfr/ultraindex/commit/eb90af2827ef8d0bb867c571e7d2552194416897))
+
+
+### Bug Fixes
+
+* **repo:** remove the orphaned e2e workflow, record engine provenance ([a294acf](https://github.com/maxgfr/ultraindex/commit/a294acfcffcb2521b99cf5f4defb12a7b0006e01))
+
+
+### Features
+
+* **prose:** per-entry freshness — know when an explanation outlived its code ([ac6ea2e](https://github.com/maxgfr/ultraindex/commit/ac6ea2e10ebcdc081490f9a5534e8c067b29771a))
+* reposition ultraindex as the verified knowledge layer over codeindex ([83cca08](https://github.com/maxgfr/ultraindex/commit/83cca08686cfa5ddde241a913bb481e255ec46c1))
+
+
+### BREAKING CHANGES
+
+* `ultraindex mcp` is removed. Register the engine's server
+instead: `claude mcp add codeindex -- codeindex mcp`.
+* the ULTRAINDEX_EMBED_BASE_URL / ULTRAINDEX_EMBED_MODEL /
+ULTRAINDEX_EMBED_API_KEY env vars and <out>/semantic.json are gone; set
+CODEINDEX_EMBED_ENDPOINT to prefer a local embedding server. Existing
+vectors.json files are re-embedded on the next `embed` (the modelId changes).
+
 # [5.8.0](https://github.com/maxgfr/ultraindex/compare/v5.7.0...v5.8.0) (2026-07-24)
 
 
