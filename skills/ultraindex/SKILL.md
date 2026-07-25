@@ -70,7 +70,7 @@ reference for the detailed workflow:
    route by harness** below) — read [references/generate.md](references/generate.md).
 
 7. **`find` keeps missing, or the user wants semantic/better search** — set up
-   the optional embeddings layer (docker compose, `embed`, hybrid `find`):
+   the optional keyless embeddings layer (`embed`, hybrid `find`):
    read [references/semantic.md](references/semantic.md).
 
 A typical first visit chains 1 → 6 → 3; a return visit is usually 2 → 3; a

@@ -135,8 +135,11 @@ describe("navigate.md teaches escalation", () => {
 
 describe("semantic.md teaches the optional embeddings layer", () => {
   const text = refBodies["semantic.md"]!;
-  it("covers the provider, embed, and graceful degradation", () => {
-    expect(text).toContain("docker compose");
+  it("covers the keyless tiers, embed, and graceful degradation", () => {
+    // The adoption promise: no key, no provider to stand up. If this text ever
+    // reintroduces a required provider, that is a regression, not a doc edit.
+    expect(text).toMatch(/keyless|no API key/i);
+    expect(text).toContain("CODEINDEX_EMBED_ENDPOINT");
     expect(text).toMatch(/ultraindex\.mjs embed/);
     expect(text).toMatch(/lexical/i);
     expect(text).toContain("vectors.json");

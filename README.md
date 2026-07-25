@@ -221,36 +221,36 @@ fixture is the worst case.
 Reproduce with `node evals/token-savings/run.mjs` (defaults pin the fixture;
 `--repo <dir> --symbol <name> --module <slug> --module-path <dir>` retarget it).
 
-## Semantic search (optional)
+## Semantic search (optional, keyless)
 
 Lexical search can't bridge a real vocabulary gap ("invoicing" vs a module that
 only ever says "billing"). The optional semantic layer embeds each module and
-makes `find` **hybrid**: lexical and cosine rankings fused with Reciprocal Rank
-Fusion. It is strictly additive — without it, nothing changes and the engine
-never touches the network.
+makes `find` **hybrid**: lexical and semantic rankings fused with Reciprocal
+Rank Fusion. It is strictly additive — without it, nothing changes.
+
+There is **no API key and no provider to stand up**. The embedding tiers belong
+to the vendored codeindex engine; ultraindex only decides what gets embedded —
+one vector per module, folding in the prose you wrote, which is the one signal a
+file-level index cannot have.
 
 ```bash
-docker compose up -d                                    # local Ollama, no API key, multi-arch
-export ULTRAINDEX_EMBED_BASE_URL=http://localhost:11434/v1
-export ULTRAINDEX_EMBED_MODEL=nomic-embed-text
-ultraindex embed                                        # writes vectors.json (incremental)
-ultraindex find "invoicing"                             # now hybrid — results carry semanticRank
+ultraindex embed                # pulls the keyless model on first use, writes vectors.json
+ultraindex find "invoicing"     # now hybrid — results carry semanticRank
 ```
 
-Any OpenAI-compatible `POST /v1/embeddings` endpoint is a drop-in provider:
-huggingface text-embeddings-inference on amd64/GPU hosts
-(`http://localhost:8080/v1`, `BAAI/bge-small-en-v1.5`), or a hosted API
-(`https://api.openai.com/v1`, `text-embedding-3-small`, plus
-`ULTRAINDEX_EMBED_API_KEY`). Instead of env vars you can write
-`<out>/semantic.json` (`{"baseUrl": …, "model": …}`) — but keep API keys in the
-env, never in a committed `semantic.json` (mind `docs/ultraindex` indexes).
+Precedence is the engine's: **endpoint > static > none**. Prefer a richer local
+model? `codeindex embed serve` prints the container one-liner; then set
+`CODEINDEX_EMBED_ENDPOINT` — setting it is explicit intent, so it wins over the
+local model.
 
-Degradation is graceful: provider down ⇒ lexical-only results + a stderr
-warning; no `vectors.json` ⇒ pure lexical, silent, zero network (delete the
-file to switch the layer off). `check` warns when vectors drift stale.
-**Reproducibility caveat:** two artifacts are excluded from the byte-identical
-rebuild guarantee — `manifest.json` (its `builtAt` timestamp) and `vectors.json`
-(its floats depend on the provider/model).
+Degradation is graceful: endpoint unreachable ⇒ lexical-only results + a stderr
+warning; no `vectors.json` ⇒ pure lexical, silent, zero network (delete the file
+to switch the layer off). `check` warns when vectors drift stale.
+**Reproducibility:** `manifest.json` is the only artifact outside the
+byte-identical rebuild guarantee (its `builtAt` timestamp). `vectors.json` is
+*inside* it on the static tier — the encoder is a pure lookup table with
+banker's rounding and integer ranking. Only the endpoint tier, whose floats come
+from a server, falls outside.
 
 ## Develop
 

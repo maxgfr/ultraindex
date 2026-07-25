@@ -98,8 +98,8 @@ export function runCheck(outDir: string, repo: string): CheckResult {
   // never touches the network.
   const vectors = loadVectors(outDir);
   if (vectors) {
-    if (!vectors.model || !vectors.dim) {
-      warnings.push("vectors.json is corrupt (missing model/dim) — re-run `ultraindex embed`");
+    if (!vectors.modelId || !vectors.dim) {
+      warnings.push("vectors.json is corrupt (missing modelId/dim) — re-run `ultraindex embed`");
     } else {
       const staleVecs = staleVectorSlugs(outDir, graph, vectors);
       if (staleVecs.length) {

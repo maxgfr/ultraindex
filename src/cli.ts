@@ -5,7 +5,7 @@ import { realpathSync } from "node:fs";
 import { VERSION } from "./types.js";
 import { runBuild } from "./build.js";
 import { runFindHybrid } from "./find.js";
-import { loadSemanticConfig } from "./semantic.js";
+import { resolveEmbedTier, sharedEmbedCacheDir } from "./semantic.js";
 import { runEmbed } from "./vectors.js";
 import { runNeighbors } from "./neighbors.js";
 import { runSymbols } from "./symbols.js";
@@ -50,9 +50,9 @@ Commands:
              preserves your enriched prose.
   find       Rank modules for a task and print the exact files to open. Hybrid
              (lexical + semantic) when vectors.json exists; pure lexical otherwise.
-  embed      Build/refresh vectors.json: embed each module through the configured
-             provider (see Semantic below). Incremental — unchanged modules keep
-             their vectors.
+  embed      Build/refresh vectors.json: embed each module through the engine's
+             keyless embedding tier, pulling the model on first use (see Semantic
+             below). Incremental — unchanged modules keep their vectors.
   neighbors  Show graph neighbours of a file or module (what links to/from it).
   symbols    Find where a symbol is defined (file:line, kind, owning module) and
              which files reference it — from symbols.json, no repo re-scan.
@@ -127,14 +127,13 @@ Options:
   -h, --help        Show this help
   -v, --version     Show version
 
-Semantic (optional):
-  \`find\` stays deterministic and offline by default. To add semantic ranking,
-  point ultraindex at any OpenAI-compatible /v1/embeddings endpoint — e.g. the
-  local container in docker-compose.yml (\`docker compose up -d\`) — via env
-  (ULTRAINDEX_EMBED_BASE_URL, ULTRAINDEX_EMBED_MODEL, ULTRAINDEX_EMBED_API_KEY)
-  or <out>/semantic.json, then run \`ultraindex embed\`. If the provider is down,
-  \`find\` degrades to pure lexical with a warning. Delete vectors.json to turn
-  the semantic layer off entirely.
+Semantic (optional, keyless):
+  \`find\` is lexical by default. \`ultraindex embed\` adds semantic ranking on top,
+  using the vendored engine's embedding tiers — no API key, no provider to run.
+  The first \`embed\` pulls the official model asset (sha256-verified) into the
+  shared codeindex cache; after that it is offline and byte-deterministic. Set
+  CODEINDEX_EMBED_ENDPOINT to prefer a local embedding server instead. With
+  neither, \`find\` simply stays lexical. Delete vectors.json to turn it off.
 
 Grounding:
   Analysis is verified, not trusted. Cite claims with [path], [path:line] or
@@ -384,7 +383,7 @@ async function cmdFind(p: Parsed): Promise<void> {
   const k = p.values.k ? Number(p.values.k) : 8;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
 
-  const found = await runFindHybrid(out, query, k);
+  const found = await runFindHybrid(out, query, k, base);
   if (found === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
   if (found.warning) process.stderr.write(`ultraindex: warning: ${found.warning}\n`);
   const results = found.results;
@@ -411,15 +410,35 @@ async function cmdFind(p: Parsed): Promise<void> {
 async function cmdEmbed(p: Parsed): Promise<void> {
   const base = resolve(p.values.repo ?? ".");
   const out = resolveOut(p, base);
-  const cfg = loadSemanticConfig(out);
-  if (!cfg) {
+  // No model on disk and no endpoint configured: fetch the engine's official
+  // model asset once (sha256-verified, keyless) rather than making the user go
+  // find a provider. Pulled into the SHARED per-machine cache, never into the
+  // user's repo — CODEINDEX_EMBED_DIR is the only knob that outranks the
+  // engine's in-repo defaults. A pull that fails leaves the layer simply off.
+  let tier = resolveEmbedTier(base);
+  if (!tier) {
+    const cache = sharedEmbedCacheDir();
+    process.stderr.write(`ultraindex: no embedding model found — pulling the keyless model once into ${cache}…\n`);
+    const prior = process.env.CODEINDEX_EMBED_DIR;
+    process.env.CODEINDEX_EMBED_DIR = cache;
+    try {
+      await runCli(["embed", "pull", "--repo", base]);
+    } catch {
+      /* the resolve below reports it properly */
+    } finally {
+      if (prior === undefined) delete process.env.CODEINDEX_EMBED_DIR;
+      else process.env.CODEINDEX_EMBED_DIR = prior;
+    }
+    tier = resolveEmbedTier(base);
+  }
+  if (!tier) {
     fail(
-      `no semantic config — set ULTRAINDEX_EMBED_BASE_URL and ULTRAINDEX_EMBED_MODEL, or create ${join(out, "semantic.json")} ` +
-        `({"baseUrl": "http://localhost:8080/v1", "model": "BAAI/bge-small-en-v1.5"}). ` +
-        `To run a local provider: \`docker compose up -d\` (see docker-compose.yml)`,
+      "no embedding tier available — `codeindex embed pull` fetches the keyless model, " +
+        "or set CODEINDEX_EMBED_ENDPOINT to a local embedding server. " +
+        "`find` works without either; it just stays lexical.",
     );
   }
-  const report = await runEmbed(out, cfg, p.bools.has("force"));
+  const report = await runEmbed(out, tier, p.bools.has("force"));
   if (report === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");
@@ -427,7 +446,7 @@ async function cmdEmbed(p: Parsed): Promise<void> {
   }
   const lines = [
     `ultraindex: embedded ${report.embedded}/${report.total} module(s) (${report.reused} reused, ${report.removed} pruned)`,
-    `  model:    ${report.model} (dim ${report.dim})`,
+    `  tier:     ${tier.label}`,
     `  next:     \`ultraindex find "<query>"\` now ranks hybrid (lexical + semantic)`,
   ];
   process.stderr.write(lines.join("\n") + "\n");

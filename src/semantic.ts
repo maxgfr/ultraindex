@@ -1,94 +1,105 @@
-import type { FileNode, ModuleNode, SemanticConfig } from "./types.js";
-import { indexPaths } from "./store.js";
-import { readIfExists } from "./output.js";
-import { clip, byStr } from "./engine.js";
+import { join, dirname } from "node:path";
+import { existsSync } from "node:fs";
+import type { FileNode, ModuleNode } from "./types.js";
+import {
+  clip,
+  byStr,
+  embedViaEndpoint,
+  encode,
+  encodeQueryViaEndpoint,
+  intDot,
+  loadEmbedModel,
+  quantize,
+  resolveEmbedEndpoint,
+  resolveEmbedModelDir,
+  sharedGrammarsCacheDir,
+} from "./engine.js";
+import type { StaticEmbedModel } from "./engine.js";
 
-// The optional semantic layer talks to any OpenAI-compatible /v1/embeddings
-// endpoint (a local TEI container via docker-compose, Ollama, or a hosted API).
-// It is OFF unless configured — the core engine stays zero-dependency and
-// network-free, and `find` degrades to pure lexical when the provider is gone.
+// The optional semantic layer runs on the vendored engine's embedding tiers —
+// no API key, no provider to stand up, no `docker compose`. Two tiers, engine
+// precedence (endpoint > static > none):
+//
+//   static   a `model.json` on disk (`codeindex embed pull` fetches it,
+//            sha256-verified). Pure JS lookup-table encoder: tokenize →
+//            mean-pool → L2-normalize → int8-quantize. Byte-DETERMINISTIC, so
+//            vectors.json is reproducible like every other artifact.
+//   endpoint CODEINDEX_EMBED_ENDPOINT points at a local containerized model.
+//            Setting it is explicit intent, so it wins over a local model; its
+//            float vectors go through the SAME quantize + integer-ranking path.
+//
+// With neither resolvable the layer is simply off and `find` stays lexical —
+// never an error, never a silent network touch.
+//
+// What stays ultraindex's own: the embedded TEXT is per MODULE and folds in the
+// agent-written prose (see `moduleEmbedText`). The engine embeds per file/symbol
+// and knows nothing about prose, so its file-level index cannot answer "which
+// module did someone already explain in these terms".
 
-// Env wins over <out>/semantic.json so a key never has to live in a committed
-// file. Returns undefined when no baseUrl+model is available — semantic off.
-export function loadSemanticConfig(outDir: string): SemanticConfig | undefined {
-  const env: Partial<SemanticConfig> = {
-    baseUrl: process.env.ULTRAINDEX_EMBED_BASE_URL,
-    model: process.env.ULTRAINDEX_EMBED_MODEL,
-    apiKey: process.env.ULTRAINDEX_EMBED_API_KEY,
-  };
-  let file: Partial<SemanticConfig> = {};
-  const raw = readIfExists(indexPaths(outDir).semantic);
-  if (raw !== undefined) {
-    try {
-      file = JSON.parse(raw) as Partial<SemanticConfig>;
-    } catch {
-      /* malformed config = no config; `embed` will say how to fix it */
-    }
-  }
-  const baseUrl = env.baseUrl || file.baseUrl;
-  const model = env.model || file.model;
-  if (!baseUrl || !model) return undefined;
-  const apiKey = env.apiKey || file.apiKey;
-  return { baseUrl, model, ...(apiKey ? { apiKey } : {}) };
+export type EmbedTier =
+  | { kind: "static"; model: StaticEmbedModel; label: string }
+  | { kind: "endpoint"; url: string; label: string };
+
+// Where ultraindex pulls the static model to. The engine's own resolution order
+// is CODEINDEX_EMBED_DIR > <repo>/.codeindex/models > <cwd>/.codeindex/models —
+// all three of which drop a multi-megabyte asset INSIDE the user's repository.
+// The model is identical for every repo on the machine, so it belongs in the
+// shared cache the grammars already use. We derive that path from the engine's
+// own cache root rather than re-deriving XDG rules, and hand it to the engine
+// via CODEINDEX_EMBED_DIR — the one knob that wins over the in-repo defaults.
+//
+// (Upstream this should be the engine's own default, mirroring
+// `sharedGrammarsCacheDir`; until then this keeps working trees clean.)
+export function sharedEmbedCacheDir(): string {
+  return join(dirname(dirname(sharedGrammarsCacheDir())), "models");
 }
 
-// Normalize a base URL into the embeddings endpoint: accept it with or without
-// a trailing slash or `/v1`, so `http://localhost:8080`, `…:8080/`, and
-// `…:8080/v1` all reach POST <base>/v1/embeddings.
-export function embeddingsUrl(baseUrl: string): string {
-  let base = baseUrl.replace(/\/+$/, "");
-  if (!/\/v\d+$/.test(base)) base += "/v1";
-  return base + "/embeddings";
+// Resolve the active tier for a repo, or undefined when the layer is off.
+// Mirrors the engine's own precedence so ultraindex and `codeindex search
+// --semantic` never disagree about which tier is live — with the shared cache
+// consulted as a last resort, after everything the engine would look at.
+export function resolveEmbedTier(repo: string): EmbedTier | undefined {
+  const url = resolveEmbedEndpoint();
+  if (url) return { kind: "endpoint", url, label: `endpoint ${url}` };
+  const dir = resolveEmbedModelDir(repo) ?? cachedModelDir();
+  if (!dir) return undefined;
+  const model = loadEmbedModel(dir);
+  if (!model) return undefined;
+  return { kind: "static", model, label: `${model.modelId} (dim ${model.dim})` };
 }
 
-const BATCH_SIZE = 32;
-const TIMEOUT_MS = 30_000;
+function cachedModelDir(): string | undefined {
+  const dir = sharedEmbedCacheDir();
+  return existsSync(join(dir, "model.json")) ? dir : undefined;
+}
 
-// Embed texts through the provider, batched. Throws one clear Error on any
-// failure — callers decide whether that aborts (`embed`) or degrades (`find`).
-export async function embedTexts(cfg: SemanticConfig, texts: string[]): Promise<number[][]> {
-  const url = embeddingsUrl(cfg.baseUrl);
-  const out: number[][] = [];
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}),
-        },
-        body: JSON.stringify({ model: cfg.model, input: batch }),
-        signal: controller.signal,
-      });
-    } catch (e) {
-      throw new Error(`embeddings provider unreachable at ${url}: ${(e as Error).message}`);
-    } finally {
-      clearTimeout(timer);
-    }
-    if (!res.ok) {
-      const body = clip(await res.text().catch(() => ""), 200);
-      throw new Error(`embeddings provider returned ${res.status} for ${url}${body ? `: ${body}` : ""}`);
-    }
-    const json = (await res.json()) as { data?: { index?: number; embedding?: number[] }[] };
-    const data = json.data;
-    if (!Array.isArray(data) || data.length !== batch.length) {
-      throw new Error(`embeddings provider returned ${data?.length ?? 0} vectors for ${batch.length} inputs`);
-    }
-    // The OpenAI shape carries an index per row — respect it rather than
-    // assuming response order.
-    const rows: number[][] = new Array(batch.length);
-    data.forEach((d, j) => {
-      const idx = typeof d.index === "number" ? d.index : j;
-      if (!Array.isArray(d.embedding)) throw new Error("embeddings provider returned a row without an embedding");
-      rows[idx] = d.embedding;
-    });
-    out.push(...rows);
-  }
-  return out;
+// The int8 quantization scale the engine encodes with. A dot product of two
+// unit vectors quantized at this scale peaks at QUANT², so dividing by it turns
+// the integer score back into a cosine-comparable [-1, 1] number.
+const QUANT = 127;
+const QUANT_SQ = QUANT * QUANT;
+
+// Cosine-equivalent similarity from the engine's integer dot product. The
+// ranking itself stays integer (exact, platform-stable); this is only used to
+// apply a noise floor and to report.
+export function similarity(a: Int8Array, b: Int8Array): number {
+  if (a.length !== b.length || a.length === 0) return -1;
+  return intDot(a, b) / QUANT_SQ;
+}
+
+// Embed texts through the active tier. The static tier is synchronous and
+// offline; the endpoint tier batches over HTTP and is quantized on arrival so
+// both tiers produce identical downstream shapes.
+export async function embedTexts(tier: EmbedTier, texts: string[]): Promise<Int8Array[]> {
+  if (tier.kind === "static") return texts.map((t) => encode(tier.model, t));
+  const floats = await embedViaEndpoint(texts, { url: tier.url });
+  return floats.map((v) => quantize(v));
+}
+
+// Embed one query through the active tier.
+export async function encodeQuery(tier: EmbedTier, query: string): Promise<Int8Array> {
+  if (tier.kind === "static") return encode(tier.model, query);
+  return encodeQueryViaEndpoint(query, { url: tier.url });
 }
 
 const EMBED_TEXT_MAX = 4000;
@@ -103,20 +114,4 @@ export function moduleEmbedText(m: ModuleNode, files: FileNode[], prose?: string
     .map((f) => [f.rel, f.title, f.summary].filter(Boolean).join(" — "));
   const parts = [m.title, m.path, m.slug, m.summary, ...members, prose ?? ""];
   return clip(parts.filter(Boolean).join("\n"), EMBED_TEXT_MAX);
-}
-
-// Cosine similarity; -1 on dimension mismatch (a corrupt store or a model swap
-// mid-flight) so the mismatching row simply ranks last instead of crashing.
-export function cosine(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return -1;
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i]! * b[i]!;
-    na += a[i]! * a[i]!;
-    nb += b[i]! * b[i]!;
-  }
-  if (na === 0 || nb === 0) return -1;
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }

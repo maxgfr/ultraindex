@@ -120,28 +120,22 @@ export interface FindResult {
   via?: "graph" | "term";
 }
 
-// Connection details for an OpenAI-compatible /v1/embeddings provider. Read
-// from env or <out>/semantic.json — when absent, the semantic layer is off and
-// the engine never touches the network.
-export interface SemanticConfig {
-  baseUrl: string;
-  model: string;
-  apiKey?: string;
-}
-
-// Optional per-module embedding store, persisted as vectors.json. Excluded from
-// the byte-identical reproducibility guarantee (floats depend on the provider/
-// model). `hash` is the sha1 of the exact text embedded — the staleness oracle.
+// Optional per-module embedding store, persisted as vectors.json. Vectors are
+// int8 (every tier quantizes to the same scale) serialized as base64, so the
+// store round-trips exactly. On the STATIC tier it is byte-reproducible like
+// every other artifact; the endpoint tier returns provider floats and is
+// explicitly outside that guarantee. `hash` is the sha1 of the exact text
+// embedded — the staleness oracle.
 export interface VectorStore {
   schemaVersion: number;
-  model: string;
+  modelId: string; // the static model's id, or `endpoint:<url>`
   dim: number;
-  vectors: Record<string, { hash: string; v: number[] }>; // slug -> embedded-text hash + vector
+  vectors: Record<string, { hash: string; v: string }>; // slug -> embedded-text hash + base64 int8
 }
 
 // Summary of an `embed` run.
 export interface EmbedReport {
-  model: string;
+  modelId: string;
   dim: number;
   total: number; // modules in the graph
   embedded: number; // freshly embedded this run
