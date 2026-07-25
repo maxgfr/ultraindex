@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { computeDelta, formatDeltaPanel, RISK_WEIGHTS } from "../src/delta.js";
+import { computeDelta } from "../src/engine.js";
+import { formatDeltaPanel, withEntries, RISK_WEIGHTS } from "../src/delta.js";
 import type { DiffFile, Hunk } from "../src/engine.js";
 import { sh, have } from "../src/engine.js";
 import type { Edge, FileNode, Graph, ModuleNode, SymbolIndex, Tier } from "../src/types.js";
@@ -250,7 +251,9 @@ describe("computeDelta — buckets, ordering, partitions", () => {
       dangling: [],
       deleted: [],
       unindexed: [],
-      notes: ["symbols.json missing — symbol-level attribution disabled"],
+      // `run` calls the engine core directly; runDelta re-specialises this
+      // note to name symbols.json (see src/delta.ts).
+      notes: ["symbol index missing — symbol-level attribution disabled"],
     });
   });
 });
@@ -262,7 +265,9 @@ describe("formatDeltaPanel", () => {
       alpha: [{ file: "src/a.ts", line: 5, endLine: 9, kind: "function", exported: true, lang: "ts" }],
     });
     const res = run(g, syms, [changed("src/a.ts")], [["src/a.ts", [{ start: 6, end: 6 }]]]);
-    const panel = formatDeltaPanel(res);
+    // `run` calls the engine core; withEntries is the ultraindex seam that
+    // adds the encyclopedia pointer, exactly as runDelta does.
+    const panel = formatDeltaPanel(withEntries(res));
     expect(panel).toContain("delta vs main (merge-base 0123456)");
     expect(panel).toMatch(/MEDIUM +src +score 45/);
     expect(panel).toContain("exported symbol alpha changed");
@@ -272,7 +277,7 @@ describe("formatDeltaPanel", () => {
 
   it("says so plainly when nothing changed", () => {
     const g = graphOf([mod("src")], [file("src/a.ts", "src")]);
-    const panel = formatDeltaPanel(run(g, undefined, []));
+    const panel = formatDeltaPanel(withEntries(run(g, undefined, [])));
     expect(panel).toContain("no changes vs main");
   });
 });

@@ -5,8 +5,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runBuild } from "../src/build.js";
 import { runSymbols, lookupSymbols } from "../src/symbols.js";
-import { runImpact, impactOf } from "../src/impact.js";
-import { neighborsOf } from "../src/neighbors.js";
+import { runImpact } from "../src/impact.js";
+import { runNeighbors } from "../src/neighbors.js";
+import { impactOf, neighborsOf } from "../src/engine.js";
 import { SCHEMA_VERSION, VERSION } from "../src/types.js";
 import type { Edge, Graph, SymbolIndex } from "../src/types.js";
 
