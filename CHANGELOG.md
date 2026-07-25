@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [7.0.0](https://github.com/maxgfr/ultraindex/compare/v6.1.1...v7.0.0) (2026-07-25)
+
+
+* fix(prose)!: record an unearned stamp on the pointer, not in a build note ([ea36792](https://github.com/maxgfr/ultraindex/commit/ea36792042d1c4df0a192c171514bc37a4fa3031))
+
+
+### Bug Fixes
+
+* **delta:** an indexed file that grew past --max-bytes is stale, not skippable ([4370f68](https://github.com/maxgfr/ultraindex/commit/4370f68980fc5286ee934421173b65627e71f158))
+
+
+### BREAKING CHANGES
+
+* an entry whose recorded source state was stamped without
+evidence now reports as unverifiable rather than fresh. Indexes that lost their
+manifest.json will surface entries they previously showed as current — revise
+the prose to clear it.
+
 ## [6.1.1](https://github.com/maxgfr/ultraindex/compare/v6.1.0...v6.1.1) (2026-07-25)
 
 

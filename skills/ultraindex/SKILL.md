@@ -3,7 +3,7 @@ name: ultraindex
 description: "Use when an AI agent must UNDERSTAND a big repo, not merely search it — and its claims must be provable. ultraindex is the verified knowledge layer over codeindex, the deterministic zero-dep engine it vendors: codeindex tells you WHERE things are, ultraindex tells you what they MEAN and proves it. It builds an encyclopedia (a small always-loadable INDEX.md plus per-module entries): generated regions rebuild every time, human regions hold YOUR cited analysis, preserved across rebuilds and renames. dossier/ask hand you real source to write from; check REJECTS any [file:line] citation that does not resolve; verify proves each cited excerpt supports its claim. status is the enrichment work-queue, orchestrate fans it out to subagents. Triggers: index/map/document/analyze this codebase, where is X handled, how does Z work in this repo, which files do I change for Z, review this branch/PR, this repo is too big for context. Want plain code search, no model in the loop? Use codeindex directly."
 license: MIT
 metadata:
-  version: 6.1.1
+  version: 7.0.0
 ---
 
 # ultraindex — the verified knowledge layer over codeindex
