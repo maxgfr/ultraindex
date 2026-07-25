@@ -73,13 +73,25 @@ function endpointFetch(vecFor: (text: string) => number[]) {
 const ENDPOINT = "http://localhost:8756";
 
 let dir: string;
+let cache: string;
+let priorXdg: string | undefined;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "uidx-sem-"));
+  // Point the shared model cache at an empty temp dir. Without this the suite
+  // is not hermetic: `resolveEmbedTier` falls back to the real per-machine
+  // cache, so "no tier resolvable" becomes unreachable on any machine that has
+  // ever run `ultraindex embed`.
+  cache = mkdtempSync(join(tmpdir(), "uidx-cache-"));
+  priorXdg = process.env.XDG_CACHE_HOME;
+  process.env.XDG_CACHE_HOME = cache;
   delete process.env.CODEINDEX_EMBED_ENDPOINT;
   delete process.env.CODEINDEX_EMBED_DIR;
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
+  rmSync(cache, { recursive: true, force: true });
+  if (priorXdg === undefined) delete process.env.XDG_CACHE_HOME;
+  else process.env.XDG_CACHE_HOME = priorXdg;
   delete process.env.CODEINDEX_EMBED_ENDPOINT;
   delete process.env.CODEINDEX_EMBED_DIR;
   vi.unstubAllGlobals();

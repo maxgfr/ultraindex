@@ -41,52 +41,38 @@ only the files the index points at and answering with **grounded,
 citation-checked** analysis (`dossier`/`ask` hand the agent the real source;
 `check` rejects any citation that doesn't resolve).
 
-## MCP server
+## MCP server — use codeindex's
 
-The same bundle also runs as an **MCP server**: `ultraindex mcp` speaks
-newline-delimited JSON-RPC 2.0 over stdio (`initialize`, `tools/list`,
-`tools/call`) and exposes the engine's repo-analysis tools (`find_symbol`,
-`search`, `repo_map`, …). Each tool takes the repo path as an argument; the
-server runs until stdin closes.
+ultraindex used to expose `ultraindex mcp`, which was a verbatim re-export of
+the vendored engine's server: the same 26 repo-analysis tools, announcing
+themselves under the engine's own name (`codeindex`). That is the engine's job,
+so it now lives only in the engine — one server, one name, no collision when a
+client has both registered:
 
 ```bash
-# Claude Code
-claude mcp add ultraindex -- node skills/ultraindex/scripts/ultraindex.mjs mcp
-
-# Codex
-codex mcp add ultraindex -- node skills/ultraindex/scripts/ultraindex.mjs mcp
+claude mcp add codeindex -- codeindex mcp      # brew install maxgfr/tap/codeindex
 ```
 
-Codex also accepts the equivalent `~/.codex/config.toml` entry:
 
-```toml
-[mcp_servers.ultraindex]
-command = "node"
-args = ["skills/ultraindex/scripts/ultraindex.mjs", "mcp"]
-```
-
-The paths above assume a checkout of this repo; if the skill was installed with
-`npx skills add`, point at that install's copy of `scripts/ultraindex.mjs`
-instead. The server announces itself as `codeindex` — the vendored engine's own
-name.
 
 ## CLI
 
 ```
-ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--no-mermaid]
+ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid] [--no-gitignore]
 ultraindex find    "<query>" [--out <dir>] [--k <n>]
 ultraindex embed   [--out <dir>] [--force]
-ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>]
+ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>] [--kind <k>]
 ultraindex symbols "<name>" [--out <dir>] [--json]
 ultraindex impact  <file|module-slug> [--out <dir>] [--depth <n>] [--json]
 ultraindex delta   [--base <ref>] [--staged] [--out <dir>] [--repo <dir>] [--depth <n>] [--json]
-ultraindex map     [--out <dir>] [--module <slug>]
+ultraindex map     [--out <dir>] [--module <slug>] [--json]
 ultraindex status  [--out <dir>]
-ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>]
-ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>]
-ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
+ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
+ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
+ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic] [--quiet]
 ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
-ultraindex mcp
+ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
+ultraindex grammars [status|pull]
 ```
 
 - **build** — scan + (re)write the index. Idempotent: regenerates the code view
@@ -110,8 +96,9 @@ ultraindex mcp
   PageRank-percentile hub, blast size, test gap, surprising cross-community
   coupling, dangling imports). Needs a fresh index — fails closed when a
   changed file drifted since the build. Empty diff exits 0.
-- **embed** — build/refresh `vectors.json` for semantic `find` (optional, needs
-  a provider — see below). Incremental: unchanged modules keep their vectors.
+- **embed** — build/refresh `vectors.json` for semantic `find` (optional, no key
+  and no provider to run — see below). Incremental: unchanged modules keep their
+  vectors.
 - **neighbors** — walk the graph from a file or module.
 - **map** — print `INDEX.md` (or one module's entry) cheaply.
 - **status** — the enrichment work-queue: which modules to enrich next
@@ -128,8 +115,13 @@ ultraindex mcp
   claim↔citation worklist, adjudicate each (supported / partial / refuted /
   unsupported), then `--apply` reduces the verdicts to a pass/fail — so a cited
   excerpt must actually *support* its claim, not merely resolve.
-- **mcp** — run the same bundle as an MCP server over stdio (see
-  [MCP server](#mcp-server) above).
+- **orchestrate** — emit the multi-agent fan-out for the CURRENT index state
+  into `<out>/orchestration/`: one workflow script per ready phase (`enrich` =
+  the `status` work-queue; `verify-answer` = the claim↔citation worklist), the
+  dispatch contracts, and a sequential `RUNBOOK.md` fallback. Deterministic and
+  idempotent — re-run it whenever the queue changes.
+- **grammars** `[status|pull]` — inspect or pre-warm the tree-sitter wasm cache.
+  `build` pulls on first use, so this is only for going offline or diagnostics.
 
 Default output is `<repo>/.ultraindex` (gitignored). Use `--out docs/ultraindex`
 to commit a PR-reviewable index — deterministic, byte-stable rebuilds keep diffs small.

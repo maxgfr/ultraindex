@@ -76,7 +76,6 @@ export {
   resolveImport,
   rrf,
   runCli,
-  runMcpServer,
   scanRepo,
   sh,
   sha1,
