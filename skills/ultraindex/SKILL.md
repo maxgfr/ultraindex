@@ -32,6 +32,12 @@ codeindex; they do not need this skill for that.**
 >    the intended pattern, and exactly what a per-module enrichment subagent does.
 >    Never bulk-load `graph.json` or the whole `encyclopedia/` directory into
 >    context — that defeats the purpose.
+> 5. **Prose can go stale silently; code cannot.** The code view is regenerated
+>    every build, so it can't drift — but an analysis written against source
+>    that has since changed still reads as true, and downstream trusts it MORE.
+>    `check` and `status` report, per entry, whether its prose predates its
+>    source. A stale entry is **unverified**: don't quote it and don't build on
+>    it. Re-run `dossier <slug>`, revise the prose, then `check`.
 
 Most commands accept `--json` — prefer it whenever you branch on the result
 rather than read it as prose.
@@ -49,6 +55,12 @@ reference for the detailed workflow:
    `node scripts/ultraindex.mjs check --out <index-dir> --json`. If it reports
    stale or broken, re-run `build` (your prose survives), then continue. If
    only files irrelevant to the task changed, you may proceed and note it.
+
+   If it reports `proseStale` for some modules, the *code view* is fresh but a
+   model's *explanation* of those modules was written against source that has
+   since changed — rebuilding does NOT fix that. Those entries are unverified:
+   re-enrich them (situation 6) before relying on them, or say explicitly that
+   you did not.
 
 3. **The user has a task or question** ("where is X", "how does Z work",
    "which files do I change") — navigate the index, open only the files it
@@ -89,10 +101,10 @@ review of a branch is 2 → 4; a high-assurance answer adds → 5.
 - `symbols "<name>" [--json]` — where a symbol is **defined** (file:line, kind, owning module) and which files reference it. Fuzzy by identifier sub-token.
 - `impact <file|module> [--depth <n>] [--json]` — the **reverse dependency closure**: everything that imports or uses the target. "What breaks if I change this."
 - `delta [--base <ref>] [--staged] [--depth <n>] [--json]` — map the git diff onto the index: changed files → enclosing symbols → blast radius → a **risk-scored review panel** with explained reasons (exported API, hub centrality, blast size, test gap, surprising coupling, dangling imports). Needs a fresh index (fails closed on drift). See [references/review.md](references/review.md).
-- `status` — the enrichment **work-queue**, in the exact order to enrich.
+- `status` — the enrichment **work-queue**, in the exact order to enrich: entries whose prose went **stale** first (an outdated explanation misleads more than a missing one), then never-enriched, then done.
 - `dossier <slug> [--budget <n>]` — a module's grounding packet (real source + neighbours; a docs/config-only module, e.g. `root`, shows no code — enrich it by citing its README/config instead).
 - `ask "<question>" [--budget <n>]` — assemble grounded evidence to answer from; `--budget` caps the inlined source at ~n tokens (also on `dossier`).
-- `check [--answer <file>] [--semantic] [--quiet]` — staleness + integrity + **grounding** (citations must resolve). Non-zero exit ⇒ stale, broken, or ungrounded (`--quiet` suppresses output — exit code only). `--semantic` also folds the verify gate (fails a claim whose cited excerpt refutes it, or that is fully adjudicated with no support); it re-reduces the verdict from the raw `verdicts[]` and re-reads every adjudicated excerpt from the live repo — a doctored summary or drifted source fails, never passes.
+- `check [--answer <file>] [--semantic] [--prose] [--quiet]` — staleness + integrity + **grounding** (citations must resolve). Non-zero exit ⇒ stale, broken, or ungrounded (`--quiet` suppresses output — exit code only). Stale **prose** is reported separately from a stale **index** — different failure, different remedy (re-enrich vs rebuild) — and is a warning unless you pass `--prose`, which promotes it to a failure. `--semantic` also folds the verify gate (fails a claim whose cited excerpt refutes it, or that is fully adjudicated with no support); it re-reduces the verdict from the raw `verdicts[]` and re-reads every adjudicated excerpt from the live repo — a doctored summary or drifted source fails, never passes.
 - `verify --answer <file> [--apply <verdicts.json>] [--max-verify <n>]` — the high-assurance gate **above** `check --answer`: emit a claim↔citation worklist for adversarial support-checking, then `--apply` reduces your verdicts to a pass/fail gate. See [references/verify.md](references/verify.md).
 - `embed [--force]` — build/refresh vectors.json for semantic `find`. Keyless: pulls the model on first use, no provider to stand up (see [references/semantic.md](references/semantic.md)).
 - `orchestrate [--phase enrich|verify-answer] [--answer <file>] [--eco] [--list]` — emit the multi-agent fan-out (workflow scripts + dispatch contracts + a sequential RUNBOOK) into `<index>/orchestration/` from the CURRENT enrichment queue / verify worklist. See **Orchestration — route by harness**.

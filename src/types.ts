@@ -15,7 +15,11 @@ export const VERSION = "5.8.0";
 // (`FileNode.testFile`/`ModuleNode.testedBy`), and symbols.json `endLine` —
 // `delta` relies on these, so a v3 index must be rejected, not half-read. An
 // index written by an incompatible engine can't be read, so `check` asks for a
-// rebuild.
+// rebuild. v4 additionally carries the optional `Manifest.modules[].prose`
+// block; deliberately NOT a bump, because SCHEMA_VERSION also gates cache.json —
+// bumping would discard every user's extraction cache to protect a field whose
+// absence is already handled, and would not even help, since the rebuild it
+// forces has no prior digest to compare against either.
 export const SCHEMA_VERSION = 4;
 
 // ---------------------------------------------------------------------------
@@ -42,6 +46,15 @@ export type {
 } from "./engine.js";
 export { EXTRACTOR_VERSION } from "./engine.js";
 
+// The source state a module's ui:human prose was last written against. Present
+// only for entries that carry REAL prose (stubs record nothing). Both fields are
+// content-derived, never clock-derived, so a rebuild of an unchanged repo
+// re-emits them byte-identically. See src/prose.ts for the two hashes.
+export interface ProseState {
+  digest: string; // fingerprint of the enriched human regions themselves
+  source: string; // fingerprint of the member files at the build where `digest` last moved
+}
+
 // Per-build bookkeeping, persisted as manifest.json. The staleness oracle
 // (content hashes) and the merge memory (which modules existed, which human
 // region keys each entry carried).
@@ -53,7 +66,9 @@ export interface Manifest {
   repo: string; // absolute repo root — lets dossier/ask/check default --repo correctly
   out: string; // out dir, relative to repo when possible
   fileHashes: Record<string, string>; // rel -> sha1 of content
-  modules: Record<string, { members: string[]; humanKeys: string[] }>;
+  // `prose` is OPTIONAL/additive: its absence means prose freshness has not been
+  // baselined for that module yet, never that the prose is fresh.
+  modules: Record<string, { members: string[]; humanKeys: string[]; prose?: ProseState }>;
   orphaned: string[]; // module slugs whose prose was moved to _orphaned/
   notes: string[]; // merge conflicts and other build-time warnings
   // Navigation communities from the last build: community-id string → sorted
@@ -154,6 +169,11 @@ export interface CheckResult {
   removed: string[];
   errors: string[]; // integrity failures (broken index)
   warnings: string[]; // orphaned prose, merge conflicts, etc.
+  // Reported SEPARATELY from `stale`: "stale index" and "stale prose" are
+  // different failures with different remedies (rebuild vs re-enrich), and
+  // conflating them is why a single staleness flag is uninformative.
+  proseStale: string[]; // modules whose prose predates its source (sorted)
+  proseUnknown: string[]; // enriched entries with no recorded source state
 }
 
 // ---------------------------------------------------------------------------

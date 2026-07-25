@@ -38,7 +38,7 @@ Usage:
   ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
   ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
-  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
+  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic] [--prose]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
   ultraindex grammars [status|pull]
@@ -117,6 +117,8 @@ Options:
   --list            orchestrate: print the phases + readiness as JSON, emit nothing
   --force           embed: re-embed every module even if unchanged
   --json            Machine-readable output
+  --prose           check: also FAIL when an entry's prose was written against
+                    source that has since changed (reported either way)
   --quiet           check: print nothing, use the exit code only
   -h, --help        Show this help
   -v, --version     Show version
@@ -137,7 +139,7 @@ Grounding:
 
 const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars"]);
 const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
-const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "eco", "list", "staged"]);
+const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "prose", "eco", "list", "staged"]);
 
 // What each dangling reason means and what to do about it — emitted in
 // `build --json` so the report is self-diagnosing.
@@ -589,12 +591,14 @@ function cmdStatus(p: Parsed): void {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     return;
   }
-  const lines = [`ultraindex: ${res.enriched}/${res.total} modules enriched`];
+  const header = `ultraindex: ${res.enriched}/${res.total} modules enriched`;
+  const lines = [res.proseStale ? `${header} · ${res.proseStale} with STALE prose` : header];
   if (res.suggestedNext.length) lines.push(`  next:     ${res.suggestedNext.join(", ")}`);
   lines.push("");
   for (const m of res.modules.slice(0, 15)) {
-    const state = m.enriched ? "✓" : "·";
-    lines.push(`  ${state} ${m.slug}  (${m.path}, tier ${m.tier}, degree ${m.degree}) — ${m.regions.enriched}/${m.regions.total} regions`);
+    const state = m.prose === "stale" ? "!" : m.enriched ? "✓" : "·";
+    const drift = m.prose === "stale" ? ", source changed since written" : "";
+    lines.push(`  ${state} ${m.slug}  (${m.path}, tier ${m.tier}, degree ${m.degree}) — ${m.regions.enriched}/${m.regions.total} regions${drift}`);
   }
   if (res.modules.length > 15) lines.push(`  …and ${res.modules.length - 15} more (use --json for all)`);
   lines.push("", `  enrich:   \`ultraindex dossier <slug>\` then fill the ui:human regions, then \`ultraindex check\``);
@@ -657,7 +661,7 @@ function cmdCheck(p: Parsed): void {
     return;
   }
 
-  const res = runCheck(out, repo);
+  const res = runCheck(out, repo, { prose: p.bools.has("prose") });
 
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
@@ -666,14 +670,29 @@ function cmdCheck(p: Parsed): void {
   }
   if (!p.bools.has("quiet")) {
     const lines: string[] = [];
-    const status = res.errors.length ? "BROKEN" : res.stale ? "STALE" : "FRESH";
+    const proseBlocks = p.bools.has("prose") && res.proseStale.length > 0;
+    const status = res.errors.length || proseBlocks ? "BROKEN" : res.stale ? "STALE" : "FRESH";
     lines.push(`ultraindex: index is ${status} (${out})`);
     if (res.changed.length) lines.push(`  changed:  ${res.changed.length} — ${res.changed.slice(0, 8).join(", ")}${res.changed.length > 8 ? " …" : ""}`);
     if (res.added.length) lines.push(`  added:    ${res.added.length} — ${res.added.slice(0, 8).join(", ")}${res.added.length > 8 ? " …" : ""}`);
     if (res.removed.length) lines.push(`  removed:  ${res.removed.length} — ${res.removed.slice(0, 8).join(", ")}${res.removed.length > 8 ? " …" : ""}`);
     for (const e of res.errors) lines.push(`  error:    ${e}`);
+    // Reported on its own line, never folded into changed/added/removed and
+    // never under a bare "stale": a stale INDEX is fixed by rebuilding, stale
+    // PROSE by re-enriching. Different failure, different remedy.
+    if (res.proseStale.length) {
+      const label = proseBlocks ? "error" : "prose";
+      lines.push(
+        `  ${label}:    ${res.proseStale.length} module(s) written against source that has since changed`,
+      );
+      for (const slug of res.proseStale.slice(0, 8)) lines.push(`              ${slug}`);
+      if (res.proseStale.length > 8) lines.push(`              …and ${res.proseStale.length - 8} more`);
+    }
     for (const w of res.warnings) lines.push(`  warning:  ${w}`);
     if (res.stale) lines.push(`  fix:      re-run \`ultraindex build\` to refresh`);
+    if (res.proseStale.length) {
+      lines.push(`  re-enrich: \`ultraindex dossier <slug>\`, revise the prose, then \`check\``);
+    }
     process.stdout.write(lines.join("\n") + "\n");
   }
   if (!res.ok) process.exit(1);

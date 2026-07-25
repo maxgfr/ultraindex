@@ -5,6 +5,7 @@ import { walk, readText, sha1, compileGlobs, byStr } from "./engine.js";
 import { loadGraph, loadManifest, indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
 import { parseRegions } from "./merge.js";
+import { proseDigest, proseFreshness } from "./prose.js";
 import { checkCitations, fileLineTable } from "./cite.js";
 import { loadVectors, staleVectorSlugs } from "./vectors.js";
 
@@ -26,18 +27,27 @@ function hashRepo(repo: string, outAbs: string, filters: Manifest["scan"]): Reco
   return out;
 }
 
+export interface CheckOptions {
+  // Promote stale prose from a warning to a failure. Opt-in on purpose: see the
+  // exit-code argument where proseStale is computed.
+  prose?: boolean;
+}
+
 // Report whether the index is fresh (vs the current repo) and structurally
-// sound. Exit-code policy (in the CLI): non-zero on stale OR errors.
-export function runCheck(outDir: string, repo: string): CheckResult {
+// sound. Exit-code policy (in the CLI): non-zero on stale OR errors, plus stale
+// prose only under `--prose`.
+export function runCheck(outDir: string, repo: string, opts: CheckOptions = {}): CheckResult {
   const errors: string[] = [];
   const warnings: string[] = [];
+  const proseStale: string[] = [];
+  const proseUnknown: string[] = [];
 
   const graph = loadGraph(outDir);
   const manifest = loadManifest(outDir);
   if (!graph) errors.push("graph.json is missing or written by an incompatible engine version");
   if (!manifest) errors.push("manifest.json is missing or written by an incompatible engine version");
   if (!graph || !manifest) {
-    return { ok: false, stale: false, changed: [], added: [], removed: [], errors, warnings };
+    return { ok: false, stale: false, changed: [], added: [], removed: [], errors, warnings, proseStale, proseUnknown };
   }
 
   // Staleness: compare current content hashes against the manifest, hashing the
@@ -91,7 +101,22 @@ export function runCheck(outDir: string, repo: string): CheckResult {
         errors.push(`encyclopedia/${m.slug}.md [${r.key}]: citation [${u.citation.raw}] — ${u.reason}`);
       }
     }
+
+    // Prose freshness, from the SAME parse: was this explanation written against
+    // source that has since changed? Uses the LIVE hashes computed above, so it
+    // is exact rather than as-of-the-last-build (`status` is the cheap tier).
+    const recorded = manifest.modules[m.slug];
+    const state = proseFreshness(
+      recorded?.prose,
+      proseDigest(parsed.regions),
+      recorded?.members ?? m.members,
+      current,
+    );
+    if (state === "stale") proseStale.push(m.slug);
+    else if (state === "unknown") proseUnknown.push(m.slug);
   }
+  proseStale.sort(byStr);
+  proseUnknown.sort(byStr);
 
   // Optional semantic layer: stale vectors degrade ranking but never break
   // `find`, so drift is a warning, not a failure. Hash comparison only — this
@@ -115,9 +140,34 @@ export function runCheck(outDir: string, repo: string): CheckResult {
   for (const note of manifest.notes) {
     if (/conflict|unparseable/i.test(note)) warnings.push(note);
   }
+  if (proseUnknown.length) {
+    warnings.push(
+      `${proseUnknown.length} enriched entr(y|ies) have no recorded source state (index predates prose tracking) — run \`ultraindex build\``,
+    );
+  }
 
+  // Stale prose is NOT a proof of defect, so it does not block by default. Every
+  // other hard failure here is mechanical — a citation that does not resolve, a
+  // module with no entry, an edge to a non-existent node. "The source moved" is
+  // a risk signal: the prose may well still be true, and ultraindex's whole
+  // credibility rests on never asserting more than it can prove. It is also a
+  // PERSISTENT state — a repo that enriched once and then shipped three months
+  // of features would be permanently red, and a gate people route around with
+  // `|| true` poisons the gates next to it. `--prose` is for teams that do want
+  // it enforced, mirroring how `--semantic` promotes `check --answer`.
   const stale = changed.length + added.length + removed.length > 0;
-  return { ok: errors.length === 0 && !stale, stale, changed, added, removed, errors, warnings };
+  const proseBlocks = opts.prose === true && proseStale.length > 0;
+  return {
+    ok: errors.length === 0 && !stale && !proseBlocks,
+    stale,
+    changed,
+    added,
+    removed,
+    errors,
+    warnings,
+    proseStale,
+    proseUnknown,
+  };
 }
 
 export interface AnswerCheck {

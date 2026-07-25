@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { Region } from "./merge.js";
 import { mergeEntry, humanBodies } from "./merge.js";
+import { proseDigest } from "./prose.js";
 import { readIfExists, writeFileIfChanged, moveFile, removeFile } from "./output.js";
 import { byStr } from "./engine.js";
 
@@ -18,6 +19,13 @@ export interface SyncResult {
   orphaned: string[]; // old module slugs whose prose was moved to _orphaned/
   notes: string[]; // merge conflicts and migration notes
   humanKeys: Record<string, string[]>; // slug -> human region keys in the written entry
+  // slug -> fingerprint of the ENRICHED prose written; absent for stub-only
+  // entries and for entries we refused to rewrite. The manifest uses it to
+  // decide whether to carry a module's recorded source state forward.
+  proseDigests: Record<string, string>;
+  // newSlug -> the predecessor slug its prose migrated from, so the manifest can
+  // inherit the predecessor's source state and a rename cannot launder staleness.
+  migrations: Record<string, string>;
 }
 
 const MIGRATE_THRESHOLD = 0.5;
@@ -47,6 +55,8 @@ export function syncEntries(
   const consumed = new Set<string>(); // old slugs whose prose migrated into a current entry
   const notes: string[] = [];
   const humanKeys: Record<string, string[]> = {};
+  const proseDigests: Record<string, string> = {};
+  const migrations: Record<string, string> = {};
 
   // Candidate predecessors: old modules that no longer exist as current slugs.
   const goneOld = Object.keys(prevModules).filter((s) => !currentSlugs.has(s));
@@ -70,6 +80,7 @@ export function syncEntries(
         if (oldText) {
           migrated = humanBodies(oldText);
           consumed.add(best.slug);
+          migrations[e.slug] = best.slug;
           notes.push(`migrated prose from "${best.slug}" → "${e.slug}" (member overlap ${best.score.toFixed(2)})`);
         }
       }
@@ -79,6 +90,8 @@ export function syncEntries(
     if (merged.conflict) notes.push(`${e.slug}: ${merged.conflict}`);
     writeFileIfChanged(path, merged.content);
     humanKeys[e.slug] = merged.humanKeys;
+    const digest = proseDigest(merged.regions);
+    if (digest) proseDigests[e.slug] = digest;
   }
 
   // Old modules that disappeared: consumed ones had their prose migrated (delete
@@ -104,5 +117,5 @@ export function syncEntries(
   }
 
   orphaned.sort(byStr);
-  return { orphaned, notes, humanKeys };
+  return { orphaned, notes, humanKeys, proseDigests, migrations };
 }

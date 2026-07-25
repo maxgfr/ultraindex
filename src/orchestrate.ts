@@ -55,10 +55,13 @@ export interface PhaseInfo {
 
 export function listPhases(ctx: OrchestrateContext): PhaseInfo[] {
   // enrich — the work-queue is derived EXACTLY the way `status` derives it (the
-  // same runStatus call), read straight from disk: unenriched modules, in
+  // same runStatus call), read straight from disk: modules needing work, in
   // enrichment order. No snapshot file: the index itself is the worklist.
+  // "Needing work" includes entries whose prose went stale, not only the
+  // never-enriched — a stale explanation is worse than a missing one, since
+  // downstream treats enriched prose as higher-trust.
   const st = runStatus(ctx.out);
-  const enrichIds = st ? st.modules.filter((m) => !m.enriched).map((m) => m.slug) : [];
+  const enrichIds = st ? st.modules.filter((m) => !m.enriched || m.prose === "stale").map((m) => m.slug) : [];
 
   // verify-answer — file-backed by the VERIFY.todo.json `verify --answer`
   // writes next to the answer file; --answer anchors it (default: repo root).

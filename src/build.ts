@@ -111,7 +111,7 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
     maxBytes: opts.maxBytes,
     maxFiles: opts.maxFiles,
     gitignore: opts.gitignore,
-  });
+  }, prev);
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
 
   // Refresh the extraction cache for the next build (skipped with --no-cache).

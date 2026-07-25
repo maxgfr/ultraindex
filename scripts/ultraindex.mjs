@@ -12230,6 +12230,7 @@ function mergeEntry(spec, existing, migrated) {
         content: existing,
         humanKeys: [],
         migratedKeys: [],
+        regions: [],
         conflict: "unparseable region fences \u2014 kept existing entry, refused to rewrite"
       };
     }
@@ -12269,7 +12270,7 @@ function mergeEntry(spec, existing, migrated) {
     out2.push({ type: "human", key, body: appended.get(key) });
   }
   const humanKeys = out2.filter((r) => r.type === "human").map((r) => r.key);
-  return { content: serializeRegions(out2), humanKeys, migratedKeys: migratedKeysUsed, conflict: dupConflict };
+  return { content: serializeRegions(out2), humanKeys, migratedKeys: migratedKeysUsed, regions: out2, conflict: dupConflict };
 }
 
 // src/render/encyclopedia.ts
@@ -12612,18 +12613,45 @@ function renderMermaid2(graph, opts = {}) {
   };
 }
 
+// src/prose.ts
+function proseDigest(regions) {
+  const parts2 = regions.filter((r) => r.type === "human" && isEnrichedBody(r.body)).map((r) => `${r.key}\0${r.body}`).sort(byStr);
+  return parts2.length === 0 ? "" : sha1(parts2.join("\n"));
+}
+function proseSourceHash(members, hashes) {
+  const parts2 = members.slice().sort(byStr).map((rel) => `${rel}\0${hashes[rel] ?? "<deleted>"}`);
+  return sha1(parts2.join("\n"));
+}
+function proseFreshness(rec, liveDigest, members, hashes) {
+  if (liveDigest === "") return "none";
+  if (!rec) return "unknown";
+  if (rec.digest !== liveDigest) return "fresh";
+  return proseSourceHash(members, hashes) === rec.source ? "fresh" : "stale";
+}
+
 // src/render/manifest.ts
 function sortedRecord(obj) {
   const out2 = {};
   for (const k of Object.keys(obj).sort(byStr)) out2[k] = obj[k];
   return out2;
 }
-function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = [], filters = {}) {
+function buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes = [], filters = {}, prev) {
   const fileHashes = {};
   for (const f of scan2.files) fileHashes[f.rel] = f.hash;
   const modules = {};
   for (const m of graph.modules) {
-    modules[m.slug] = { members: m.members, humanKeys: (sync.humanKeys[m.slug] ?? []).slice().sort(byStr) };
+    const entry = {
+      members: m.members,
+      humanKeys: (sync.humanKeys[m.slug] ?? []).slice().sort(byStr)
+    };
+    const digest = sync.proseDigests[m.slug];
+    if (digest) {
+      const from = sync.migrations[m.slug];
+      const prevMod = prev?.modules[m.slug] ?? (from ? prev?.modules[from] : void 0);
+      const carried = prevMod?.prose?.digest === digest ? prevMod.prose.source : void 0;
+      entry.prose = { digest, source: carried ?? proseSourceHash(m.members, fileHashes) };
+    }
+    modules[m.slug] = entry;
   }
   const communityMembers = /* @__PURE__ */ new Map();
   for (const m of graph.modules) {
@@ -12712,6 +12740,8 @@ function syncEntries(outDir, entries, prevModules) {
   const consumed = /* @__PURE__ */ new Set();
   const notes = [];
   const humanKeys = {};
+  const proseDigests = {};
+  const migrations = {};
   const goneOld = Object.keys(prevModules).filter((s) => !currentSlugs.has(s));
   for (const e of entries.slice().sort((a, b) => byStr(a.slug, b.slug))) {
     const path = entryPath(e.slug);
@@ -12729,6 +12759,7 @@ function syncEntries(outDir, entries, prevModules) {
         if (oldText) {
           migrated = humanBodies(oldText);
           consumed.add(best.slug);
+          migrations[e.slug] = best.slug;
           notes.push(`migrated prose from "${best.slug}" \u2192 "${e.slug}" (member overlap ${best.score.toFixed(2)})`);
         }
       }
@@ -12737,6 +12768,8 @@ function syncEntries(outDir, entries, prevModules) {
     if (merged.conflict) notes.push(`${e.slug}: ${merged.conflict}`);
     writeFileIfChanged(path, merged.content);
     humanKeys[e.slug] = merged.humanKeys;
+    const digest = proseDigest(merged.regions);
+    if (digest) proseDigests[e.slug] = digest;
   }
   const orphaned = [];
   for (const old of goneOld) {
@@ -12758,7 +12791,7 @@ function syncEntries(outDir, entries, prevModules) {
     }
   }
   orphaned.sort(byStr);
-  return { orphaned, notes, humanKeys };
+  return { orphaned, notes, humanKeys, proseDigests, migrations };
 }
 
 // src/store.ts
@@ -12883,7 +12916,7 @@ function runBuild(opts, builtAt) {
     maxBytes: opts.maxBytes,
     maxFiles: opts.maxFiles,
     gitignore: opts.gitignore
-  });
+  }, prev);
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
   if (!opts.noCache) {
     const files = {};
@@ -13992,9 +14025,11 @@ function runStatus(outDir) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
   const enc = indexPaths(outDir).encyclopedia;
+  const manifest = loadManifest(outDir);
   const modules = graph.modules.map((m) => {
     let total = 0;
     let filled = 0;
+    let prose = "none";
     const text = readIfExists(join23(enc, `${m.slug}.md`));
     if (text) {
       const parsed = parseRegions(text);
@@ -14004,6 +14039,13 @@ function runStatus(outDir) {
           total++;
           if (isEnrichedBody(r.body)) filled++;
         }
+        const recorded = manifest?.modules[m.slug];
+        prose = proseFreshness(
+          recorded?.prose,
+          proseDigest(parsed.regions),
+          recorded?.members ?? m.members,
+          manifest?.fileHashes ?? {}
+        );
       }
     }
     return {
@@ -14013,7 +14055,8 @@ function runStatus(outDir) {
       degree: m.degIn + m.degOut,
       enriched: filled > 0,
       tested: Boolean(m.testedBy?.length),
-      regions: { enriched: filled, total }
+      regions: { enriched: filled, total },
+      prose
     };
   });
   const nonTestCode = /* @__PURE__ */ new Set();
@@ -14023,18 +14066,21 @@ function runStatus(outDir) {
   const untested = graph.modules.filter(
     (m) => m.tier <= 1 && m.symbols > 0 && nonTestCode.has(m.slug) && !m.testedBy?.length
   ).length;
+  const rank = (m) => m.prose === "stale" ? 0 : m.enriched ? 2 : 1;
   modules.sort(
-    (a, b) => Number(a.enriched) - Number(b.enriched) || // work first, done last
+    (a, b) => rank(a) - rank(b) || // stale prose, then never-enriched, then done
     Number(a.tier === 2) - Number(b.tier === 2) || // tail enriches last
     b.degree - a.degree || // most-connected first
     byStr(a.slug, b.slug)
   );
   const enriched = modules.filter((m) => m.enriched).length;
+  const needsWork = modules.filter((m) => !m.enriched || m.prose === "stale");
   return {
     enriched,
     total: modules.length,
     untested,
-    suggestedNext: modules.filter((m) => !m.enriched).slice(0, 5).map((m) => m.slug),
+    proseStale: modules.filter((m) => m.prose === "stale").length,
+    suggestedNext: needsWork.slice(0, 5).map((m) => m.slug),
     modules
   };
 }
@@ -14457,15 +14503,17 @@ function hashRepo(repo, outAbs, filters) {
   }
   return out2;
 }
-function runCheck(outDir, repo) {
+function runCheck(outDir, repo, opts = {}) {
   const errors = [];
   const warnings = [];
+  const proseStale = [];
+  const proseUnknown = [];
   const graph = loadGraph(outDir);
   const manifest = loadManifest(outDir);
   if (!graph) errors.push("graph.json is missing or written by an incompatible engine version");
   if (!manifest) errors.push("manifest.json is missing or written by an incompatible engine version");
   if (!graph || !manifest) {
-    return { ok: false, stale: false, changed: [], added: [], removed: [], errors, warnings };
+    return { ok: false, stale: false, changed: [], added: [], removed: [], errors, warnings, proseStale, proseUnknown };
   }
   const current = hashRepo(repo, outDir, manifest.scan);
   const recorded = manifest.fileHashes;
@@ -14507,7 +14555,18 @@ function runCheck(outDir, repo) {
         errors.push(`encyclopedia/${m.slug}.md [${r.key}]: citation [${u.citation.raw}] \u2014 ${u.reason}`);
       }
     }
+    const recorded2 = manifest.modules[m.slug];
+    const state = proseFreshness(
+      recorded2?.prose,
+      proseDigest(parsed.regions),
+      recorded2?.members ?? m.members,
+      current
+    );
+    if (state === "stale") proseStale.push(m.slug);
+    else if (state === "unknown") proseUnknown.push(m.slug);
   }
+  proseStale.sort(byStr);
+  proseUnknown.sort(byStr);
   const vectors = loadVectors(outDir);
   if (vectors) {
     if (!vectors.modelId || !vectors.dim) {
@@ -14525,8 +14584,24 @@ function runCheck(outDir, repo) {
   for (const note of manifest.notes) {
     if (/conflict|unparseable/i.test(note)) warnings.push(note);
   }
+  if (proseUnknown.length) {
+    warnings.push(
+      `${proseUnknown.length} enriched entr(y|ies) have no recorded source state (index predates prose tracking) \u2014 run \`ultraindex build\``
+    );
+  }
   const stale = changed.length + added.length + removed.length > 0;
-  return { ok: errors.length === 0 && !stale, stale, changed, added, removed, errors, warnings };
+  const proseBlocks = opts.prose === true && proseStale.length > 0;
+  return {
+    ok: errors.length === 0 && !stale && !proseBlocks,
+    stale,
+    changed,
+    added,
+    removed,
+    errors,
+    warnings,
+    proseStale,
+    proseUnknown
+  };
 }
 function checkAnswer(outDir, answerPath, opts = {}) {
   const errors = [];
@@ -14992,7 +15067,7 @@ var SMALL_WORKLIST = 3;
 var BATCH_SIZE = 8;
 function listPhases(ctx) {
   const st = runStatus(ctx.out);
-  const enrichIds = st ? st.modules.filter((m) => !m.enriched).map((m) => m.slug) : [];
+  const enrichIds = st ? st.modules.filter((m) => !m.enriched || m.prose === "stale").map((m) => m.slug) : [];
   const verifyWl = join28(ctx.answer ? dirname8(ctx.answer) : ctx.repo, "VERIFY.todo.json");
   const verifyPrereq = `node ${ctx.engine} verify --answer ${ctx.answer ?? "<answer.md>"} --repo ${ctx.repo}` + (ctx.answer ? "" : ` (then re-run orchestrate with --answer <answer.md>)`);
   let verifyIds = [];
@@ -15119,7 +15194,7 @@ Usage:
   ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
   ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
-  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic]
+  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic] [--prose]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
   ultraindex grammars [status|pull]
@@ -15198,6 +15273,8 @@ Options:
   --list            orchestrate: print the phases + readiness as JSON, emit nothing
   --force           embed: re-embed every module even if unchanged
   --json            Machine-readable output
+  --prose           check: also FAIL when an entry's prose was written against
+                    source that has since changed (reported either way)
   --quiet           check: print nothing, use the exit code only
   -h, --help        Show this help
   -v, --version     Show version
@@ -15217,7 +15294,7 @@ Grounding:
 `;
 var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars"]);
 var VALUE_FLAGS = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "eco", "list", "staged"]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "prose", "eco", "list", "staged"]);
 var REASON_HINTS = {
   "missing-module": "a relative import's target file does not exist \u2014 usually a real broken import in the repo, worth reporting",
   "alias-unresolved": "a tsconfig path alias matched but its target file is missing \u2014 check the tsconfig paths or uncommitted build artifacts",
@@ -15601,12 +15678,14 @@ function cmdStatus(p) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     return;
   }
-  const lines = [`ultraindex: ${res.enriched}/${res.total} modules enriched`];
+  const header = `ultraindex: ${res.enriched}/${res.total} modules enriched`;
+  const lines = [res.proseStale ? `${header} \xB7 ${res.proseStale} with STALE prose` : header];
   if (res.suggestedNext.length) lines.push(`  next:     ${res.suggestedNext.join(", ")}`);
   lines.push("");
   for (const m of res.modules.slice(0, 15)) {
-    const state = m.enriched ? "\u2713" : "\xB7";
-    lines.push(`  ${state} ${m.slug}  (${m.path}, tier ${m.tier}, degree ${m.degree}) \u2014 ${m.regions.enriched}/${m.regions.total} regions`);
+    const state = m.prose === "stale" ? "!" : m.enriched ? "\u2713" : "\xB7";
+    const drift = m.prose === "stale" ? ", source changed since written" : "";
+    lines.push(`  ${state} ${m.slug}  (${m.path}, tier ${m.tier}, degree ${m.degree}) \u2014 ${m.regions.enriched}/${m.regions.total} regions${drift}`);
   }
   if (res.modules.length > 15) lines.push(`  \u2026and ${res.modules.length - 15} more (use --json for all)`);
   lines.push("", `  enrich:   \`ultraindex dossier <slug>\` then fill the ui:human regions, then \`ultraindex check\``);
@@ -15665,7 +15744,7 @@ function cmdCheck(p) {
     if (!res2.ok) process.exit(1);
     return;
   }
-  const res = runCheck(out2, repo);
+  const res = runCheck(out2, repo, { prose: p.bools.has("prose") });
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     if (!res.ok) process.exit(1);
@@ -15673,14 +15752,26 @@ function cmdCheck(p) {
   }
   if (!p.bools.has("quiet")) {
     const lines = [];
-    const status = res.errors.length ? "BROKEN" : res.stale ? "STALE" : "FRESH";
+    const proseBlocks = p.bools.has("prose") && res.proseStale.length > 0;
+    const status = res.errors.length || proseBlocks ? "BROKEN" : res.stale ? "STALE" : "FRESH";
     lines.push(`ultraindex: index is ${status} (${out2})`);
     if (res.changed.length) lines.push(`  changed:  ${res.changed.length} \u2014 ${res.changed.slice(0, 8).join(", ")}${res.changed.length > 8 ? " \u2026" : ""}`);
     if (res.added.length) lines.push(`  added:    ${res.added.length} \u2014 ${res.added.slice(0, 8).join(", ")}${res.added.length > 8 ? " \u2026" : ""}`);
     if (res.removed.length) lines.push(`  removed:  ${res.removed.length} \u2014 ${res.removed.slice(0, 8).join(", ")}${res.removed.length > 8 ? " \u2026" : ""}`);
     for (const e of res.errors) lines.push(`  error:    ${e}`);
+    if (res.proseStale.length) {
+      const label = proseBlocks ? "error" : "prose";
+      lines.push(
+        `  ${label}:    ${res.proseStale.length} module(s) written against source that has since changed`
+      );
+      for (const slug of res.proseStale.slice(0, 8)) lines.push(`              ${slug}`);
+      if (res.proseStale.length > 8) lines.push(`              \u2026and ${res.proseStale.length - 8} more`);
+    }
     for (const w of res.warnings) lines.push(`  warning:  ${w}`);
     if (res.stale) lines.push(`  fix:      re-run \`ultraindex build\` to refresh`);
+    if (res.proseStale.length) {
+      lines.push(`  re-enrich: \`ultraindex dossier <slug>\`, revise the prose, then \`check\``);
+    }
     process.stdout.write(lines.join("\n") + "\n");
   }
   if (!res.ok) process.exit(1);
