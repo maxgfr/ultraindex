@@ -15779,7 +15779,10 @@ var PHASE_SPECS = {
     role: "enricher",
     title: "Enrich",
     schema: ENRICH_SCHEMA,
-    description: (n) => `Enrich the ${n} unenriched encyclopedia entr${n === 1 ? "y" : "ies"} of an ultraindex index with cited prose (disjoint-write fan-out)`,
+    // "needing work", not "unenriched": the queue also carries entries whose
+    // prose went stale (see status.ts's rank). Saying "unenriched" would
+    // misdescribe a fan-out that is partly REVISION work.
+    description: (n) => `Write or revise the ${n} encyclopedia entr${n === 1 ? "y" : "ies"} of an ultraindex index that need cited prose (disjoint-write fan-out)`,
     joinHint: (ctx) => `node ${ctx.engine} check --out ${ctx.out} --repo ${ctx.repo}`
   },
   "verify-answer": {
@@ -15866,13 +15869,14 @@ function agentContracts(ctx) {
 
 You enrich encyclopedia entries of an ultraindex index \u2014 the grounded business analysis the deterministic engine cannot write. Handle ONLY the module slugs named in your prompt (\`ITEMS=<slug,\u2026>\`).
 
-Index: \`${ctx.out}\` \xB7 Repo: \`${ctx.repo}\`. The queue you were drawn from is exactly what \`${engine} status --out ${ctx.out} --json\` reports (unenriched modules, most useful first).
+Index: \`${ctx.out}\` \xB7 Repo: \`${ctx.repo}\`. The queue you were drawn from is exactly what \`${engine} status --out ${ctx.out} --json\` reports: modules whose prose went STALE first (\`prose: "stale"\` \u2014 an explanation written against source that has since changed), then never-enriched ones, most useful first.
 
 For EACH of your slugs:
 
 1. Run \`${engine} dossier <slug> --out ${ctx.out}\` (read-only) and read ONLY that packet \u2014 the module's real key source + graph neighbours. A docs/config-only module (often \`root\`) shows no code \u2014 cite its README/config files instead.
 2. Edit \`${join29(ctx.out, "encyclopedia")}/<slug>.md\`: fill the \`ui:human\` regions (\`business\` \u2014 what it does for the product and how it connects; \`gotchas\` \u2014 caveats) with 2\u20135 sentences of genuine analysis, **citing the evidence** as \`[file]\`, \`[file:line]\` or \`[file:start-end]\`. Write only what the source supports \u2014 no guessing. Remove the \`<!-- ui:enrich -->\` stub marker; leave every \`ui:gen\` region alone.
 3. Cite only files inside that module (you may open a file the dossier lists to cite a line past the excerpt \u2014 never a file outside your module).
+4. If the entry ALREADY has prose (\`prose: "stale"\` in status), you are REVISING, not adding: the source moved under an explanation that still reads as true. Rewrite the existing sentences to match what the dossier now shows and drop what no longer holds. Do NOT append a second explanation beside the outdated one \u2014 two accounts of the same module, one of them wrong, is worse than the stale one alone.
 
 Return (structured output): \`{ "entries": [{ "slug", "entry", "note" }] }\` \u2014 the entries you wrote (absolute paths) + a one-line note per entry, so the orchestrator can route \`check\` failures back to you.
 
