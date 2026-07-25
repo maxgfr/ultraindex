@@ -15048,7 +15048,11 @@ function runDelta(outDir, repo, opts) {
       let text;
       try {
         const st = statSync6(abs);
-        if (!st.isFile() || st.size > maxBytes) continue;
+        if (!st.isFile()) continue;
+        if (st.size > maxBytes) {
+          if (manifest.fileHashes[f.path] !== void 0) stale.push(f.path);
+          continue;
+        }
         text = readText(abs);
       } catch {
         continue;

@@ -121,7 +121,16 @@ export function runDelta(outDir: string, repo: string, opts: { base?: string; st
       let text: string;
       try {
         const st = statSync(abs);
-        if (!st.isFile() || st.size > maxBytes) continue;
+        if (!st.isFile()) continue;
+        // Too big to hash now. If the index HAS a record for it, the file was
+        // small enough at build time and has since grown past the cap: its
+        // recorded symbol ranges describe a different, smaller file, so
+        // line-mapping against them is exactly the wrong attribution this gate
+        // exists to prevent. Unverifiable is not the same as unchanged.
+        if (st.size > maxBytes) {
+          if (manifest.fileHashes[f.path] !== undefined) stale.push(f.path);
+          continue;
+        }
         text = readText(abs);
       } catch {
         continue;

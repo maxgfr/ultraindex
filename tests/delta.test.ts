@@ -395,6 +395,29 @@ describe.skipIf(!have("git"))("runDelta — git integration", () => {
     expect(res.stale).toContain("src/a.ts");
   });
 
+  it("refuses when an indexed file grew past --max-bytes and can no longer be hashed", () => {
+    // The gate used to `continue` past any file over the cap. But a file the
+    // index HAS a record for was small enough at build time: if it is over the
+    // cap now it has grown, and its recorded symbol ranges describe a different,
+    // smaller file. Waving it through line-maps the diff onto stale ranges,
+    // which is precisely the wrong attribution the gate exists to stop.
+    const repo = mkdtempSync(join(tmpdir(), "ui-grew-"));
+    git(repo, "init", "-q", "-b", "main");
+    mkdirSync(join(repo, "src"), { recursive: true });
+    writeFileSync(join(repo, "src", "a.ts"), "export function alpha(): number { return 1; }\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    // Build with a tiny cap recorded in the manifest, then push the file over it.
+    const out = join(repo, ".ultraindex");
+    runBuild({ repo, out, mermaid: false, json: true, maxBytes: 200 }, "2026-01-01T00:00:00.000Z");
+    appendFileSync(join(repo, "src", "a.ts"), "// pad\n".repeat(200));
+    git(repo, "add", "-A");
+
+    const res = runDelta(out, repo, { staged: true });
+    if (!("error" in res)) throw new Error("expected the gate to refuse an unhashable indexed file");
+    expect(res.stale).toContain("src/a.ts");
+  });
+
   it("falls back to HEAD with a note when no default branch exists", () => {
     const repo = mkdtempSync(join(tmpdir(), "ui-trunk-"));
     git(repo, "init", "-q", "-b", "trunk");
