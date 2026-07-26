@@ -70,7 +70,7 @@ var EXTRACTOR_VERSION;
 var init_types = __esm({
   "src/types.ts"() {
     "use strict";
-    ENGINE_VERSION = "2.19.1";
+    ENGINE_VERSION = "2.20.1";
     SCHEMA_VERSION = 4;
     EXTRACTOR_VERSION = 10;
   }
@@ -366,7 +366,7 @@ var init_ignore = __esm({
 });
 function walk(root, opts = {}) {
   const maxFileBytes = opts.maxFileBytes ?? 1024 * 1024;
-  const maxFiles = opts.maxFiles ?? DEFAULT_MAX_FILES;
+  const maxFiles = opts.maxFiles ?? Infinity;
   const useGitignore = opts.gitignore !== false;
   const ignoreDirs = opts.ignoreDirs ? new Set(opts.ignoreDirs) : IGNORE_DIRS;
   const out2 = [];
@@ -12955,7 +12955,8 @@ Flags (accepted before OR after the subcommand: '--repo X scan' and
   --no-gitignore      Do not honor .gitignore files (default: honored)
   --ignore-dir <name> Directory names to skip (repeatable) \u2014 REPLACES the
                       default ignored-directory set, never merges with it
-  --max-files <n>     Cap walked files (default 20000)
+  --max-files <n>     Cap walked files (default: none \u2014 the whole tree is
+                      indexed; a cap sets the \`capped\` flag)
   --max-bytes <n>     Skip files above this size (default 1 MiB)
   --max-calls <n>     Per-file call-site cap for extraction (default 512)
   --no-ast            Skip tree-sitter grammars even when present (regex tier)
