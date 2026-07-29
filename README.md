@@ -118,19 +118,98 @@ only the files the index points at and answering with **grounded,
 citation-checked** analysis (`dossier`/`ask` hand the agent the real source;
 `check` rejects any citation that doesn't resolve).
 
-## MCP server — use codeindex's
+## Use it as an MCP server
 
-ultraindex used to expose `ultraindex mcp`, which was a verbatim re-export of
-the vendored engine's server: the same 26 repo-analysis tools, announcing
-themselves under the engine's own name (`codeindex`). That is the engine's job,
-so it now lives only in the engine — one server, one name, no collision when a
-client has both registered:
+Two servers, along the same boundary as the rest of this README. **codeindex's**
+serves the engine's 26 repo-analysis tools — where things are:
 
 ```bash
 claude mcp add codeindex -- codeindex mcp      # brew install maxgfr/tap/codeindex
 ```
 
+**ultraindex's** serves the knowledge layer on top — what things mean, and the
+protocol that keeps it honest. Different tools, different name, no collision
+when a client has both registered:
 
+```bash
+# stdio — the default, and what Claude Code / Claude Desktop / Cursor expect
+claude mcp add ultraindex -- node /abs/path/to/scripts/ultraindex.mjs mcp
+
+# or over HTTP, on loopback
+node scripts/ultraindex.mjs mcp --transport http --port 7338
+claude mcp add --transport http ultraindex http://127.0.0.1:7338/mcp
+```
+
+Claude Desktop (`claude_desktop_config.json`) and Cursor (`.cursor/mcp.json`):
+
+```jsonc
+// Claude Desktop takes stdio servers only — a remote URL here will not work.
+{ "mcpServers": { "ultraindex": { "command": "node", "args": ["/abs/path/to/scripts/ultraindex.mjs", "mcp"] } } }
+// Cursor, HTTP:
+{ "mcpServers": { "ultraindex": { "url": "http://127.0.0.1:7338/mcp" } } }
+```
+
+It serves all three MCP primitives, because a skill is three things: the engine
+(**tools**), the method (**prompts**), and the documentation the method refers
+to (**resources**). A client given only the tools has to invent the rest.
+
+### Tools
+
+Twelve read tools. `ultraindex_map` is the one to reach for first:
+
+| Tool | What it does |
+|------|--------------|
+| `ultraindex_map` | The always-loadable map, or one module's full entry |
+| `ultraindex_find` | Rank modules for a task → the exact files to open |
+| `ultraindex_ask` | Ranked modules **plus their real source**, as one grounding packet |
+| `ultraindex_dossier` | One module's source + neighbours, for writing its analysis |
+| `ultraindex_symbols` | Where a symbol is declared, and which files reference it |
+| `ultraindex_neighbors` | Typed graph edges in and out of a file or module |
+| `ultraindex_impact` | Reverse-dependency closure — what breaks if this changes |
+| `ultraindex_delta` | Risk-scored review panel for a diff |
+| `ultraindex_status` | The enrichment work-queue, in priority order |
+| `ultraindex_read` | A file, or a line range, from the indexed repo |
+| `ultraindex_check` | The grounding gate: every `[file:line]` must resolve |
+| `ultraindex_verify` | Claim↔citation worklist for adversarial support-checking |
+
+`--allow-write` additionally exposes `ultraindex_build` and `ultraindex_embed`,
+the two tools that write into **your** repository. They are off by default so an
+auto-approving agent cannot reach them — which is also where the read-only line
+is drawn: at your tree, not at whether a tool touches a disk.
+
+Pass `--repo <dir>` at startup to dedicate the server to one project — `repo`
+then becomes optional on every tool.
+
+### Prompts — the workflow, not just the tools
+
+| Prompt | Arguments | What it drives |
+|--------|-----------|----------------|
+| `enrich_module` | `repo`, `slug?` | Pick the next module off the queue, read its dossier, write the analysis the engine cannot infer, prove it |
+| `answer_grounded` | `repo`, `question` | Retrieve real source → cited answer → `ultraindex_check` |
+| `review_changes` | `repo`, `base?` | Map the diff onto the graph, review by blast radius rather than line count |
+
+Each carries the division of labour the whole skill rests on: the engine owns
+the code view, you own the business view, and every claim cites `[file:line]`.
+
+### Resources — the skill's own documentation
+
+`SKILL.md` and all five `references/*.md` are served under `skill://`, read off
+disk at request time — so a documentation fix reaches every client without a
+rebuild. A build installed without its payload still serves every tool, with an
+empty resource list.
+
+Three things worth knowing:
+
+- **Every read tool needs an index.** Run `ultraindex_build` once per repo
+  (`--allow-write`); it is incremental afterwards. Without one, tools fail
+  naming the missing step, not with "undefined".
+- **`build` and `embed` are serialized per index directory.** Both read, merge
+  and write the same files — and `build` explicitly preserves the prose you
+  wrote, which two interleaved calls would lose.
+- **The HTTP transport binds `127.0.0.1` and refuses anything else** unless you
+  pass `--allow-remote`. This server reads local files; an exposed port is a
+  read-anything primitive for whoever finds it. Browser `Origin`s are checked
+  for the same reason.
 
 ## CLI
 

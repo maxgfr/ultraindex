@@ -19,6 +19,8 @@ import { runDossier, runAsk } from "./explain.js";
 import { listPhases, orchestrateRun } from "./orchestrate.js";
 import { phaseSpec } from "./orchestrate-templates.js";
 import { indexExists, loadGraph, loadManifest } from "./store.js";
+import { runStdioServer } from "./mcp/stdio.js";
+import { startHttpServer } from "./mcp/http.js";
 import { ensureGrammars, allGrammarKeys, runCli, resolveGrammarsTier } from "./engine.js";
 
 const HELP = `ultraindex v${VERSION}
@@ -42,6 +44,7 @@ Usage:
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
   ultraindex grammars [status|pull]
+  ultraindex mcp     [--transport stdio|http] [--repo <dir>] [--allow-write] [--port <n>] [--bind <addr>] [--allow-remote]
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -137,9 +140,50 @@ Grounding:
   citation does not resolve to a real file/line — the anti-hallucination guard.
 `;
 
-const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars"]);
-const VALUE_FLAGS = new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
-const BOOL_FLAGS = new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "prose", "eco", "list", "staged"]);
+const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars", "mcp"]);
+const VALUE_FLAGS = new Set([
+  "repo",
+  "out",
+  "include",
+  "exclude",
+  "max-bytes",
+  "max-files",
+  "k",
+  "depth",
+  "kind",
+  "budget",
+  "module",
+  "answer",
+  "q",
+  "question",
+  "apply",
+  "max-verify",
+  "phase",
+  "base",
+  // `mcp` only. The flag sets are global, so these are accepted (and ignored)
+  // on every command — the same as --phase and --list already are.
+  "transport",
+  "port",
+  "bind",
+  "allow-origin",
+  "max-response-bytes",
+]);
+const BOOL_FLAGS = new Set([
+  "json",
+  "no-mermaid",
+  "no-cache",
+  "full-hash",
+  "no-gitignore",
+  "quiet",
+  "force",
+  "semantic",
+  "prose",
+  "eco",
+  "list",
+  "staged",
+  "allow-remote",
+  "allow-write",
+]);
 
 // What each dangling reason means and what to do about it — emitted in
 // `build --json` so the report is self-diagnosing.
@@ -155,6 +199,13 @@ const REASON_HINTS: Record<string, string> = {
 function fail(message: string): never {
   process.stderr.write(`ultraindex: ${message}\n`);
   process.exit(1);
+}
+
+function oneOf<T extends string>(name: string, value: string, allowed: readonly T[]): T {
+  if (!(allowed as readonly string[]).includes(value)) {
+    fail(`invalid --${name} "${value}" (expected: ${allowed.join(", ")})`);
+  }
+  return value as T;
 }
 
 // Make the tree-sitter grammars available before the (synchronous) scan, then
@@ -816,6 +867,56 @@ async function main(): Promise<void> {
       //   grammars pull    — download the per-release wasm tarball into the
       //                      shared cache, sha256-verified (atomic, idempotent).
       return runCli(["grammars", ...p.positional, ...(p.values.out ? ["--out", p.values.out] : [])]);
+
+    case "mcp": {
+      const transport = oneOf("transport", p.values.transport ?? "stdio", ["stdio", "http"]);
+      const maxResponseBytes = p.values["max-response-bytes"] ? Number(p.values["max-response-bytes"]) : undefined;
+      if (maxResponseBytes !== undefined && (!Number.isFinite(maxResponseBytes) || maxResponseBytes <= 0)) fail("invalid --max-response-bytes");
+      const options = {
+        // A default repo makes `repo` optional on every tool, for a server
+        // dedicated to one project.
+        defaultRepo: p.values.repo,
+        allowWrite: p.bools.has("allow-write"),
+        maxResponseBytes,
+      };
+
+      if (transport === "stdio") {
+        // Nothing is written to stdout here: from this point stdout carries
+        // JSON-RPC frames only, and runStdioServer guards that.
+        await runStdioServer(options);
+        return;
+      }
+
+      const port = p.values.port ? Number(p.values.port) : 7338;
+      if (!Number.isInteger(port) || port < 0 || port > 65535) fail("invalid --port");
+      const allowOrigin = p.values["allow-origin"]
+        ? p.values["allow-origin"]
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined;
+      let running: Awaited<ReturnType<typeof startHttpServer>>;
+      try {
+        running = await startHttpServer({ ...options, port, bind: p.values.bind, allowOrigin, allowRemote: p.bools.has("allow-remote") });
+      } catch (e) {
+        fail((e as Error).message);
+      }
+      // stderr, not stdout: an HTTP server's stdout is not a protocol stream,
+      // but keeping the two transports identical here means no one has to
+      // remember which is which.
+      process.stderr.write(`ultraindex: MCP server listening on ${running.url}\n`);
+      process.stderr.write(`  tools:  ${running.server.listening ? "ready" : "starting"} · ${options.allowWrite ? "read/write" : "read-only"}\n`);
+      process.stderr.write(`  client: claude mcp add --transport http ultraindex ${running.url}\n`);
+      for (const sig of ["SIGINT", "SIGTERM"] as const) {
+        process.once(sig, () => {
+          void running.close().then(() => process.exit(0));
+        });
+      }
+      // Resolve only when the server stops, so `run()` doesn't return while it
+      // is still listening.
+      await new Promise<void>((resolve) => running.server.once("close", resolve));
+      return;
+    }
   }
 }
 

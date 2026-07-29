@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve as resolve4, join as join33, dirname as dirname10 } from "path";
-import { existsSync as existsSync12 } from "fs";
-import { pathToFileURL as pathToFileURL3, fileURLToPath as fileURLToPath3 } from "url";
-import { realpathSync as realpathSync2 } from "fs";
+import { resolve as resolve6, join as join35, dirname as dirname11 } from "path";
+import { existsSync as existsSync14 } from "fs";
+import { pathToFileURL as pathToFileURL3, fileURLToPath as fileURLToPath4 } from "url";
+import { realpathSync as realpathSync4 } from "fs";
 
 // src/vendor/codeindex-engine.mjs
 import { spawnSync } from "child_process";
@@ -655,9 +655,9 @@ function diffFiles(dir, spec) {
     }
   }
   const byPath = new Map(out2.map((f) => [f.path, f]));
-  const num2 = sh("git", [...gitArgs(dir), "diff", "-z", "-M", "--numstat", ...rangeArgs(spec)]);
-  if (num2.ok) {
-    const toks = num2.stdout.split("\0");
+  const num22 = sh("git", [...gitArgs(dir), "diff", "-z", "-M", "--numstat", ...rangeArgs(spec)]);
+  if (num22.ok) {
+    const toks = num22.stdout.split("\0");
     let i2 = 0;
     while (i2 < toks.length) {
       const head = toks[i2++];
@@ -2089,16 +2089,16 @@ async function Module2(moduleArg = {}) {
     if (endPtr - idx > 16 && heapOrArray.buffer && UTF8Decoder) {
       return UTF8Decoder.decode(heapOrArray.subarray(idx, endPtr));
     }
-    var str2 = "";
+    var str22 = "";
     while (idx < endPtr) {
       var u0 = heapOrArray[idx++];
       if (!(u0 & 128)) {
-        str2 += String.fromCharCode(u0);
+        str22 += String.fromCharCode(u0);
         continue;
       }
       var u1 = heapOrArray[idx++] & 63;
       if ((u0 & 224) == 192) {
-        str2 += String.fromCharCode((u0 & 31) << 6 | u1);
+        str22 += String.fromCharCode((u0 & 31) << 6 | u1);
         continue;
       }
       var u2 = heapOrArray[idx++] & 63;
@@ -2108,13 +2108,13 @@ async function Module2(moduleArg = {}) {
         u0 = (u0 & 7) << 18 | u1 << 12 | u2 << 6 | heapOrArray[idx++] & 63;
       }
       if (u0 < 65536) {
-        str2 += String.fromCharCode(u0);
+        str22 += String.fromCharCode(u0);
       } else {
         var ch = u0 - 65536;
-        str2 += String.fromCharCode(55296 | ch >> 10, 56320 | ch & 1023);
+        str22 += String.fromCharCode(55296 | ch >> 10, 56320 | ch & 1023);
       }
     }
-    return str2;
+    return str22;
   }, "UTF8ArrayToString");
   var getDylinkMetadata = /* @__PURE__ */ __name((binary2) => {
     var offset = 0;
@@ -2880,7 +2880,7 @@ async function Module2(moduleArg = {}) {
   _fd_close.sig = "ii";
   var INT53_MAX = 9007199254740992;
   var INT53_MIN = -9007199254740992;
-  var bigintToI53Checked = /* @__PURE__ */ __name((num2) => num2 < INT53_MIN || num2 > INT53_MAX ? NaN : Number(num2), "bigintToI53Checked");
+  var bigintToI53Checked = /* @__PURE__ */ __name((num22) => num22 < INT53_MIN || num22 > INT53_MAX ? NaN : Number(num22), "bigintToI53Checked");
   function _fd_seek(fd, offset, whence, newOffset) {
     offset = bigintToI53Checked(offset);
     return 70;
@@ -2898,7 +2898,7 @@ async function Module2(moduleArg = {}) {
     }
   }, "printChar");
   var _fd_write = /* @__PURE__ */ __name((fd, iov, iovcnt, pnum) => {
-    var num2 = 0;
+    var num22 = 0;
     for (var i2 = 0; i2 < iovcnt; i2++) {
       var ptr = LE_HEAP_LOAD_U32((iov >> 2) * 4);
       var len = LE_HEAP_LOAD_U32((iov + 4 >> 2) * 4);
@@ -2906,9 +2906,9 @@ async function Module2(moduleArg = {}) {
       for (var j = 0; j < len; j++) {
         printChar(fd, HEAPU8[ptr + j]);
       }
-      num2 += len;
+      num22 += len;
     }
-    LE_HEAP_STORE_U32((pnum >> 2) * 4, num2);
+    LE_HEAP_STORE_U32((pnum >> 2) * 4, num22);
     return 0;
   }, "_fd_write");
   _fd_write.sig = "iippp";
@@ -2973,10 +2973,10 @@ async function Module2(moduleArg = {}) {
     }
     quit_(1, e);
   }, "handleException");
-  var lengthBytesUTF8 = /* @__PURE__ */ __name((str2) => {
+  var lengthBytesUTF8 = /* @__PURE__ */ __name((str22) => {
     var len = 0;
-    for (var i2 = 0; i2 < str2.length; ++i2) {
-      var c2 = str2.charCodeAt(i2);
+    for (var i2 = 0; i2 < str22.length; ++i2) {
+      var c2 = str22.charCodeAt(i2);
       if (c2 <= 127) {
         len++;
       } else if (c2 <= 2047) {
@@ -2990,12 +2990,12 @@ async function Module2(moduleArg = {}) {
     }
     return len;
   }, "lengthBytesUTF8");
-  var stringToUTF8Array = /* @__PURE__ */ __name((str2, heap, outIdx, maxBytesToWrite) => {
+  var stringToUTF8Array = /* @__PURE__ */ __name((str22, heap, outIdx, maxBytesToWrite) => {
     if (!(maxBytesToWrite > 0)) return 0;
     var startIdx = outIdx;
     var endIdx = outIdx + maxBytesToWrite - 1;
-    for (var i2 = 0; i2 < str2.length; ++i2) {
-      var u = str2.codePointAt(i2);
+    for (var i2 = 0; i2 < str22.length; ++i2) {
+      var u = str22.codePointAt(i2);
       if (u <= 127) {
         if (outIdx >= endIdx) break;
         heap[outIdx++] = u;
@@ -3020,30 +3020,30 @@ async function Module2(moduleArg = {}) {
     heap[outIdx] = 0;
     return outIdx - startIdx;
   }, "stringToUTF8Array");
-  var stringToUTF8 = /* @__PURE__ */ __name((str2, outPtr, maxBytesToWrite) => stringToUTF8Array(str2, HEAPU8, outPtr, maxBytesToWrite), "stringToUTF8");
+  var stringToUTF8 = /* @__PURE__ */ __name((str22, outPtr, maxBytesToWrite) => stringToUTF8Array(str22, HEAPU8, outPtr, maxBytesToWrite), "stringToUTF8");
   var stackAlloc = /* @__PURE__ */ __name((sz) => __emscripten_stack_alloc(sz), "stackAlloc");
-  var stringToUTF8OnStack = /* @__PURE__ */ __name((str2) => {
-    var size = lengthBytesUTF8(str2) + 1;
+  var stringToUTF8OnStack = /* @__PURE__ */ __name((str22) => {
+    var size = lengthBytesUTF8(str22) + 1;
     var ret = stackAlloc(size);
-    stringToUTF8(str2, ret, size);
+    stringToUTF8(str22, ret, size);
     return ret;
   }, "stringToUTF8OnStack");
   var AsciiToString = /* @__PURE__ */ __name((ptr) => {
-    var str2 = "";
+    var str22 = "";
     while (1) {
       var ch = HEAPU8[ptr++];
-      if (!ch) return str2;
-      str2 += String.fromCharCode(ch);
+      if (!ch) return str22;
+      str22 += String.fromCharCode(ch);
     }
   }, "AsciiToString");
-  var stringToUTF16 = /* @__PURE__ */ __name((str2, outPtr, maxBytesToWrite) => {
+  var stringToUTF16 = /* @__PURE__ */ __name((str22, outPtr, maxBytesToWrite) => {
     maxBytesToWrite ??= 2147483647;
     if (maxBytesToWrite < 2) return 0;
     maxBytesToWrite -= 2;
     var startPtr = outPtr;
-    var numCharsToWrite = maxBytesToWrite < str2.length * 2 ? maxBytesToWrite / 2 : str2.length;
+    var numCharsToWrite = maxBytesToWrite < str22.length * 2 ? maxBytesToWrite / 2 : str22.length;
     for (var i2 = 0; i2 < numCharsToWrite; ++i2) {
-      var codeUnit = str2.charCodeAt(i2);
+      var codeUnit = str22.charCodeAt(i2);
       LE_HEAP_STORE_I16((outPtr >> 1) * 2, codeUnit);
       outPtr += 2;
     }
@@ -3385,8 +3385,8 @@ function parseAnyPredicate(steps, index, operator, textPredicates) {
         if (c2.name === captureName1) nodes1.push(c2.node);
         if (c2.name === captureName2) nodes2.push(c2.node);
       }
-      const compare = /* @__PURE__ */ __name((n1, n2, positive) => {
-        return positive ? n1.text === n2.text : n1.text !== n2.text;
+      const compare = /* @__PURE__ */ __name((n1, n2, positive2) => {
+        return positive2 ? n1.text === n2.text : n1.text !== n2.text;
       }, "compare");
       return matchAll ? nodes1.every((n1) => nodes2.some((n2) => compare(n1, n2, isPositive))) : nodes1.some((n1) => nodes2.some((n2) => compare(n1, n2, isPositive)));
     });
@@ -3430,8 +3430,8 @@ function parseMatchPredicate(steps, index, operator, textPredicates) {
     for (const c2 of captures) {
       if (c2.name === captureName) nodes.push(c2.node.text);
     }
-    const test = /* @__PURE__ */ __name((text, positive) => {
-      return positive ? regex.test(text) : !regex.test(text);
+    const test = /* @__PURE__ */ __name((text, positive2) => {
+      return positive2 ? regex.test(text) : !regex.test(text);
     }, "test");
     if (nodes.length === 0) return !isPositive;
     return matchAll ? nodes.every((text) => test(text, isPositive)) : nodes.some((text) => test(text, isPositive));
@@ -5843,8 +5843,8 @@ function collectAll(root, spec, defNames, maxCalls, wantImports) {
     if (wantRefs) {
       const how = spec.imports[type];
       if (how === "string") {
-        const str2 = findFirst(node, (n) => /string/.test(n.type));
-        if (str2) addRef(str2.text.replace(/^['"]|['"]$/g, ""));
+        const str22 = findFirst(node, (n) => /string/.test(n.type));
+        if (str22) addRef(str22.text.replace(/^['"]|['"]$/g, ""));
       } else if (how === "path") {
         const name2 = node.childForFieldName("name") ?? node.childForFieldName("module_name");
         addRef((name2 ?? node).text.replace(/^(import|from)\s+/, "").split(/\s+/)[0]);
@@ -9950,14 +9950,14 @@ function buildEmbeddingIndex(scan2, model) {
   return { embedVersion: EMBED_VERSION, modelId: model.modelId, dim: model.dim, records };
 }
 function serializeEmbeddings(index) {
-  const header = JSON.stringify({
+  const header2 = JSON.stringify({
     embedVersion: index.embedVersion,
     modelId: index.modelId,
     dim: index.dim,
     count: index.records.length,
     records: index.records.map((r) => ({ file: r.file, symbol: r.symbol ?? "", line: r.line ?? 0 }))
   });
-  const headerBuf = Buffer.from(header, "utf8");
+  const headerBuf = Buffer.from(header2, "utf8");
   const body2 = Buffer.alloc(index.records.length * index.dim);
   let off = 0;
   for (const r of index.records) {
@@ -9976,10 +9976,10 @@ function deserializeEmbeddings(bytes) {
     throw new Error("embeddings.bin: bad magic (not a codeindex embeddings artifact)");
   }
   const headerLen = buf.readUInt32LE(4);
-  const header = JSON.parse(buf.toString("utf8", 8, 8 + headerLen));
+  const header2 = JSON.parse(buf.toString("utf8", 8, 8 + headerLen));
   const bodyOff = 8 + headerLen;
-  const { dim } = header;
-  const records = header.records.map((m, i2) => {
+  const { dim } = header2;
+  const records = header2.records.map((m, i2) => {
     const vec = new Int8Array(dim);
     for (let d = 0; d < dim; d++) vec[d] = buf.readInt8(bodyOff + i2 * dim + d);
     const rec = { file: m.file, vec };
@@ -9987,7 +9987,7 @@ function deserializeEmbeddings(bytes) {
     if (m.line) rec.line = m.line;
     return rec;
   });
-  return { embedVersion: header.embedVersion, modelId: header.modelId, dim, records };
+  return { embedVersion: header2.embedVersion, modelId: header2.modelId, dim, records };
 }
 var MAGIC;
 var init_embed = __esm({
@@ -10373,9 +10373,9 @@ function renderRepoMap(scan2, graph, opts = {}) {
   const maxSymbols = opts.maxSymbolsPerFile ?? 8;
   const ranked = [...graph.files].filter((f) => f.fileKind === "code").sort((a, b) => (b.pagerank ?? 0) - (a.pagerank ?? 0) || b.symbols - a.symbols || byStr(a.rel, b.rel));
   const records = new Map(scan2.files.map((f) => [f.rel, f]));
-  const header = `# repo map \u2014 ${graph.fileCount} files
+  const header2 = `# repo map \u2014 ${graph.fileCount} files
 `;
-  let out2 = header;
+  let out2 = header2;
   let files = 0;
   for (const node of ranked) {
     const rec = records.get(node.rel);
@@ -12993,7 +12993,7 @@ function parseFlags(args2) {
       if (v === void 0) throw new Error(`missing value for ${a}`);
       return v;
     };
-    const num2 = () => {
+    const num22 = () => {
       const raw = next();
       const n = Number(raw);
       if (!Number.isFinite(n) || n <= 0) throw new Error(`${a} expects a positive number, got "${raw}"`);
@@ -13009,12 +13009,12 @@ function parseFlags(args2) {
     else if (a === "--scope") flags2.scope = next();
     else if (a === "--no-gitignore") flags2.gitignore = false;
     else if (a === "--ignore-dir") flags2.ignoreDirs.push(next());
-    else if (a === "--max-files") flags2.maxFiles = num2();
-    else if (a === "--max-bytes") flags2.maxBytes = num2();
-    else if (a === "--max-calls") flags2.maxCalls = num2();
+    else if (a === "--max-files") flags2.maxFiles = num22();
+    else if (a === "--max-bytes") flags2.maxBytes = num22();
+    else if (a === "--max-calls") flags2.maxCalls = num22();
     else if (a === "--ignore-case") flags2.ignoreCase = true;
-    else if (a === "--max-hits") flags2.maxHits = num2();
-    else if (a === "--budget-tokens") flags2.budgetTokens = num2();
+    else if (a === "--max-hits") flags2.maxHits = num22();
+    else if (a === "--budget-tokens") flags2.budgetTokens = num22();
     else if (a === "--no-ast") flags2.noAst = true;
     else if (a === "--index") flags2.indexDir = next();
     else if (a === "--no-index-cache") flags2.noIndexCache = true;
@@ -13025,14 +13025,14 @@ function parseFlags(args2) {
       flags2.workers = n;
     } else if (a === "--since") flags2.since = next();
     else if (a === "--config") flags2.config = resolve2(next());
-    else if (a === "--limit") flags2.limit = num2();
+    else if (a === "--limit") flags2.limit = num22();
     else if (a === "--no-fuzzy") flags2.fuzzy = false;
     else if (a === "--semantic") flags2.semantic = true;
     else if (a === "--recall") flags2.recall = true;
     else if (a === "--run") flags2.run = true;
     else if (a === "--base") flags2.base = next();
     else if (a === "--staged") flags2.staged = true;
-    else if (a === "--depth") flags2.depth = num2();
+    else if (a === "--depth") flags2.depth = num22();
     else if (a === "--kind") flags2.kind = next();
     else if (a === "--json") flags2.json = true;
     else if (!a.startsWith("--") && flags2.positional === void 0) flags2.positional = a;
@@ -15702,7 +15702,7 @@ function checkAnswer(outDir, answerPath, opts = {}) {
   const errors = [];
   const graph = loadGraph(outDir);
   if (!graph) return { ok: false, citations: 0, resolved: 0, errors: ["no index \u2014 run `ultraindex build` first"] };
-  const text = readIfExists(answerPath);
+  const text = opts.answerText ?? readIfExists(answerPath);
   if (text === void 0) return { ok: false, citations: 0, resolved: 0, errors: [`answer file not found: ${answerPath}`] };
   const cc = checkCitations(text, fileLineTable(graph));
   const attempts = cc.resolved.length + cc.unresolved.length;
@@ -16275,6 +16275,1296 @@ function orchestrateRun(ctx, opts = {}) {
   return { exitCode: 0, written, notices, errors: [], phases };
 }
 
+// src/mcp/stdio.ts
+import { createInterface as createInterface2 } from "readline";
+
+// src/mcp/handlers.ts
+import { existsSync as existsSync12, readFileSync as readFileSync13, realpathSync as realpathSync2, statSync as statSync7 } from "fs";
+import { isAbsolute as isAbsolute4, join as join33, resolve as resolve4, sep as sep3 } from "path";
+
+// src/index-lock.ts
+var chains = /* @__PURE__ */ new Map();
+function withIndexLock(dir, fn) {
+  const prev = chains.get(dir) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  const tail = next.then(noop, noop);
+  chains.set(dir, tail);
+  tail.then(() => {
+    if (chains.get(dir) === tail) chains.delete(dir);
+  }, noop);
+  return next;
+}
+function noop() {
+}
+
+// src/mcp/handlers.ts
+var ToolError = class extends Error {
+};
+var MAX_READ_LINES = 2e3;
+var MAX_READ_BYTES = 8 * 1024 * 1024;
+function str2(v) {
+  return typeof v === "string" && v.trim() !== "" ? v : void 0;
+}
+function num2(v) {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : void 0;
+}
+function bool(v) {
+  return v === true || v === "true";
+}
+function strArray2(v) {
+  return Array.isArray(v) && v.every((x) => typeof x === "string") ? v : void 0;
+}
+function positive(v, key) {
+  const n = num2(v);
+  if (n === void 0) return void 0;
+  if (n <= 0) throw new ToolError(`\`${key}\` must be greater than 0.`);
+  return n;
+}
+function requiredRepo(args2, defaults) {
+  const repo = str2(args2.repo) ?? defaults.defaultRepo;
+  if (!repo) throw new ToolError("`repo` is required: an absolute path to the repository root.");
+  const abs = resolve4(repo);
+  if (!existsSync12(abs)) throw new ToolError(`repo not found: ${abs}`);
+  return abs;
+}
+function requiredStr(args2, key, hint) {
+  const v = str2(args2[key]);
+  if (!v) throw new ToolError(`\`${key}\` is required \u2014 ${hint}`);
+  return v;
+}
+function resolveOut(args2, repo) {
+  const explicit = str2(args2.out);
+  if (explicit) {
+    if (!isAbsolute4(explicit)) throw new ToolError("`out` must be an absolute path.");
+    return resolve4(explicit);
+  }
+  const dotted = join33(repo, ".ultraindex");
+  if (existsSync12(dotted)) return dotted;
+  const docs = join33(repo, "docs", "ultraindex");
+  if (existsSync12(docs)) return docs;
+  return dotted;
+}
+function requireIndex(out2, repo) {
+  if (!existsSync12(join33(out2, "manifest.json"))) {
+    throw new ToolError(
+      `no index at ${out2} \u2014 build one first with ultraindex_build (repo: ${repo}). If the index lives elsewhere, pass \`out\` explicitly.`
+    );
+  }
+}
+var grammarNote;
+var grammarsTried = false;
+async function warmGrammars2() {
+  if (grammarsTried) return grammarNote;
+  grammarsTried = true;
+  if (resolveGrammarsTier().tier !== "none") return void 0;
+  try {
+    await ensureGrammars(allGrammarKeys());
+  } catch (e) {
+    grammarNote = `tree-sitter grammars unavailable (${e.message}) \u2014 symbols were extracted with the regex fallback, so they are less precise.`;
+    return grammarNote;
+  }
+  if (resolveGrammarsTier().tier === "none") {
+    grammarNote = "tree-sitter grammars unavailable \u2014 symbols were extracted with the regex fallback, so they are less precise.";
+  }
+  return grammarNote;
+}
+var WRITE_TOOL_NAMES = /* @__PURE__ */ new Set(["ultraindex_build", "ultraindex_embed"]);
+var GRAMMARLESS = /* @__PURE__ */ new Set([
+  "ultraindex_map",
+  "ultraindex_status",
+  "ultraindex_read",
+  "ultraindex_check",
+  "ultraindex_verify",
+  "ultraindex_symbols",
+  "ultraindex_neighbors",
+  "ultraindex_impact"
+]);
+async function callTool2(name2, args2, defaults = {}) {
+  if (WRITE_TOOL_NAMES.has(name2) && !defaults.allowWrite) {
+    throw new ToolError(`${name2} writes to your repository and is disabled \u2014 start the server with --allow-write to enable it.`);
+  }
+  const repo = requiredRepo(args2, defaults);
+  const out2 = resolveOut(args2, repo);
+  const notes = [];
+  if (!GRAMMARLESS.has(name2)) {
+    const note = await warmGrammars2();
+    if (note) notes.push(note);
+  }
+  const result = await withIndexLock(out2, () => callIndexTool(name2, args2, repo, out2));
+  return outcome(name2, notes.length ? { ...result, notes } : result);
+}
+function outcome(name2, result) {
+  return { text: JSON.stringify(result, null, 2) + "\n", artifact: artifactFor(name2, result) };
+}
+function artifactFor(name2, result) {
+  if (typeof result !== "object" || result === null) return void 0;
+  const r = result;
+  if (name2 === "ultraindex_map" || name2 === "ultraindex_build") return typeof r.index_md === "string" ? r.index_md : void 0;
+  return void 0;
+}
+async function callIndexTool(name2, args2, repo, out2) {
+  switch (name2) {
+    case "ultraindex_build":
+      return handleBuild(args2, repo, out2);
+    case "ultraindex_embed":
+      return await handleEmbed(args2, repo, out2);
+    case "ultraindex_map":
+      return handleMap(args2, repo, out2);
+    case "ultraindex_find":
+      return await handleFind(args2, repo, out2);
+    case "ultraindex_ask":
+      return await handleAsk(args2, repo, out2);
+    case "ultraindex_dossier":
+      return handleDossier(args2, repo, out2);
+    case "ultraindex_symbols":
+      return handleSymbols(args2, repo, out2);
+    case "ultraindex_neighbors":
+      return handleNeighbors(args2, repo, out2);
+    case "ultraindex_impact":
+      return handleImpact(args2, repo, out2);
+    case "ultraindex_delta":
+      return handleDelta(args2, repo, out2);
+    case "ultraindex_status":
+      return handleStatus(repo, out2);
+    case "ultraindex_read":
+      return handleRead(args2, repo, out2);
+    case "ultraindex_check":
+      return handleCheck(args2, repo, out2);
+    case "ultraindex_verify":
+      return handleVerify(args2, repo, out2);
+    default:
+      throw new ToolError(`unknown tool: ${name2}`);
+  }
+}
+function handleBuild(args2, repo, out2) {
+  const { graph, manifest, capped } = runBuild(
+    {
+      repo,
+      out: out2,
+      include: strArray2(args2.include),
+      exclude: strArray2(args2.exclude),
+      maxBytes: positive(args2.max_bytes, "max_bytes"),
+      maxFiles: positive(args2.max_files, "max_files"),
+      noCache: bool(args2.no_cache),
+      ...bool(args2.no_gitignore) ? { gitignore: false } : {},
+      mermaid: true,
+      json: true
+    },
+    (/* @__PURE__ */ new Date()).toISOString()
+  );
+  const dangling = graph.fileEdges.filter((e) => e.dangling).length;
+  return {
+    out: out2,
+    repo,
+    index_md: join33(out2, "INDEX.md"),
+    modules: graph.modules.length,
+    files: Object.keys(manifest.fileHashes).length,
+    edges: graph.fileEdges.length,
+    dangling_edges: dangling,
+    capped: capped ?? false,
+    next: `Read the map with ultraindex_map, or start enrichment from ultraindex_status.`
+  };
+}
+async function handleEmbed(args2, repo, out2) {
+  requireIndex(out2, repo);
+  const tier = resolveEmbedTier(repo);
+  if (!tier) {
+    throw new ToolError(
+      "no embedding backend is reachable \u2014 ultraindex_find and ultraindex_ask will keep ranking lexically, which is a different ranking, not a broken one."
+    );
+  }
+  const report = await runEmbed(out2, tier, bool(args2.force));
+  if (!report) throw new ToolError(`no index at ${out2} \u2014 build one first with ultraindex_build.`);
+  return { out: out2, tier: tier.label, ...report };
+}
+function handleMap(args2, repo, out2) {
+  requireIndex(out2, repo);
+  const slug = str2(args2.module);
+  const content = runMap(out2, slug);
+  if (content === void 0) {
+    throw new ToolError(slug ? `no module entry for "${slug}" \u2014 list them with ultraindex_map (no module).` : `no index at ${out2}.`);
+  }
+  return { out: out2, module: slug ?? null, index_md: join33(out2, "INDEX.md"), content };
+}
+async function handleFind(args2, repo, out2) {
+  requireIndex(out2, repo);
+  const query = requiredStr(args2, "query", "the task or question to rank modules against.");
+  const found = await runFindHybrid(out2, query, positive(args2.k, "k") ?? 8, repo);
+  if (!found) throw new ToolError(`no index at ${out2} \u2014 build one first with ultraindex_build.`);
+  return {
+    out: out2,
+    query,
+    // A lexical-only ranking because no vectors exist is not a failure; it is a
+    // fact about this answer's recall, and the caller should see it.
+    ...found.warning ? { note: found.warning } : {},
+    results: found.results.map((r) => ({ slug: r.slug, score: r.score, files: r.files }))
+  };
+}
+async function handleAsk(args2, repo, out2) {
+  requireIndex(out2, repo);
+  const question = requiredStr(args2, "question", "the question to gather evidence for.");
+  const res = await runAsk(out2, repo, question, positive(args2.k, "k") ?? 5, positive(args2.budget, "budget"));
+  if (!res) throw new ToolError(`no index at ${out2} \u2014 build one first with ultraindex_build.`);
+  return {
+    out: out2,
+    question,
+    modules: res.modules,
+    ...res.warning ? { note: res.warning } : {},
+    evidence: res.content,
+    next: "Write the answer from this evidence, citing [file:line], then prove it with ultraindex_check."
+  };
+}
+function handleDossier(args2, repo, out2) {
+  requireIndex(out2, repo);
+  const slug = requiredStr(args2, "slug", "the module slug, from ultraindex_status or ultraindex_map.");
+  const content = runDossier(out2, repo, slug, positive(args2.budget, "budget"));
+  if (content === void 0) throw new ToolError(`no module "${slug}" in the index \u2014 list them with ultraindex_map.`);
+  return {
+    out: out2,
+    slug,
+    dossier: content,
+    next: "Write this module's analysis from the source above, citing [file:line], then prove it with ultraindex_check."
+  };
+}
+function handleSymbols(args2, repo, out2) {
+  requireIndex(out2, repo);
+  const name2 = requiredStr(args2, "name", "the exact symbol name to resolve.");
+  const res = runSymbols(out2, name2);
+  if (!res) throw new ToolError(`no index at ${out2} \u2014 build one first with ultraindex_build.`);
+  return { out: out2, name: name2, ...res };
+}
+function handleNeighbors(args2, repo, out2) {
+  requireIndex(out2, repo);
+  const target = requiredStr(args2, "target", "a repo-relative file path or a module slug.");
+  const kind = str2(args2.kind);
+  const res = runNeighbors(out2, target, positive(args2.depth, "depth") ?? 1, kind ? /* @__PURE__ */ new Set([kind]) : void 0);
+  if (!res) throw new ToolError(`nothing in the index matches "${target}" \u2014 check the path or slug with ultraindex_map.`);
+  return { out: out2, ...res };
+}
+function handleImpact(args2, repo, out2) {
+  requireIndex(out2, repo);
+  const target = requiredStr(args2, "target", "a repo-relative file path or a module slug.");
+  const res = runImpact(out2, target, positive(args2.depth, "depth") ?? Number.POSITIVE_INFINITY);
+  if (!res) throw new ToolError(`nothing in the index matches "${target}" \u2014 check the path or slug with ultraindex_map.`);
+  return { out: out2, ...res };
+}
+function handleDelta(args2, repo, out2) {
+  requireIndex(out2, repo);
+  const res = runDelta(out2, repo, { base: str2(args2.base), staged: bool(args2.staged), depth: positive(args2.depth, "depth") });
+  if ("error" in res) throw new ToolError(String(res.error));
+  return { out: out2, panel: formatDeltaPanel2(res), ...res };
+}
+function handleStatus(repo, out2) {
+  requireIndex(out2, repo);
+  const res = runStatus(out2);
+  if (!res) throw new ToolError(`no index at ${out2} \u2014 build one first with ultraindex_build.`);
+  return { out: out2, ...res };
+}
+function handleCheck(args2, repo, out2) {
+  requireIndex(out2, repo);
+  const answerText = str2(args2.answer_text);
+  const answerFile = str2(args2.answer_file);
+  if (!answerText && !answerFile) {
+    const res2 = runCheck(out2, repo, { prose: bool(args2.prose) });
+    return { out: out2, mode: "index", ...res2 };
+  }
+  if (answerText && answerFile) throw new ToolError("pass `answer_text` or `answer_file`, not both.");
+  if (answerFile && !isAbsolute4(answerFile)) throw new ToolError("`answer_file` must be an absolute path.");
+  const res = checkAnswer(out2, answerFile ?? "<inline>", {
+    semantic: bool(args2.semantic),
+    repo,
+    ...answerText ? { answerText } : {}
+  });
+  return { out: out2, mode: "answer", answer_source: answerText ? "inline" : "file", ...res };
+}
+function handleVerify(args2, repo, out2) {
+  const answerText = requiredStr(args2, "answer_text", "the answer to build the claim worklist from.");
+  const max = Math.max(1, Math.floor(positive(args2.max_verify, "max_verify") ?? VERIFY_MAX));
+  const pairs = buildClaimPairs(answerText, repo);
+  const kept = pairs.length > max ? pairs.slice(0, max) : pairs;
+  return {
+    out: out2,
+    total_pairs: pairs.length,
+    emitted: kept.length,
+    ...pairs.length > kept.length ? { note: `${pairs.length - kept.length} pair(s) beyond max_verify were dropped \u2014 raise \`max_verify\` to see them.` } : {},
+    pairs: kept,
+    next: "For each pair, read the cited excerpt and judge it supported / partial / refuted / unsupported. Rewrite any claim its evidence does not carry."
+  };
+}
+function handleRead(args2, repo, out2) {
+  const raw = requiredStr(args2, "path", "a repo-relative path, or an absolute path inside the repo or its index.");
+  const target = isAbsolute4(raw) ? raw : join33(repo, raw);
+  let real;
+  try {
+    real = realpathSync2(target);
+  } catch {
+    throw new ToolError(`no such file: ${raw}`);
+  }
+  const allowed = [repo, out2].map((d) => {
+    try {
+      return realpathSync2(d);
+    } catch {
+      return resolve4(d);
+    }
+  });
+  if (!allowed.some((root) => real === root || real.startsWith(root + sep3))) {
+    throw new ToolError(`path is outside the repo and its index: ${raw}. Use your own file tool for anything else.`);
+  }
+  const st = statSync7(real);
+  if (!st.isFile()) throw new ToolError(`not a file: ${raw}`);
+  if (st.size > MAX_READ_BYTES) throw new ToolError(`file is too large to read (${st.size} bytes): ${raw}`);
+  const lines = readFileSync13(real, "utf8").split("\n");
+  const total = lines.length;
+  const start2 = Math.max(1, Math.floor(num2(args2.start_line) ?? 1));
+  if (start2 > total) throw new ToolError(`start_line ${start2} is past the end of the file (${total} lines).`);
+  const requestedEnd = Math.floor(num2(args2.end_line) ?? total);
+  const end = Math.min(total, Math.max(start2, requestedEnd), start2 + MAX_READ_LINES - 1);
+  return {
+    path: isAbsolute4(raw) ? real : raw,
+    start_line: start2,
+    end_line: end,
+    total_lines: total,
+    truncated: end < Math.min(total, requestedEnd),
+    content: lines.slice(start2 - 1, end).join("\n")
+  };
+}
+
+// src/mcp/protocol.ts
+var PROTOCOL_VERSIONS2 = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
+var LATEST_PROTOCOL2 = PROTOCOL_VERSIONS2[PROTOCOL_VERSIONS2.length - 1];
+var ASSUMED_HTTP_PROTOCOL = "2025-03-26";
+var ANNOTATIONS_SINCE2 = "2025-03-26";
+var RICH_TOOLS_SINCE2 = "2025-06-18";
+var DEFAULT_MAX_RESPONSE_BYTES2 = 1e6;
+function isProtocolVersion(v) {
+  return typeof v === "string" && PROTOCOL_VERSIONS2.includes(v);
+}
+function negotiateProtocol2(requested) {
+  return isProtocolVersion(requested) ? requested : LATEST_PROTOCOL2;
+}
+function validateArgs2(schema, args2) {
+  for (const key of schema.required) {
+    const v = args2[key];
+    if (v === void 0 || v === null || v === "") return `\`${key}\` is required`;
+  }
+  for (const [key, value] of Object.entries(args2)) {
+    if (value === void 0 || value === null) continue;
+    const spec = schema.properties[key];
+    if (!spec?.type) continue;
+    const actual = Array.isArray(value) ? "array" : typeof value;
+    if (spec.type === "number") {
+      if (actual === "number") continue;
+      if (actual === "string" && value.trim() !== "" && Number.isFinite(Number(value))) continue;
+      return `\`${key}\` must be a number, got ${actual === "string" ? JSON.stringify(value) : actual}`;
+    }
+    if (spec.type === "array") {
+      if (actual !== "array") return `\`${key}\` must be an array, got ${actual}`;
+      const arr = value;
+      if (spec.items?.type === "string" && !arr.every((x) => typeof x === "string")) {
+        return `\`${key}\` must be an array of strings`;
+      }
+      if (spec.enum) {
+        const bad = arr.find((x) => typeof x === "string" && !spec.enum.includes(x));
+        if (bad !== void 0) return `\`${key}\` contains "${String(bad)}" \u2014 allowed: ${spec.enum.join(", ")}`;
+      }
+      continue;
+    }
+    if (actual !== spec.type) return `\`${key}\` must be a ${spec.type}, got ${actual}`;
+    if (spec.enum && typeof value === "string" && !spec.enum.includes(value)) {
+      return `\`${key}\` must be one of: ${spec.enum.join(", ")}`;
+    }
+  }
+  return void 0;
+}
+var NARROWER2 = {
+  ultraindex_find: "lower `k`",
+  ultraindex_ask: "lower `k`, or lower `budget` to shrink each excerpt",
+  ultraindex_dossier: "lower `budget` \u2014 it bounds how much source is inlined",
+  ultraindex_symbols: "the symbol is referenced very widely; narrow the name or read the index entry instead",
+  ultraindex_impact: "lower `depth` \u2014 the reverse closure grows fast on a hub file",
+  ultraindex_neighbors: "lower `depth`, or filter with `kind`",
+  ultraindex_map: "pass `module` to print one entry instead of the whole map",
+  ultraindex_delta: "lower `depth`, or narrow the diff with `base`",
+  ultraindex_read: "pass `start_line`/`end_line` to read a window instead of the whole file",
+  ultraindex_verify: "lower `max_verify`"
+};
+function capResponse2(text, tool, maxBytes, artifact) {
+  const bytes = Buffer.byteLength(text, "utf8");
+  if (bytes <= maxBytes) return text;
+  return JSON.stringify(
+    {
+      truncated: true,
+      tool,
+      bytes,
+      maxBytes,
+      reason: "This response exceeds the configured limit and was withheld rather than sent as an unusable partial payload.",
+      narrower: NARROWER2[tool] ?? "narrow the request and call again",
+      ...artifact ? { artifact, artifactNote: "The full result is on disk here \u2014 read it directly if you need all of it." } : {}
+    },
+    null,
+    2
+  ) + "\n";
+}
+function structuredContentFor2(text, capped, hasSchema) {
+  if (capped || !hasSchema) return void 0;
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return void 0;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return void 0;
+  return parsed;
+}
+var LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+function isOriginAllowed(origin, allowed = []) {
+  if (origin === void 0) return true;
+  const o = origin.trim();
+  if (o === "" || o === "null") return true;
+  if (LOOPBACK_ORIGIN.test(o)) return true;
+  return allowed.some((a) => a === "*" || a.toLowerCase() === o.toLowerCase());
+}
+
+// src/mcp/tools.ts
+var repoProp2 = {
+  type: "string",
+  description: "Absolute path to the repository root."
+};
+var outProp = {
+  type: "string",
+  description: "The index directory. Defaults to <repo>/.ultraindex, then <repo>/docs/ultraindex, whichever exists."
+};
+var depthProp = { type: "number", description: "How many graph hops to follow (default: unbounded)." };
+var budgetProp = {
+  type: "number",
+  description: "Rough character budget for the inlined source. Lower it when the packet is bigger than you need."
+};
+var INDEX_NOTE = "Requires an index: run ultraindex_build once per repo first (it is incremental afterwards).";
+var TOOLS2 = [
+  {
+    name: "ultraindex_map",
+    title: "Read the encyclopedia map",
+    description: "Get the repo's INDEX.md \u2014 the small always-loadable map naming every module, what it does and how the modules link \u2014 or one module's full entry with `module`. Read this FIRST when you do not yet know how the repo is organised; it is what lets you work in a codebase too big to hold in context. " + INDEX_NOTE,
+    inputSchema: {
+      type: "object",
+      properties: { repo: repoProp2, out: outProp, module: { type: "string", description: "A module slug \u2014 print that entry instead of the whole map." } },
+      required: ["repo"]
+    }
+  },
+  {
+    name: "ultraindex_find",
+    title: "Find the modules a task touches",
+    description: "Rank the repo's modules against a task or question and return the exact files to open. This is the 'which files do I change for X' tool. Hybrid lexical+semantic when vectors exist (see ultraindex_embed), pure lexical otherwise \u2014 which is never a failure, only a different ranking. " + INDEX_NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: repoProp2,
+        out: outProp,
+        query: { type: "string", description: "The task or question, in natural language." },
+        k: { type: "number", description: "How many modules to return (default 8)." }
+      },
+      required: ["repo", "query"]
+    }
+  },
+  {
+    name: "ultraindex_ask",
+    title: "Assemble evidence for a question",
+    description: "Retrieve the real source needed to answer a question about this repo: the ranked modules plus their actual code, assembled into one grounding packet. Returns EVIDENCE, not an answer \u2014 you write the answer from it, citing [file:line], and prove it with ultraindex_check. " + INDEX_NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: repoProp2,
+        out: outProp,
+        question: { type: "string", description: "The question to gather evidence for." },
+        k: { type: "number", description: "How many modules to draw source from (default 5)." },
+        budget: budgetProp
+      },
+      required: ["repo", "question"]
+    }
+  },
+  {
+    name: "ultraindex_dossier",
+    title: "Grounding packet for one module",
+    description: "Get one module's real source plus its graph neighbours, assembled for writing that module's analysis. This is the input to enrichment: read it, then write the business-level prose the engine cannot infer, citing [file:line]. Use ultraindex_status to find which module needs it. " + INDEX_NOTE,
+    inputSchema: {
+      type: "object",
+      properties: { repo: repoProp2, out: outProp, slug: { type: "string", description: "The module slug (from ultraindex_status or ultraindex_map)." }, budget: budgetProp },
+      required: ["repo", "slug"]
+    }
+  },
+  {
+    name: "ultraindex_symbols",
+    title: "Resolve a symbol",
+    description: "Find where a symbol is DECLARED \u2014 file:line, kind, owning module \u2014 and which files reference it, straight from the symbol index with no repo re-scan. The tool for 'where is X defined', 'who uses X', 'is X dead code'. " + INDEX_NOTE,
+    inputSchema: {
+      type: "object",
+      properties: { repo: repoProp2, out: outProp, name: { type: "string", description: "The exact symbol name (function, class, method, type, const)." } },
+      required: ["repo", "name"]
+    }
+  },
+  {
+    name: "ultraindex_neighbors",
+    title: "Graph neighbours of a file or module",
+    description: "Show what links TO and FROM a file or module \u2014 imports, calls, references \u2014 as typed edges. Use it to see a unit's real coupling. " + INDEX_NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: repoProp2,
+        out: outProp,
+        target: { type: "string", description: "A repo-relative file path or a module slug." },
+        depth: depthProp,
+        kind: { type: "string", description: "Keep only edges of this kind (e.g. import, call)." }
+      },
+      required: ["repo", "target"]
+    }
+  },
+  {
+    name: "ultraindex_impact",
+    title: "Blast radius of a change",
+    description: "The reverse-dependency closure: every file that transitively imports or calls the target, grouped by module. This is 'what breaks if I change this', answered from the graph rather than guessed. " + INDEX_NOTE,
+    inputSchema: {
+      type: "object",
+      properties: { repo: repoProp2, out: outProp, target: { type: "string", description: "A repo-relative file path or a module slug." }, depth: depthProp },
+      required: ["repo", "target"]
+    }
+  },
+  {
+    name: "ultraindex_delta",
+    title: "Risk-scored review panel for a diff",
+    description: "Map a git diff onto the index: changed files \u2192 the symbols they touch \u2192 the blast radius of each, scored by risk. The tool for reviewing a branch or a PR \u2014 it tells you what the diff actually reaches, not just what it edits. " + INDEX_NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: repoProp2,
+        out: outProp,
+        base: { type: "string", description: "Diff against the merge-base with this ref (e.g. main)." },
+        staged: { type: "boolean", description: "Review the staged changes instead of a ref diff." },
+        depth: depthProp
+      },
+      required: ["repo"]
+    }
+  },
+  {
+    name: "ultraindex_status",
+    title: "The enrichment work-queue",
+    description: "What still needs human-level analysis, in priority order: which modules have generated structure but no written prose, and which prose has gone stale against the code. Start an enrichment session here. " + INDEX_NOTE,
+    inputSchema: { type: "object", properties: { repo: repoProp2, out: outProp }, required: ["repo"] }
+  },
+  {
+    name: "ultraindex_read",
+    title: "Read a file from the indexed repo",
+    description: "Read a file, or a line range of one, from the repository this index was built against. Use it to widen an excerpt that ultraindex_ask or ultraindex_dossier returned. Reads are confined to the repo and its index directory \u2014 anything else is your own file tool's job.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: repoProp2,
+        out: outProp,
+        path: { type: "string", description: "Repo-relative path (e.g. 'src/index.ts'), or an absolute path inside the repo or its index directory." },
+        start_line: { type: "number", description: "First line to return, 1-based (default 1)." },
+        end_line: { type: "number", description: "Last line to return, inclusive (default: end of file, capped)." }
+      },
+      required: ["repo", "path"]
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        start_line: { type: "number" },
+        end_line: { type: "number" },
+        total_lines: { type: "number" },
+        truncated: { type: "boolean" },
+        content: { type: "string" }
+      },
+      required: ["path", "start_line", "end_line", "total_lines", "truncated", "content"]
+    }
+  },
+  {
+    name: "ultraindex_check",
+    title: "Validate an answer's citations",
+    description: "The grounding gate. Prove every [file:line] in your answer resolves to a real line of the indexed repo, and report the index's own freshness. Pass the answer inline as answer_text. A result with ok:false is a real verdict, not a tool failure \u2014 read `errors`, fix the answer, and check again. " + INDEX_NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: repoProp2,
+        out: outProp,
+        answer_text: { type: "string", description: "The answer to validate, citing [file:line]. Omit to check the index's freshness only." },
+        answer_file: { type: "string", description: "Absolute path to an answer file to validate instead of answer_text." },
+        semantic: { type: "boolean", description: "Also fold in recorded verify verdicts, failing on a refuted or unsupported claim." },
+        prose: { type: "boolean", description: "Promote stale enriched prose from a warning to a failure." }
+      },
+      required: ["repo"]
+    }
+  },
+  {
+    name: "ultraindex_verify",
+    title: "Build a claim-support worklist",
+    description: "Go past 'the citation resolves' to 'the cited code actually supports the claim'. Emits a deterministic claim-by-citation worklist from your answer, for you to adjudicate each pair as supported / partial / refuted / unsupported. Returns the worklist; nothing is written to disk.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: repoProp2,
+        out: outProp,
+        answer_text: { type: "string", description: "The answer to build the worklist from, citing [file:line]." },
+        max_verify: { type: "number", description: "Cap on the number of claim/citation pairs emitted (default 40)." }
+      },
+      required: ["repo", "answer_text"]
+    }
+  }
+];
+var WRITE_TOOLS = [
+  {
+    name: "ultraindex_build",
+    title: "Build or refresh the index",
+    description: "WRITES TO THE REPO: scans the repository and (re)writes the layered index into <repo>/.ultraindex \u2014 INDEX.md, per-module entries, the typed link graph and the symbol table. Idempotent and incremental: generated regions are rebuilt every time, and prose YOU wrote is preserved across rebuilds and renames. Run once before any other tool; expect seconds to minutes on a large repo.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: repoProp2,
+        out: { type: "string", description: "Where to write the index (default <repo>/.ultraindex)." },
+        include: { type: "array", items: { type: "string" }, description: "Glob(s) to restrict the scan to." },
+        exclude: { type: "array", items: { type: "string" }, description: "Glob(s) to skip." },
+        max_bytes: { type: "number", description: "Skip files larger than this." },
+        max_files: { type: "number", description: "Stop after this many files." },
+        no_cache: { type: "boolean", description: "Ignore the incremental cache and rescan everything." },
+        no_gitignore: { type: "boolean", description: "Do not honour .gitignore." }
+      },
+      required: ["repo"]
+    }
+  },
+  {
+    name: "ultraindex_embed",
+    title: "Build the semantic vectors",
+    description: "WRITES TO THE INDEX: embeds each module through a keyless local model so ultraindex_find and ultraindex_ask can match on meaning rather than wording. Incremental \u2014 unchanged modules keep their vectors. The first run on a machine downloads the model. Everything stays local.",
+    inputSchema: {
+      type: "object",
+      properties: { repo: repoProp2, out: outProp, force: { type: "boolean", description: "Re-embed every module, not just the stale ones." } },
+      required: ["repo"]
+    }
+  }
+];
+var TOOL_META2 = {
+  ultraindex_map: { openWorld: false },
+  ultraindex_find: { openWorld: false },
+  ultraindex_ask: { openWorld: false },
+  ultraindex_dossier: { openWorld: false },
+  ultraindex_symbols: { openWorld: false },
+  ultraindex_neighbors: { openWorld: false },
+  ultraindex_impact: { openWorld: false },
+  ultraindex_delta: { openWorld: false },
+  ultraindex_status: { openWorld: false },
+  ultraindex_read: { openWorld: false },
+  ultraindex_check: { openWorld: false },
+  ultraindex_verify: { openWorld: false },
+  ultraindex_build: { write: true, destructive: false, idempotent: true, openWorld: false },
+  // Not idempotent in the sense clients care about: the first call on a machine
+  // reaches the network to pull the model.
+  ultraindex_embed: { write: true, destructive: false, idempotent: false, openWorld: true }
+};
+function annotationsFor2(name2) {
+  const meta = TOOL_META2[name2];
+  if (!meta) return void 0;
+  return {
+    readOnlyHint: !meta.write,
+    ...meta.write ? { destructiveHint: meta.destructive === true, idempotentHint: meta.idempotent === true } : {},
+    openWorldHint: meta.openWorld === true
+  };
+}
+function toolsFor2(protocolVersion, opts = {}) {
+  const base = opts.allowWrite ? [...TOOLS2, ...WRITE_TOOLS] : TOOLS2;
+  const withAnnotations = protocolVersion >= ANNOTATIONS_SINCE2;
+  const withRich = protocolVersion >= RICH_TOOLS_SINCE2;
+  return base.map((t) => {
+    const decl = {
+      name: t.name,
+      description: t.description,
+      inputSchema: applyDefaultRepo(t.inputSchema, opts.defaultRepo)
+    };
+    if (withRich && t.title) decl.title = t.title;
+    if (withRich && t.outputSchema) decl.outputSchema = t.outputSchema;
+    if (withAnnotations) {
+      const a = annotationsFor2(t.name);
+      if (a) decl.annotations = a;
+    }
+    return decl;
+  });
+}
+function applyDefaultRepo(schema, defaultRepo) {
+  const existing = schema.properties.repo;
+  if (!defaultRepo || !existing) return schema;
+  return {
+    type: "object",
+    properties: {
+      ...schema.properties,
+      repo: { ...existing, description: `${existing.description} Optional \u2014 defaults to ${defaultRepo}.` }
+    },
+    required: schema.required.filter((r) => r !== "repo")
+  };
+}
+
+// src/mcp/prompts.ts
+var PromptError = class extends Error {
+};
+var repoArg = { name: "repo", description: "Absolute path to the repository root.", required: true };
+var PROMPTS = [
+  {
+    name: "enrich_module",
+    title: "Write a module's analysis into the encyclopedia",
+    description: "The enrichment workflow: take one module's grounding packet, write the business-level analysis the engine cannot infer, and prove every claim against the real source. This is how the index stops being a map and becomes an encyclopedia.",
+    arguments: [
+      repoArg,
+      { name: "slug", description: "The module slug to enrich (from ultraindex_status).", required: false }
+    ]
+  },
+  {
+    name: "answer_grounded",
+    title: "Answer a question about this repo, cited",
+    description: "The grounded-answer workflow: retrieve the real source behind a question, answer only from it, and prove every [file:line] resolves. Use for 'how does X work here', 'where is Y handled', 'which files do I change for Z'.",
+    arguments: [repoArg, { name: "question", description: "The question to answer.", required: true }]
+  },
+  {
+    name: "review_changes",
+    title: "Review a branch by what it actually reaches",
+    description: "The review workflow: map the diff onto the graph, judge each change by its real blast radius rather than by its line count, and ground every concern in a citation.",
+    arguments: [repoArg, { name: "base", description: "The ref to diff against (e.g. main). Omit to review staged changes.", required: false }]
+  }
+];
+function getPrompt(name2, args2 = {}) {
+  const decl = PROMPTS.find((p) => p.name === name2);
+  if (!decl) throw new PromptError(`unknown prompt: ${name2 || "(none given)"}`);
+  for (const arg of decl.arguments) {
+    if (arg.required && !str3(args2[arg.name])) throw new PromptError(`\`${arg.name}\` is required for prompt "${name2}"`);
+  }
+  const text = name2 === "enrich_module" ? enrichModule(args2) : name2 === "answer_grounded" ? answerGrounded(args2) : reviewChanges(args2);
+  return { description: decl.description, messages: [{ role: "user", content: { type: "text", text } }] };
+}
+var CORE_RULE = `The engine owns the code view: what imports what, which symbol is declared where, what a change reaches. You own the business view: what this module is FOR, why it exists, what breaks conceptually if it goes wrong. Do not restate what the generated sections already say, and do not assert anything the source in front of you does not show. Every claim carries a [file:line] citation.`;
+var GATE = `\`ultraindex_check\` returning \`ok: false\` is a VERDICT, not a tool failure. Read \`errors\`, fix the claim or drop it, and check again. A citation that does not resolve is a claim you invented \u2014 not a formatting problem.`;
+function enrichModule(args2) {
+  const repo = str3(args2.repo);
+  const slug = str3(args2.slug);
+  return `Write the human analysis for ${slug ? `the \`${slug}\` module` : "the next module that needs it"} in \`${repo}\`.
+
+${CORE_RULE}
+
+**Sequence:**
+
+${slug ? "" : "0. `ultraindex_status` \u2014 take the highest-priority module that has generated structure but no written prose.\n"}1. \`ultraindex_dossier\` on ${slug ? `\`${slug}\`` : "that slug"} \u2014 the module's real source plus its graph neighbours.
+2. \`ultraindex_neighbors\` and \`ultraindex_impact\` on it if the dossier leaves the module's role in the system unclear. What depends on it is usually what it is for.
+3. \`ultraindex_read\` anything the dossier only excerpted and you need in full.
+4. Write the analysis into the module entry's human region \u2014 the one preserved across rebuilds. Every claim cites \`[file:line]\`.
+5. \`ultraindex_check\` with your prose as \`answer_text\`.
+
+**What belongs in that region.** Why this module exists and what would be lost without it. The invariants it maintains that the types do not express. The decisions that look wrong until you know the constraint. The places a newcomer predictably gets it wrong.
+
+**What does not.** A list of the exported functions \u2014 the generated section already has it. A restatement of the import graph. Anything of the form "handles the X logic", which says nothing and cites nothing.
+
+${GATE}`;
+}
+function answerGrounded(args2) {
+  const repo = str3(args2.repo);
+  const question = str3(args2.question);
+  return `Answer this question about \`${repo}\`:
+
+> ${question}
+
+${CORE_RULE}
+
+**Sequence:**
+
+1. \`ultraindex_map\` \u2014 only if you do not already know how this repo is laid out. Navigation, not evidence: cite the source, never the map.
+2. \`ultraindex_ask\` with the question. It returns the ranked modules AND their real source, assembled as one packet.
+3. Widen what is thin: \`ultraindex_symbols\` to resolve a name to its declaration and its callers, \`ultraindex_impact\` for what a change would reach, \`ultraindex_read\` for the full file behind an excerpt.
+4. Write the answer, citing \`[file:line]\` on every claim.
+5. \`ultraindex_check\` with the answer as \`answer_text\`.
+
+**If the retrieved source does not settle the question**, say so and retrieve differently \u2014 a re-query with the code's own vocabulary beats reading further down a packet that came back off-topic. An unsettled question is an honest answer; a plausible one is not.
+
+${GATE}`;
+}
+function reviewChanges(args2) {
+  const repo = str3(args2.repo);
+  const base = str3(args2.base);
+  return `Review the ${base ? `changes against \`${base}\`` : "staged changes"} in \`${repo}\`.
+
+${CORE_RULE}
+
+**Sequence:**
+
+1. \`ultraindex_delta\`${base ? ` with \`base: "${base}"\`` : " with `staged: true`"} \u2014 the changed files, the symbols they touch, and the blast radius of each, scored by risk.
+2. Work the panel in risk order, not file order. For each change that matters: \`ultraindex_impact\` on the touched file to see everything downstream, and \`ultraindex_read\` to see the change in its real context.
+3. \`ultraindex_symbols\` on any signature that changed \u2014 every call site is a place this diff can break, and the panel names them.
+4. Write the review. Each concern names the file and line it is about, and what specifically breaks.
+5. \`ultraindex_check\` with the review as \`answer_text\`.
+
+**Review what the diff REACHES, not what it edits.** A three-line change to a hub module outranks a two-hundred-line change to a leaf, and the panel's risk score already tells you which is which. A concern you cannot cite is a hunch \u2014 either ground it or drop it.
+
+${GATE}`;
+}
+function str3(v) {
+  return typeof v === "string" && v.trim() !== "" ? v : void 0;
+}
+var DECLARED = new Set([...TOOLS2, ...WRITE_TOOLS].map((t) => t.name));
+
+// src/mcp/resources.ts
+import { existsSync as existsSync13, readdirSync as readdirSync5, readFileSync as readFileSync14, realpathSync as realpathSync3, statSync as statSync8 } from "fs";
+import { basename as basename5, dirname as dirname10, join as join34, resolve as resolve5, sep as sep4 } from "path";
+import { fileURLToPath as fileURLToPath3 } from "url";
+var SKILL_NAME = "ultraindex";
+var URI_SCHEME = "skill://";
+function resolveSkillRoot(moduleDir) {
+  const here = moduleDir ?? dirname10(fileURLToPath3(import.meta.url));
+  const candidates = [resolve5(here, ".."), resolve5(here, "..", "skills", SKILL_NAME), resolve5(here, "..", "..", "skills", SKILL_NAME)];
+  return candidates.find((dir) => existsSync13(join34(dir, "SKILL.md")));
+}
+function listResources(moduleDir) {
+  const root = resolveSkillRoot(moduleDir);
+  if (!root) return [];
+  const out2 = [describe(root, "SKILL.md", `${SKILL_NAME}: the skill`)];
+  const refDir = join34(root, "references");
+  if (!existsSync13(refDir)) return out2;
+  for (const file of readdirSync5(refDir).sort()) {
+    if (!file.endsWith(".md")) continue;
+    out2.push(describe(root, join34("references", file), `${SKILL_NAME} reference: ${basename5(file, ".md")}`));
+  }
+  return out2;
+}
+function readResource(uri, moduleDir) {
+  if (!uri.startsWith(URI_SCHEME)) {
+    throw new ResourceError(`unknown resource scheme in "${uri}" (expected ${URI_SCHEME}\u2026)`);
+  }
+  const root = resolveSkillRoot(moduleDir);
+  if (!root) throw new ResourceError("no skill payload found next to this build \u2014 nothing to read");
+  const rel = uri.slice(URI_SCHEME.length);
+  if (!rel) throw new ResourceError("empty resource path");
+  const target = resolve5(root, rel);
+  const rootReal = realpathSync3(root);
+  let targetReal;
+  try {
+    targetReal = realpathSync3(target);
+  } catch {
+    throw new ResourceError(`no such resource: ${uri}`);
+  }
+  if (targetReal !== rootReal && !targetReal.startsWith(rootReal + sep4)) {
+    throw new ResourceError(`resource path escapes the skill root: ${uri}`);
+  }
+  if (!statSync8(targetReal).isFile()) throw new ResourceError(`not a file: ${uri}`);
+  return { uri, mimeType: "text/markdown", text: readFileSync14(targetReal, "utf8") };
+}
+var ResourceError = class extends Error {
+};
+function describe(root, rel, fallbackTitle) {
+  const decl = {
+    uri: `${URI_SCHEME}${rel.split(sep4).join("/")}`,
+    name: rel.split(sep4).join("/"),
+    title: fallbackTitle,
+    mimeType: "text/markdown"
+  };
+  const summary = firstProse(join34(root, rel));
+  if (summary) decl.description = summary;
+  return decl;
+}
+function firstProse(file) {
+  let text;
+  try {
+    text = readFileSync14(file, "utf8");
+  } catch {
+    return void 0;
+  }
+  const body2 = text.startsWith("---\n") ? text.slice(text.indexOf("\n---", 3) + 4) : text;
+  for (const block of body2.split(/\n\s*\n/)) {
+    const line = block.trim();
+    if (!line || line.startsWith("#") || line.startsWith(">") || line.startsWith("|") || line.startsWith("```")) continue;
+    const flat = line.replace(/\s+/g, " ").replace(/[*`]/g, "");
+    return flat.length > 300 ? `${flat.slice(0, 297)}\u2026` : flat;
+  }
+  return void 0;
+}
+
+// src/mcp/server.ts
+var ERR_INVALID_REQUEST = -32600;
+var ERR_METHOD_NOT_FOUND = -32601;
+var ERR_INVALID_PARAMS = -32602;
+var ERR_INTERNAL = -32603;
+function createServer(opts = {}) {
+  const serverInfo = { name: opts.serverName ?? "ultraindex", version: VERSION };
+  const maxBytes = opts.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES2;
+  let protocol = LATEST_PROTOCOL2;
+  const cancelled = /* @__PURE__ */ new Set();
+  const CANCELLED_MAX = 1024;
+  const listTools = () => toolsFor2(protocol, { defaultRepo: opts.defaultRepo, allowWrite: opts.allowWrite });
+  async function handle2(msg, send) {
+    if (msg === null || typeof msg !== "object" || Array.isArray(msg)) {
+      send({ jsonrpc: "2.0", id: null, error: { code: ERR_INVALID_REQUEST, message: "invalid request: expected a JSON-RPC object" } });
+      return;
+    }
+    if (msg.id === void 0 || msg.id === null) {
+      if (msg.method === "notifications/cancelled") {
+        const target = msg.params?.requestId;
+        if (typeof target === "string" || typeof target === "number") {
+          if (cancelled.size >= CANCELLED_MAX) cancelled.delete(cancelled.values().next().value);
+          cancelled.add(String(target));
+        }
+      }
+      return;
+    }
+    const id = msg.id;
+    const reply = (out2) => {
+      if (cancelled.delete(String(id))) return;
+      send({ jsonrpc: "2.0", id, ...out2 });
+    };
+    try {
+      switch (msg.method) {
+        case "initialize": {
+          protocol = negotiateProtocol2(msg.params?.protocolVersion);
+          reply({
+            result: {
+              protocolVersion: protocol,
+              // Three primitives, because a skill is three things: the engine
+              // (tools), the method (prompts) and the documentation the method
+              // refers to (resources). A client given only the first has to
+              // invent the other two.
+              capabilities: {
+                tools: { listChanged: false },
+                resources: { subscribe: false, listChanged: false },
+                prompts: { listChanged: false }
+              },
+              serverInfo
+            }
+          });
+          return;
+        }
+        case "ping":
+          reply({ result: {} });
+          return;
+        case "tools/list":
+          reply({ result: { tools: listTools() } });
+          return;
+        case "tools/call":
+          await handleToolCall(msg, reply);
+          return;
+        case "resources/list":
+          reply({ result: { resources: listResources(opts.skillDir) } });
+          return;
+        case "resources/read": {
+          const uri = typeof msg.params?.uri === "string" ? msg.params.uri : "";
+          if (!uri) {
+            reply({ error: { code: ERR_INVALID_PARAMS, message: "`uri` is required" } });
+            return;
+          }
+          try {
+            reply({ result: { contents: [readResource(uri, opts.skillDir)] } });
+          } catch (e) {
+            if (e instanceof ResourceError) reply({ error: { code: ERR_INVALID_PARAMS, message: e.message } });
+            else reply({ error: { code: ERR_INTERNAL, message: errMessage2(e) } });
+          }
+          return;
+        }
+        case "prompts/list":
+          reply({ result: { prompts: PROMPTS } });
+          return;
+        case "prompts/get": {
+          const name2 = typeof msg.params?.name === "string" ? msg.params.name : "";
+          const args2 = msg.params?.arguments ?? {};
+          try {
+            reply({ result: getPrompt(name2, args2) });
+          } catch (e) {
+            if (e instanceof PromptError) reply({ error: { code: ERR_INVALID_PARAMS, message: e.message } });
+            else reply({ error: { code: ERR_INTERNAL, message: errMessage2(e) } });
+          }
+          return;
+        }
+        default:
+          reply({ error: { code: ERR_METHOD_NOT_FOUND, message: `method not found: ${String(msg.method)}` } });
+          return;
+      }
+    } catch (e) {
+      reply({ error: { code: ERR_INTERNAL, message: errMessage2(e) } });
+    }
+  }
+  async function handleToolCall(msg, reply) {
+    const params = msg.params ?? {};
+    const name2 = typeof params.name === "string" ? params.name : "";
+    const args2 = params.arguments ?? {};
+    const decl = listTools().find((t) => t.name === name2);
+    if (!decl) {
+      reply({ error: { code: ERR_INVALID_PARAMS, message: `unknown tool: ${name2 || "(none given)"}` } });
+      return;
+    }
+    const invalid = validateArgs2(decl.inputSchema, args2);
+    if (invalid) {
+      reply({ error: { code: ERR_INVALID_PARAMS, message: invalid } });
+      return;
+    }
+    try {
+      const { text: raw, artifact } = await callTool2(name2, args2, { defaultRepo: opts.defaultRepo, allowWrite: opts.allowWrite });
+      const text = capResponse2(raw, name2, maxBytes, artifact);
+      const capped = text !== raw;
+      const structured = protocol >= RICH_TOOLS_SINCE2 ? structuredContentFor2(text, capped, decl.outputSchema !== void 0) : void 0;
+      reply({ result: { content: [{ type: "text", text }], ...structured ? { structuredContent: structured } : {} } });
+    } catch (e) {
+      if (e instanceof ToolError) {
+        reply({ result: { content: [{ type: "text", text: e.message }], isError: true } });
+        return;
+      }
+      reply({ error: { code: ERR_INTERNAL, message: errMessage2(e) } });
+    }
+  }
+  return {
+    handle: handle2,
+    protocolVersion: () => protocol,
+    setProtocolVersion: (v) => {
+      protocol = v;
+    },
+    tools: listTools
+  };
+}
+function errMessage2(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+// src/mcp/stdio.ts
+var MAX_IN_FLIGHT = 4;
+async function runStdioServer(opts = {}) {
+  const input = opts.input ?? process.stdin;
+  const output = opts.output ?? process.stdout;
+  const emit2 = output.write.bind(output);
+  let restore;
+  if (!opts.captureStdout && output === process.stdout) {
+    const original = process.stdout.write;
+    process.stdout.write = ((chunk, ...rest) => process.stderr.write(chunk, ...rest));
+    restore = () => {
+      process.stdout.write = original;
+    };
+  }
+  const server = createServer(opts);
+  const send = (msg) => {
+    emit2(JSON.stringify(msg) + "\n");
+  };
+  const inFlight = /* @__PURE__ */ new Set();
+  const track = (p) => {
+    inFlight.add(p);
+    void p.finally(() => inFlight.delete(p));
+    return p;
+  };
+  const drainToLimit = async () => {
+    while (inFlight.size >= MAX_IN_FLIGHT) await Promise.race(inFlight);
+  };
+  const rl = createInterface2({ input, terminal: false });
+  try {
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } });
+        continue;
+      }
+      await drainToLimit();
+      if (Array.isArray(parsed)) {
+        track(
+          (async () => {
+            const out2 = [];
+            await Promise.all(parsed.map((m) => server.handle(m, (r) => void out2.push(r))));
+            if (out2.length) emit2(JSON.stringify(out2) + "\n");
+          })().catch(reportInternal(send))
+        );
+        continue;
+      }
+      if (parsed === null || typeof parsed !== "object") {
+        send({ jsonrpc: "2.0", id: null, error: { code: ERR_INVALID_REQUEST, message: "invalid request: expected a JSON-RPC object" } });
+        continue;
+      }
+      track(server.handle(parsed, send).catch(reportInternal(send)));
+    }
+    await Promise.all(inFlight);
+  } finally {
+    rl.close();
+    restore?.();
+  }
+}
+function reportInternal(send) {
+  return (e) => {
+    send({ jsonrpc: "2.0", id: null, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } });
+  };
+}
+
+// src/mcp/http.ts
+import { createServer as createHttpServer } from "http";
+var MCP_PATH = "/mcp";
+var MAX_BODY_BYTES = 4 * 1024 * 1024;
+var CORS_HEADERS = "content-type, accept, mcp-protocol-version, mcp-session-id, authorization, last-event-id";
+var LOOPBACK_BIND = /* @__PURE__ */ new Set(["127.0.0.1", "::1", "localhost"]);
+function startHttpServer(opts = {}) {
+  const bind = opts.bind ?? "127.0.0.1";
+  if (!LOOPBACK_BIND.has(bind) && !opts.allowRemote) {
+    return Promise.reject(
+      new Error(
+        `refusing to bind ${bind}: ultraindex's MCP server clones arbitrary git URLs and reads local files. Pass --allow-remote if that is really what you want.`
+      )
+    );
+  }
+  const server = createHttpServer((req, res) => {
+    void route(req, res, opts).catch((e) => {
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      sendJson(res, 500, { jsonrpc: "2.0", id: null, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } });
+    });
+  });
+  server.requestTimeout = 0;
+  server.headersTimeout = 6e4;
+  server.keepAliveTimeout = 12e4;
+  return new Promise((resolve7, reject) => {
+    server.once("error", reject);
+    server.listen(opts.port ?? 0, bind, () => {
+      server.removeListener("error", reject);
+      const addr2 = server.address();
+      const port = typeof addr2 === "object" && addr2 ? addr2.port : opts.port ?? 0;
+      const host = bind.includes(":") ? `[${bind}]` : bind;
+      resolve7({
+        server,
+        port,
+        url: `http://${host}:${port}${MCP_PATH}`,
+        close: () => new Promise((done) => {
+          server.closeAllConnections?.();
+          server.close(() => done());
+        })
+      });
+    });
+  });
+}
+async function route(req, res, opts) {
+  const path = (req.url ?? "").split("?")[0];
+  const origin = header(req, "origin");
+  if (!isOriginAllowed(origin, opts.allowOrigin)) {
+    sendJson(res, 403, { error: "origin not allowed", origin });
+    return;
+  }
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      ...corsHeaders(origin),
+      "access-control-allow-methods": "POST, GET, DELETE, OPTIONS",
+      "access-control-allow-headers": CORS_HEADERS,
+      "access-control-max-age": "86400"
+    });
+    res.end();
+    return;
+  }
+  if (path !== MCP_PATH) {
+    sendJson(res, 404, { error: `not found: ${path} (the MCP endpoint is ${MCP_PATH})` }, origin);
+    return;
+  }
+  if (req.method === "GET" || req.method === "DELETE") {
+    res.writeHead(405, { allow: "POST, OPTIONS", ...corsHeaders(origin) });
+    res.end(JSON.stringify({ error: `${req.method} is not supported: this server is stateless and offers no server-initiated stream` }));
+    return;
+  }
+  if (req.method !== "POST") {
+    res.writeHead(405, { allow: "POST, OPTIONS", ...corsHeaders(origin) });
+    res.end(JSON.stringify({ error: `${req.method} is not supported` }));
+    return;
+  }
+  const contentType = (header(req, "content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (contentType && contentType !== "application/json") {
+    sendJson(res, 415, { error: `unsupported content-type "${contentType}" \u2014 send application/json` }, origin);
+    return;
+  }
+  const accept = (header(req, "accept") ?? "").toLowerCase();
+  if (accept && !/application\/json|text\/event-stream|\*\/\*/.test(accept)) {
+    sendJson(res, 406, { error: "this endpoint replies with application/json" }, origin);
+    return;
+  }
+  const declared = header(req, "mcp-protocol-version");
+  if (declared !== void 0 && !isProtocolVersion(declared)) {
+    sendJson(res, 400, { error: `unsupported MCP-Protocol-Version: ${declared}` }, origin);
+    return;
+  }
+  const protocol = declared ?? ASSUMED_HTTP_PROTOCOL;
+  let raw;
+  try {
+    raw = await readBody(req);
+  } catch (e) {
+    if (e.message === "too large") {
+      sendJson(res, 413, { error: `request body exceeds ${MAX_BODY_BYTES} bytes` }, origin);
+      return;
+    }
+    sendJson(res, 400, { error: `could not read request body: ${e.message}` }, origin);
+    return;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    sendJson(res, 200, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, origin);
+    return;
+  }
+  const mcp = createServer(opts);
+  mcp.setProtocolVersion(protocol);
+  const out2 = [];
+  const collect2 = (m) => void out2.push(m);
+  const messages = Array.isArray(parsed) ? parsed : [parsed];
+  for (const m of messages) await mcp.handle(m, collect2);
+  if (out2.length === 0) {
+    res.writeHead(202, corsHeaders(origin));
+    res.end();
+    return;
+  }
+  sendJson(res, 200, Array.isArray(parsed) ? out2 : out2[0], origin);
+}
+function header(req, name2) {
+  const v = req.headers[name2];
+  return Array.isArray(v) ? v[0] : v;
+}
+function corsHeaders(origin) {
+  return origin ? { "access-control-allow-origin": origin, vary: "origin" } : {};
+}
+function sendJson(res, status, body2, origin, extra = {}) {
+  const text = JSON.stringify(body2);
+  res.writeHead(status, {
+    "content-type": "application/json",
+    "content-length": String(Buffer.byteLength(text, "utf8")),
+    ...corsHeaders(origin),
+    ...extra
+  });
+  res.end(text);
+}
+var DRAIN_LIMIT = MAX_BODY_BYTES * 8;
+function readBody(req) {
+  return new Promise((resolve7, reject) => {
+    const chunks = [];
+    let size = 0;
+    let over = false;
+    const declared = Number(req.headers["content-length"]);
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) over = true;
+    req.on("data", (c2) => {
+      size += c2.length;
+      if (over) {
+        if (size > DRAIN_LIMIT) {
+          req.destroy();
+          reject(new Error("too large"));
+        }
+        return;
+      }
+      if (size > MAX_BODY_BYTES) {
+        over = true;
+        chunks.length = 0;
+        return;
+      }
+      chunks.push(c2);
+    });
+    req.on("end", () => {
+      if (over) reject(new Error("too large"));
+      else resolve7(Buffer.concat(chunks).toString("utf8"));
+    });
+    req.on("error", reject);
+    req.on("aborted", () => reject(new Error("client aborted the request")));
+  });
+}
+
 // src/cli.ts
 var HELP2 = `ultraindex v${VERSION}
 Deterministically index a whole repo (code + docs) into a navigable encyclopedia
@@ -16297,6 +17587,7 @@ Usage:
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
   ultraindex grammars [status|pull]
+  ultraindex mcp     [--transport stdio|http] [--repo <dir>] [--allow-write] [--port <n>] [--bind <addr>] [--allow-remote]
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -16391,9 +17682,50 @@ Grounding:
   [path:start-end]. \`check\` (encyclopedia prose) and \`check --answer\` fail if a
   citation does not resolve to a real file/line \u2014 the anti-hallucination guard.
 `;
-var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars"]);
-var VALUE_FLAGS2 = /* @__PURE__ */ new Set(["repo", "out", "include", "exclude", "max-bytes", "max-files", "k", "depth", "kind", "budget", "module", "answer", "q", "question", "apply", "max-verify", "phase", "base"]);
-var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "no-mermaid", "no-cache", "full-hash", "no-gitignore", "quiet", "force", "semantic", "prose", "eco", "list", "staged"]);
+var COMMANDS = /* @__PURE__ */ new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars", "mcp"]);
+var VALUE_FLAGS2 = /* @__PURE__ */ new Set([
+  "repo",
+  "out",
+  "include",
+  "exclude",
+  "max-bytes",
+  "max-files",
+  "k",
+  "depth",
+  "kind",
+  "budget",
+  "module",
+  "answer",
+  "q",
+  "question",
+  "apply",
+  "max-verify",
+  "phase",
+  "base",
+  // `mcp` only. The flag sets are global, so these are accepted (and ignored)
+  // on every command — the same as --phase and --list already are.
+  "transport",
+  "port",
+  "bind",
+  "allow-origin",
+  "max-response-bytes"
+]);
+var BOOL_FLAGS = /* @__PURE__ */ new Set([
+  "json",
+  "no-mermaid",
+  "no-cache",
+  "full-hash",
+  "no-gitignore",
+  "quiet",
+  "force",
+  "semantic",
+  "prose",
+  "eco",
+  "list",
+  "staged",
+  "allow-remote",
+  "allow-write"
+]);
 var REASON_HINTS = {
   "missing-module": "a relative import's target file does not exist \u2014 usually a real broken import in the repo, worth reporting",
   "alias-unresolved": "a tsconfig path alias matched but its target file is missing \u2014 check the tsconfig paths or uncommitted build artifacts",
@@ -16407,7 +17739,13 @@ function fail(message) {
 `);
   process.exit(1);
 }
-async function warmGrammars2() {
+function oneOf(name2, value, allowed) {
+  if (!allowed.includes(value)) {
+    fail(`invalid --${name2} "${value}" (expected: ${allowed.join(", ")})`);
+  }
+  return value;
+}
+async function warmGrammars3() {
   if (resolveGrammarsTier().tier === "none") {
     process.stderr.write(
       "ultraindex: tree-sitter grammars not found locally \u2014 pulling them into the shared cache (once per machine)\u2026\n"
@@ -16486,27 +17824,27 @@ function splitList(s) {
   const parts2 = s.split(",").map((x) => x.trim()).filter(Boolean);
   return parts2.length ? parts2 : void 0;
 }
-function resolveOut(p, base) {
-  if (p.values.out) return resolve4(p.values.out);
-  const dotted = join33(base, ".ultraindex");
-  if (existsSync12(dotted)) return dotted;
-  const docs = join33(base, "docs", "ultraindex");
-  if (existsSync12(docs)) return docs;
+function resolveOut2(p, base) {
+  if (p.values.out) return resolve6(p.values.out);
+  const dotted = join35(base, ".ultraindex");
+  if (existsSync14(dotted)) return dotted;
+  const docs = join35(base, "docs", "ultraindex");
+  if (existsSync14(docs)) return docs;
   return dotted;
 }
 function resolveRepoRoot(p, out2) {
-  if (p.values.repo) return resolve4(p.values.repo);
-  return loadManifest(out2)?.repo ?? resolve4(".");
+  if (p.values.repo) return resolve6(p.values.repo);
+  return loadManifest(out2)?.repo ?? resolve6(".");
 }
 async function cmdBuild(p) {
-  const repo = resolve4(p.values.repo ?? ".");
-  if (!existsSync12(repo)) fail(`repo not found: ${repo}`);
-  const out2 = p.values.out ? resolve4(p.values.out) : join33(repo, ".ultraindex");
+  const repo = resolve6(p.values.repo ?? ".");
+  if (!existsSync14(repo)) fail(`repo not found: ${repo}`);
+  const out2 = p.values.out ? resolve6(p.values.out) : join35(repo, ".ultraindex");
   const maxBytes = p.values["max-bytes"] ? Number(p.values["max-bytes"]) : void 0;
   if (maxBytes !== void 0 && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
   const maxFiles = p.values["max-files"] ? Number(p.values["max-files"]) : void 0;
   if (maxFiles !== void 0 && (!Number.isInteger(maxFiles) || maxFiles <= 0)) fail("invalid --max-files");
-  await warmGrammars2();
+  await warmGrammars3();
   const { graph, manifest, capped } = runBuild(
     {
       repo,
@@ -16576,8 +17914,8 @@ async function cmdBuild(p) {
   process.stderr.write(lines.join("\n") + "\n");
 }
 async function cmdFind(p) {
-  const base = resolve4(p.values.repo ?? ".");
-  const out2 = resolveOut(p, base);
+  const base = resolve6(p.values.repo ?? ".");
+  const out2 = resolveOut2(p, base);
   const query = p.positional.join(" ").trim();
   if (!query) fail('missing query \u2014 usage: ultraindex find "<task keywords>"');
   const k = p.values.k ? Number(p.values.k) : 8;
@@ -16608,8 +17946,8 @@ async function cmdFind(p) {
   process.stdout.write(lines.join("\n"));
 }
 async function cmdEmbed(p) {
-  const base = resolve4(p.values.repo ?? ".");
-  const out2 = resolveOut(p, base);
+  const base = resolve6(p.values.repo ?? ".");
+  const out2 = resolveOut2(p, base);
   let tier = resolveEmbedTier(base);
   if (!tier) {
     const cache = sharedEmbedCacheDir();
@@ -16645,8 +17983,8 @@ async function cmdEmbed(p) {
   process.stderr.write(lines.join("\n") + "\n");
 }
 function cmdNeighbors(p) {
-  const base = resolve4(p.values.repo ?? ".");
-  const out2 = resolveOut(p, base);
+  const base = resolve6(p.values.repo ?? ".");
+  const out2 = resolveOut2(p, base);
   const target = p.positional[0];
   if (!target) fail("missing target \u2014 usage: ultraindex neighbors <file|module-slug>");
   if (!indexExists(out2)) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
@@ -16676,7 +18014,7 @@ function cmdNeighbors(p) {
   process.stdout.write(lines.join("\n") + "\n");
 }
 function cmdSymbols(p) {
-  const out2 = resolveOut(p, resolve4(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve6(p.values.repo ?? "."));
   const query = p.positional.join(" ").trim();
   if (!query) fail('missing symbol name \u2014 usage: ultraindex symbols "<name>"');
   const res = runSymbols(out2, query);
@@ -16702,7 +18040,7 @@ function cmdSymbols(p) {
   process.stdout.write(lines.join("\n") + "\n");
 }
 function cmdImpact(p) {
-  const out2 = resolveOut(p, resolve4(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve6(p.values.repo ?? "."));
   const target = p.positional[0];
   if (!target) fail("missing target \u2014 usage: ultraindex impact <file|module-slug>");
   if (!indexExists(out2)) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
@@ -16725,7 +18063,7 @@ function cmdImpact(p) {
   process.stdout.write(lines.join("\n") + "\n");
 }
 function cmdDelta(p) {
-  const out2 = resolveOut(p, resolve4(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve6(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   if (p.values.base && p.bools.has("staged")) {
     fail("--staged reviews the staged changeset against HEAD; it does not take --base");
@@ -16741,8 +18079,8 @@ function cmdDelta(p) {
   process.stdout.write(formatDeltaPanel2(res));
 }
 function cmdMap(p) {
-  const base = resolve4(p.values.repo ?? ".");
-  const out2 = resolveOut(p, base);
+  const base = resolve6(p.values.repo ?? ".");
+  const out2 = resolveOut2(p, base);
   if (p.bools.has("json")) {
     if (p.values.module) fail("--json applies to the map view, not a single entry (read the markdown)");
     const graph = loadGraph(out2);
@@ -16769,16 +18107,16 @@ function cmdMap(p) {
   process.stdout.write(content.endsWith("\n") ? content : content + "\n");
 }
 function cmdStatus(p) {
-  const base = resolve4(p.values.repo ?? ".");
-  const out2 = resolveOut(p, base);
+  const base = resolve6(p.values.repo ?? ".");
+  const out2 = resolveOut2(p, base);
   const res = runStatus(out2);
   if (res === void 0) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     return;
   }
-  const header = `ultraindex: ${res.enriched}/${res.total} modules enriched`;
-  const lines = [res.proseStale ? `${header} \xB7 ${res.proseStale} with STALE prose` : header];
+  const header2 = `ultraindex: ${res.enriched}/${res.total} modules enriched`;
+  const lines = [res.proseStale ? `${header2} \xB7 ${res.proseStale} with STALE prose` : header2];
   if (res.suggestedNext.length) lines.push(`  next:     ${res.suggestedNext.join(", ")}`);
   lines.push("");
   for (const m of res.modules.slice(0, 15)) {
@@ -16791,7 +18129,7 @@ function cmdStatus(p) {
   process.stdout.write(lines.join("\n") + "\n");
 }
 function cmdDossier(p) {
-  const out2 = resolveOut(p, resolve4(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve6(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   const slug = p.positional[0];
   if (!slug) fail("missing module slug \u2014 usage: ultraindex dossier <module-slug>");
@@ -16804,7 +18142,7 @@ function cmdDossier(p) {
   process.stdout.write(content);
 }
 async function cmdAsk(p) {
-  const out2 = resolveOut(p, resolve4(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve6(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   const question = (p.positional.join(" ") || p.values.q || p.values.question || "").trim();
   if (!question) fail('missing question \u2014 usage: ultraindex ask "<question>"');
@@ -16823,10 +18161,10 @@ async function cmdAsk(p) {
   process.stdout.write(res.content);
 }
 function cmdCheck(p) {
-  const out2 = resolveOut(p, resolve4(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve6(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   if (p.values.answer) {
-    const res2 = checkAnswer(out2, resolve4(p.values.answer), { semantic: p.bools.has("semantic"), repo });
+    const res2 = checkAnswer(out2, resolve6(p.values.answer), { semantic: p.bools.has("semantic"), repo });
     if (p.bools.has("json")) {
       process.stdout.write(JSON.stringify(res2, null, 2) + "\n");
     } else if (!p.bools.has("quiet")) {
@@ -16878,12 +18216,12 @@ function cmdCheck(p) {
 function cmdVerify(p) {
   const answer = p.values.answer;
   if (!answer) fail("missing --answer <file> \u2014 usage: ultraindex verify --answer <file> [--repo <dir>]");
-  const answerPath = resolve4(answer);
-  const dir = dirname10(answerPath);
+  const answerPath = resolve6(answer);
+  const dir = dirname11(answerPath);
   if (p.values.apply) {
     let res;
     try {
-      res = applyVerdicts(dir, resolve4(p.values.apply));
+      res = applyVerdicts(dir, resolve6(p.values.apply));
     } catch (e) {
       fail(e.message);
     }
@@ -16892,8 +18230,8 @@ function cmdVerify(p) {
     if (!res.ok) process.exit(1);
     return;
   }
-  if (!existsSync12(answerPath)) fail(`answer file not found: ${answerPath}`);
-  const out2 = resolveOut(p, resolve4(p.values.repo ?? "."));
+  if (!existsSync14(answerPath)) fail(`answer file not found: ${answerPath}`);
+  const out2 = resolveOut2(p, resolve6(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   const maxVerify = p.values["max-verify"] ? Number(p.values["max-verify"]) : VERIFY_MAX;
   if (!Number.isFinite(maxVerify) || maxVerify <= 0) fail("invalid --max-verify");
@@ -16909,11 +18247,11 @@ function cmdVerify(p) {
   );
 }
 function cmdOrchestrate(p) {
-  const base = resolve4(p.values.repo ?? ".");
-  const out2 = resolveOut(p, base);
+  const base = resolve6(p.values.repo ?? ".");
+  const out2 = resolveOut2(p, base);
   const repo = resolveRepoRoot(p, out2);
-  const engine = realpathSync2(fileURLToPath3(import.meta.url));
-  const ctx = { out: out2, repo, engine, answer: p.values.answer ? resolve4(p.values.answer) : void 0 };
+  const engine = realpathSync4(fileURLToPath4(import.meta.url));
+  const ctx = { out: out2, repo, engine, answer: p.values.answer ? resolve6(p.values.answer) : void 0 };
   if (p.bools.has("list")) {
     process.stdout.write(JSON.stringify({ phases: listPhases(ctx) }, null, 2) + "\n");
     return;
@@ -16932,7 +18270,7 @@ function cmdOrchestrate(p) {
   const workflows = res.written.filter((w) => w.endsWith(".workflow.mjs"));
   if (workflows.length) {
     for (const ph of res.phases) {
-      const w = workflows.find((x) => x === join33(out2, "orchestration", `${ph.name}.workflow.mjs`));
+      const w = workflows.find((x) => x === join35(out2, "orchestration", `${ph.name}.workflow.mjs`));
       if (!w) continue;
       lines.push(`  launch:   Workflow({ scriptPath: ${JSON.stringify(w)} })`);
       lines.push(
@@ -16940,7 +18278,7 @@ function cmdOrchestrate(p) {
       );
     }
   } else {
-    lines.push(`  next:     follow ${join33(out2, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
+    lines.push(`  next:     follow ${join35(out2, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
   }
   process.stderr.write(lines.join("\n") + "\n");
 }
@@ -16977,14 +18315,52 @@ async function main() {
       return cmdOrchestrate(p);
     case "grammars":
       return runCli(["grammars", ...p.positional, ...p.values.out ? ["--out", p.values.out] : []]);
+    case "mcp": {
+      const transport = oneOf("transport", p.values.transport ?? "stdio", ["stdio", "http"]);
+      const maxResponseBytes = p.values["max-response-bytes"] ? Number(p.values["max-response-bytes"]) : void 0;
+      if (maxResponseBytes !== void 0 && (!Number.isFinite(maxResponseBytes) || maxResponseBytes <= 0)) fail("invalid --max-response-bytes");
+      const options = {
+        // A default repo makes `repo` optional on every tool, for a server
+        // dedicated to one project.
+        defaultRepo: p.values.repo,
+        allowWrite: p.bools.has("allow-write"),
+        maxResponseBytes
+      };
+      if (transport === "stdio") {
+        await runStdioServer(options);
+        return;
+      }
+      const port = p.values.port ? Number(p.values.port) : 7338;
+      if (!Number.isInteger(port) || port < 0 || port > 65535) fail("invalid --port");
+      const allowOrigin = p.values["allow-origin"] ? p.values["allow-origin"].split(",").map((s) => s.trim()).filter(Boolean) : void 0;
+      let running;
+      try {
+        running = await startHttpServer({ ...options, port, bind: p.values.bind, allowOrigin, allowRemote: p.bools.has("allow-remote") });
+      } catch (e) {
+        fail(e.message);
+      }
+      process.stderr.write(`ultraindex: MCP server listening on ${running.url}
+`);
+      process.stderr.write(`  tools:  ${running.server.listening ? "ready" : "starting"} \xB7 ${options.allowWrite ? "read/write" : "read-only"}
+`);
+      process.stderr.write(`  client: claude mcp add --transport http ultraindex ${running.url}
+`);
+      for (const sig of ["SIGINT", "SIGTERM"]) {
+        process.once(sig, () => {
+          void running.close().then(() => process.exit(0));
+        });
+      }
+      await new Promise((resolve7) => running.server.once("close", resolve7));
+      return;
+    }
   }
 }
 function isInvokedDirectly() {
   const argv1 = process.argv[1];
   if (argv1 === void 0) return false;
-  const modulePath = fileURLToPath3(import.meta.url);
+  const modulePath = fileURLToPath4(import.meta.url);
   try {
-    if (realpathSync2(argv1) === realpathSync2(modulePath)) return true;
+    if (realpathSync4(argv1) === realpathSync4(modulePath)) return true;
   } catch {
   }
   return import.meta.url === pathToFileURL3(argv1).href;

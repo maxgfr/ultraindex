@@ -94,14 +94,34 @@ describe("skill docs stay in sync with the CLI", () => {
   // Reverse drift guard: every flag `--help` advertises must be documented
   // somewhere in SKILL.md or references/ — an undocumented flag is invisible
   // to the agent. `--help`/`--version` are CLI boilerplate, not workflow.
+  //
+  // The `mcp` flags are exempt on the same reasoning that motivates the guard.
+  // This test exists because a flag the agent cannot see is a flag it cannot
+  // use — but the agent driving SKILL.md uses the CLI, and `ultraindex mcp`
+  // serves OTHER hosts (Cursor, Zed, Claude Desktop) that never read SKILL.md.
+  // Documenting them there would push this agent toward a path it has no use
+  // for. They are documented in README.md instead, which is where someone
+  // wiring up an MCP client actually looks.
+  const MCP_ONLY_FLAGS = new Set(["--transport", "--port", "--bind", "--allow-origin", "--allow-remote", "--allow-write", "--max-response-bytes"]);
+
   it("mentions every flag --help advertises (guards doc omissions)", () => {
     const help = execFileSync(process.execPath, [join(ROOT, "scripts/ultraindex.mjs"), "--help"], { encoding: "utf8" });
     const docText = [body, ...Object.values(refBodies)].join("\n");
     const documented = new Set(docText.match(/--[a-z][a-z-]+/g) ?? []);
     const boilerplate = new Set(["--help", "--version"]);
     for (const f of new Set(help.match(/--[a-z][a-z-]+/g) ?? [])) {
-      if (boilerplate.has(f)) continue;
+      if (boilerplate.has(f) || MCP_ONLY_FLAGS.has(f)) continue;
       expect(documented.has(f), `--help advertises ${f}, which no skill doc mentions`).toBe(true);
+    }
+  });
+
+  it("keeps the MCP flags out of the skill docs, not merely absent from them", () => {
+    // The exemption above is a decision, not an oversight. If someone later
+    // documents `--transport` in SKILL.md, that decision has been reversed and
+    // should be reversed deliberately — so this fails and makes them say so.
+    const docText = [body, ...Object.values(refBodies)].join("\n");
+    for (const f of MCP_ONLY_FLAGS) {
+      expect(docText.includes(f), `${f} is an MCP-server flag; the skill drives the CLI and should not mention it`).toBe(false);
     }
   });
 });

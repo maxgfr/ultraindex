@@ -186,11 +186,15 @@ export interface AnswerCheck {
 // `opts.semantic`, ALSO folds the VERIFY.json verdicts written next to the
 // answer (fails on a refuted/unsupported claim) — additive: plain `checkAnswer`
 // (no opts) is unchanged.
-export function checkAnswer(outDir: string, answerPath: string, opts: { semantic?: boolean; repo?: string } = {}): AnswerCheck {
+// `answerText` is for callers that hold the answer in memory rather than on
+// disk — the MCP server, whose client wrote the answer into a chat turn and has
+// no file to point at. When it is given, `answerPath` is only a label for
+// messages. The file path remains the CLI's route, unchanged.
+export function checkAnswer(outDir: string, answerPath: string, opts: { semantic?: boolean; repo?: string; answerText?: string } = {}): AnswerCheck {
   const errors: string[] = [];
   const graph = loadGraph(outDir);
   if (!graph) return { ok: false, citations: 0, resolved: 0, errors: ["no index — run `ultraindex build` first"] };
-  const text = readIfExists(answerPath);
+  const text = opts.answerText ?? readIfExists(answerPath);
   if (text === undefined) return { ok: false, citations: 0, resolved: 0, errors: [`answer file not found: ${answerPath}`] };
 
   const cc = checkCitations(text, fileLineTable(graph));
