@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [7.2.0](https://github.com/maxgfr/ultraindex/compare/v7.1.0...v7.2.0) (2026-07-29)
+
+
+### Features
+
+* **mcp:** serve ultraindex over the Model Context Protocol ([d7b1263](https://github.com/maxgfr/ultraindex/commit/d7b12638b4f928d226e79b9e8720c0baed565e56))
+
 # [7.1.0](https://github.com/maxgfr/ultraindex/compare/v7.0.0...v7.1.0) (2026-07-26)
 
 

@@ -13540,7 +13540,7 @@ ${HELP}`);
 }
 
 // src/types.ts
-var VERSION = "7.1.0";
+var VERSION = "7.2.0";
 var SCHEMA_VERSION2 = 4;
 
 // src/build.ts
