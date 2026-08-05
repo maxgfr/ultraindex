@@ -44,6 +44,7 @@ Usage:
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
   ultraindex grammars [status|pull]
+  ultraindex engine  <engine-command> [engine flags…]
   ultraindex mcp     [--transport stdio|http] [--repo <dir>] [--allow-write] [--port <n>] [--bind <addr>] [--allow-remote]
 
 Commands:
@@ -89,6 +90,13 @@ Commands:
              active tier and whether a pull is needed. \`build\` pulls
              automatically on first use, so this is only for pre-warming (e.g.
              before going offline) or diagnostics.
+  engine     Run any vendored codeindex command directly, arguments passed
+             through untouched: \`ultraindex engine literals --repo .\`,
+             \`engine deadcode\`, \`engine rules\`, \`engine search "q"\`.
+             ultraindex owns the encyclopedia and its gates; the engine owns
+             the deterministic code view, and this is the door to all of it
+             without a hand-written wrapper per analytic.
+             \`ultraindex engine --help\` lists what the engine offers.
 
 Options:
   --repo <dir>      Repo to index / check / read source from  (default: .)
@@ -140,7 +148,7 @@ Grounding:
   citation does not resolve to a real file/line — the anti-hallucination guard.
 `;
 
-const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars", "mcp"]);
+const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars", "engine", "mcp"]);
 const VALUE_FLAGS = new Set([
   "repo",
   "out",
@@ -265,6 +273,12 @@ export function parseArgs(argv: string[]): Parsed {
   }
 
   const command = argv[0]!;
+
+  // `engine` carries the engine's OWN flags, which this parser does not know
+  // and would reject. Everything after it is kept verbatim as positionals and
+  // handed straight through by main().
+  if (command === "engine") return { command, positional: argv.slice(1), values: {}, bools: new Set<string>() };
+
   if (!COMMANDS.has(command)) fail(`unknown command: ${command} (run --help for usage)`);
 
   const values: Record<string, string> = {};
@@ -867,6 +881,15 @@ async function main(): Promise<void> {
       //   grammars pull    — download the per-release wasm tarball into the
       //                      shared cache, sha256-verified (atomic, idempotent).
       return runCli(["grammars", ...p.positional, ...(p.values.out ? ["--out", p.values.out] : [])]);
+
+    // Raw passthrough to the vendored engine. Without it every engine analytic
+    // — `literals`, `deadcode`, `rules`, `complexity`, `hotspots`, `search` —
+    // is unreachable from the skill until someone hand-writes a dispatch arm,
+    // so a model driving ultraindex simply cannot ask those questions. The
+    // encyclopedia and its gates stay ultraindex's; the deterministic code
+    // view stays the engine's, and this is the door to all of it.
+    case "engine":
+      return runCli(p.positional.length ? p.positional : ["--help"]);
 
     case "mcp": {
       const transport = oneOf("transport", p.values.transport ?? "stdio", ["stdio", "http"]);
