@@ -72,7 +72,7 @@ var EXTRACTOR_VERSION;
 var init_types = __esm({
   "src/types.ts"() {
     "use strict";
-    ENGINE_VERSION = "2.27.0";
+    ENGINE_VERSION = "2.27.1";
     SCHEMA_VERSION = 5;
     EXTRACTOR_VERSION = 13;
   }
@@ -11644,6 +11644,10 @@ var init_graph_json = __esm({
     init_sort();
   }
 });
+function isDistinctive2(value, kind) {
+  if (kind !== "string") return true;
+  return value.length >= DISTINCTIVE_MIN_LEN || HAS_SEPARATOR.test(value);
+}
 function isFunctionValued(signature) {
   if (!signature) return false;
   for (let i2 = 0; i2 < signature.length; i2++) {
@@ -11660,6 +11664,7 @@ function holderFor(symbols, line) {
     if (!HOLDER_KINDS.has(s.kind)) continue;
     if (isFunctionValued(s.signature)) continue;
     const end = s.endLine ?? s.line;
+    if (end - s.line > MAX_HOLDER_SPAN) continue;
     if (line < s.line || line > end) continue;
     if (!best || s.line > best.line) best = s;
   }
@@ -11674,6 +11679,7 @@ function findLiteralDuplications(scan2, opts = {}) {
     if (!opts.includeTests && isTestPath(f.rel)) continue;
     for (const lit of f.literals) {
       if (opts.kinds && !opts.kinds.has(lit.kind)) continue;
+      if (!isDistinctive2(lit.value, lit.kind)) continue;
       const key = `${lit.kind}\0${lit.value}`;
       let g = groups.get(key);
       if (!g) groups.set(key, g = { value: lit.value, kind: lit.kind, sites: [] });
@@ -11689,8 +11695,13 @@ function findLiteralDuplications(scan2, opts = {}) {
     if (files.size < minFiles || g.sites.length < minCount) continue;
     const holders = g.sites.filter((s) => s.holder);
     const literals = g.sites.filter((s) => !s.holder);
+    const distinctHolderNames = new Set(holders.map((h) => h.holder));
     const distinctHolders = new Set(holders.map((h) => `${h.file}\0${h.holder}`));
-    const tier = distinctHolders.size >= 2 ? "competing" : holders.length > 0 ? "bypassed" : "uncentralized";
+    let tier = distinctHolders.size >= 2 ? "competing" : holders.length > 0 ? "bypassed" : "uncentralized";
+    if (g.kind === "number") {
+      if (distinctHolderNames.size !== 1 || literals.length === 0) continue;
+      tier = "bypassed";
+    }
     if (tier === "bypassed" && literals.length === 0) continue;
     duplications.push({
       value: g.value,
@@ -11747,6 +11758,9 @@ function pathPrefix(value) {
 var LITERAL_DUPLICATION_CAP;
 var DEFAULTS;
 var HOLDER_KINDS;
+var MAX_HOLDER_SPAN;
+var DISTINCTIVE_MIN_LEN;
+var HAS_SEPARATOR;
 var PATH_LIKE;
 var FAMILY_MIN_MEMBERS;
 var FAMILY_MIN_PREFIX;
@@ -11759,6 +11773,9 @@ var init_literals2 = __esm({
     LITERAL_DUPLICATION_CAP = 24;
     DEFAULTS = { minFiles: 2, minCount: 3 };
     HOLDER_KINDS = /* @__PURE__ */ new Set(["const", "constant", "variable", "enum", "enumerator", "property", "field", "static"]);
+    MAX_HOLDER_SPAN = 12;
+    DISTINCTIVE_MIN_LEN = 6;
+    HAS_SEPARATOR = /[/:._-]/;
     PATH_LIKE = /^[/@a-z0-9][\w./:@-]*$/i;
     FAMILY_MIN_MEMBERS = 2;
     FAMILY_MIN_PREFIX = 4;
