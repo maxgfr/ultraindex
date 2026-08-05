@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [7.3.0](https://github.com/maxgfr/ultraindex/compare/v7.2.0...v7.3.0) (2026-08-05)
+
+
+### Bug Fixes
+
+* **store:** match the engine's artifact schema, and prove it stays matched ([627b732](https://github.com/maxgfr/ultraindex/commit/627b7326cfb410a14553f1543fd8c752e1e4a110))
+
+
+### Features
+
+* **cli:** expose the vendored engine directly, and pin codeindex v2.27.0 ([3826319](https://github.com/maxgfr/ultraindex/commit/382631924efad6eb1bb69784d48b71f730ba4ec4))
+* **engine:** re-pin codeindex v2.22.0 ([f0e0951](https://github.com/maxgfr/ultraindex/commit/f0e09517ec6ea6ebcdf6f5e8e2a947ac0d23006c))
+* **engine:** re-pin codeindex v2.24.2 ([106f647](https://github.com/maxgfr/ultraindex/commit/106f6474da4b1fc81b0da3f5c945cdcaf45e2868))
+* **engine:** re-pin codeindex v2.26.0 ([9e4141c](https://github.com/maxgfr/ultraindex/commit/9e4141cf081d9829b8f9feb33ad23d76b15aea2c))
+
 # [7.2.0](https://github.com/maxgfr/ultraindex/compare/v7.1.0...v7.2.0) (2026-07-29)
 
 

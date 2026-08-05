@@ -1,6 +1,6 @@
 {
   "name": "ultraindex",
-  "version": "7.2.0",
+  "version": "7.3.0",
   "description": "The verified knowledge layer over codeindex: an AI writes a durable, per-module encyclopedia of what a repo MEANS, every sentence cites real source, and mechanical gates reject any citation that does not resolve. A skills.sh agent skill. Keyless, zero deps.",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
