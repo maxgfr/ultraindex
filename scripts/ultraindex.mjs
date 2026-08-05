@@ -15579,7 +15579,7 @@ ${HELP}`);
 
 // src/types.ts
 var VERSION = "7.2.0";
-var SCHEMA_VERSION2 = 4;
+var SCHEMA_VERSION2 = 5;
 
 // src/build.ts
 import { basename as basename3, relative, isAbsolute as isAbsolute2 } from "path";

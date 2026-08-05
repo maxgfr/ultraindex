@@ -4,6 +4,7 @@ import { formatDeltaPanel, withEntries, RISK_WEIGHTS } from "../src/delta.js";
 import type { DiffFile, Hunk } from "../src/engine.js";
 import { sh, have } from "../src/engine.js";
 import type { Edge, FileNode, Graph, ModuleNode, SymbolIndex, Tier } from "../src/types.js";
+import { SCHEMA_VERSION } from "../src/types.js";
 
 const mod = (slug: string, opts: Partial<ModuleNode> = {}): ModuleNode => ({
   id: slug,
@@ -36,7 +37,7 @@ const file = (rel: string, module: string, fileKind: FileNode["fileKind"] = "cod
 const edge = (from: string, to: string, kind: Edge["kind"] = "import"): Edge => ({ from, to, kind, weight: 1 });
 
 const graphOf = (modules: ModuleNode[], files: FileNode[], fileEdges: Edge[] = [], moduleEdges: Edge[] = []): Graph => ({
-  schemaVersion: 4,
+  schemaVersion: SCHEMA_VERSION,
   version: "0.0.0",
   commit: "abc1234",
   fileCount: files.length,
@@ -47,7 +48,7 @@ const graphOf = (modules: ModuleNode[], files: FileNode[], fileEdges: Edge[] = [
   moduleEdges,
 });
 
-const symsOf = (defs: SymbolIndex["defs"]): SymbolIndex => ({ schemaVersion: 4, defs, refs: {} });
+const symsOf = (defs: SymbolIndex["defs"]): SymbolIndex => ({ schemaVersion: SCHEMA_VERSION, defs, refs: {} });
 
 const changed = (path: string, status: DiffFile["status"] = "modified", extra: Partial<DiffFile> = {}): DiffFile => ({
   path,

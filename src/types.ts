@@ -20,7 +20,15 @@ export const VERSION = "7.2.0";
 // bumping would discard every user's extraction cache to protect a field whose
 // absence is already handled, and would not even help, since the rebuild it
 // forces has no prior digest to compare against either.
-export const SCHEMA_VERSION = 4;
+// v5 tracks the engine's own SCHEMA_VERSION 5 (`extends`/`implements` edges).
+// This constant is not independent of the engine's, however deliberately it is
+// declared here: the ENGINE writes graph.json and symbols.json, and
+// store.ts rejects any artifact whose schemaVersion differs from this one. When
+// the re-pin bot moved the engine to 5 and left this at 4, ultraindex rejected
+// every index it had just written, and `symbols`, `impact` and `delta` returned
+// undefined for every input. tests/engine-schema-parity.test.ts now fails if
+// they drift again — the mismatch has to be a red build, not a silent one.
+export const SCHEMA_VERSION = 5;
 
 // ---------------------------------------------------------------------------
 // Engine-owned types and constants. The deterministic core (scan → extract →

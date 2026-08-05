@@ -8,6 +8,7 @@ import { runCheck } from "../src/check.js";
 import { runFind } from "../src/find.js";
 import { runNeighbors } from "../src/neighbors.js";
 import { loadGraph, loadManifest } from "../src/store.js";
+import { SCHEMA_VERSION } from "../src/types.js";
 
 const REPO = fileURLToPath(new URL("./fixtures/mini-repo", import.meta.url));
 const FIXED_TIME = "2026-01-01T00:00:00.000Z";
@@ -55,8 +56,8 @@ describe("runBuild", () => {
   it("writes the current schema version so an old index is rejected, not misread", () => {
     const dir = out();
     build(dir);
-    expect(loadGraph(dir)!.schemaVersion).toBe(4);
-    expect(loadManifest(dir)!.schemaVersion).toBe(4);
+    expect(loadGraph(dir)!.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(loadManifest(dir)!.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
   it("omits graph.mmd with mermaid disabled", () => {
@@ -80,7 +81,7 @@ describe("runBuild", () => {
     const dir = out();
     build(dir);
     const idx = JSON.parse(readFileSync(join(dir, "symbols.json"), "utf8"));
-    expect(idx.schemaVersion).toBe(4);
+    expect(idx.schemaVersion).toBe(SCHEMA_VERSION);
     // Every def entry carries a resolvable file:line so `symbols` can point at it.
     const someName = Object.keys(idx.defs)[0]!;
     expect(someName).toBeTruthy();
