@@ -99,7 +99,7 @@ vectors reflect the new prose — `check` warns when they drift.
 
 Each module is an independent unit of work — its own `dossier`, its own
 `encyclopedia/<slug>.md`. So when many modules need enriching and your host
-supports subagents (e.g. Claude Code's Task/Workflow), fan out rather than read
+supports subagents (for example Codex subagents or Claude Code Task/Workflow), fan out rather than read
 every dossier into one context — reading them all yourself is exactly the
 context blow-up this skill exists to avoid. Without subagents the sequential loop
 above is the fallback: same steps, one module at a time.

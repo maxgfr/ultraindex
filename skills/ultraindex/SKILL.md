@@ -1,6 +1,6 @@
 ---
 name: ultraindex
-description: "Use when an AI agent must UNDERSTAND a big repo, not merely search it — and its claims must be provable. ultraindex is the verified knowledge layer over codeindex, the deterministic zero-dep engine it vendors: codeindex tells you WHERE things are, ultraindex tells you what they MEAN and proves it. It builds an encyclopedia (a small always-loadable INDEX.md plus per-module entries): generated regions rebuild every time, human regions hold YOUR cited analysis, preserved across rebuilds and renames. dossier/ask hand you real source to write from; check REJECTS any [file:line] citation that does not resolve; verify proves each cited excerpt supports its claim. status is the enrichment work-queue, orchestrate fans it out to subagents. Triggers: index/map/document/analyze this codebase, where is X handled, how does Z work in this repo, which files do I change for Z, review this branch/PR, this repo is too big for context. Want plain code search, no model in the loop? Use codeindex directly."
+description: "Build and maintain a cited codebase encyclopedia when a repository is too large for direct inspection or the user asks where behavior lives, how a flow works, what a change affects, or 'where is a feature handled?'. Use codeindex instead for plain deterministic code search."
 license: MIT
 metadata:
   version: 7.4.0
@@ -126,8 +126,8 @@ node scripts/ultraindex.mjs orchestrate [--out <dir>] [--repo <dir>] [--answer <
 
 | Your harness | How to run each phase |
 |---|---|
-| Has the Workflow tool | `orchestrate --phase <p>`, then `Workflow({ scriptPath: "<index>/orchestration/<p>.workflow.mjs" })`. Enrichers WRITE their own `encyclopedia/<slug>.md` entries (the sanctioned disjoint-write exception) and return what they wrote; refuters only RETURN verdict fragments you fold and `verify --apply` yourself. |
-| Subagents but no Workflow tool | Same `orchestrate`; dispatch one subagent per batch following `<index>/orchestration/agents/<role>.md` (the workflow script shows batches + prompts). |
+| Claude Code exposes Workflow | `orchestrate --phase <p>`, then `Workflow({ scriptPath: "<index>/orchestration/<p>.workflow.mjs" })`. Enrichers WRITE their own `encyclopedia/<slug>.md` entries (the sanctioned disjoint-write exception) and return what they wrote; refuters only RETURN verdict fragments you fold and `verify --apply` yourself. |
+| Codex or another host exposes subagents | Same `orchestrate`; dispatch one subagent per batch following `<index>/orchestration/agents/<role>.md` (the workflow script shows batches + prompts). |
 | Eco mode, or no subagents | `orchestrate --eco` → follow `<index>/orchestration/RUNBOOK.md` sequentially, playing each role yourself. Correctness-identical; only wall-clock differs. |
 
 Fan-out is an optimization, never a requirement — the gates (`check`,

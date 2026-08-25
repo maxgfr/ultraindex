@@ -87,7 +87,7 @@ The gate takes nothing in `VERIFY.json` at its word:
 ## Adjudicate in parallel with skeptic subagents
 
 The worklist's pairs are independent, which makes adversarial verification a clean
-fan-out when your host supports subagents (e.g. Claude Code's Task/Workflow):
+fan-out when your host supports subagents (for example Codex subagents or Claude Code Task/Workflow):
 
 1. The orchestrator runs `verify --answer` to produce `VERIFY.todo.json`.
 2. Split the pairs into N batches and dispatch one skeptic subagent per batch. Each
