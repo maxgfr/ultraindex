@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [7.5.0](https://github.com/maxgfr/ultraindex/compare/v7.4.0...v7.5.0) (2026-08-25)
+
+
+### Bug Fixes
+
+* make ultraindex compatible with Codex ([d1f3129](https://github.com/maxgfr/ultraindex/commit/d1f3129be913372a30d0fb935eb3cc7e3d6e889e))
+
+
+### Features
+
+* **engine:** re-pin vendored engines ([cac631c](https://github.com/maxgfr/ultraindex/commit/cac631c109a438b9ba82a3788a6484338c48d047))
+
 # [7.4.0](https://github.com/maxgfr/ultraindex/compare/v7.3.0...v7.4.0) (2026-08-05)
 
 

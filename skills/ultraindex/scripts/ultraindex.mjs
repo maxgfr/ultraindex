@@ -16946,7 +16946,7 @@ ${HELP}`);
 }
 
 // src/types.ts
-var VERSION = "7.4.0";
+var VERSION = "7.5.0";
 var SCHEMA_VERSION2 = 5;
 
 // src/build.ts
