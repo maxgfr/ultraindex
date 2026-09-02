@@ -3,7 +3,7 @@ name: ultraindex
 description: "Build and maintain a cited codebase encyclopedia when a repository is too large for direct inspection or the user asks where behavior lives, how a flow works, what a change affects, or 'where is a feature handled?'. Use codeindex instead for plain deterministic code search."
 license: MIT
 metadata:
-  version: 7.6.0
+  version: 7.7.0
 ---
 
 # ultraindex — the verified knowledge layer over codeindex
