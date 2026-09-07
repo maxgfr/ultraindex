@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [7.10.1](https://github.com/maxgfr/ultraindex/compare/v7.10.0...v7.10.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* remove obsolete generated verification batches safely ([fb0372a](https://github.com/maxgfr/ultraindex/commit/fb0372a4ec6301ec8145a86035e95c37f9f14568))
+
 # [7.10.0](https://github.com/maxgfr/ultraindex/compare/v7.9.0...v7.10.0) (2026-09-07)
 
 
