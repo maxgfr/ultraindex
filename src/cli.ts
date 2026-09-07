@@ -122,6 +122,9 @@ Options:
   --answer <file>   check/verify: the answer file whose citations to validate
   --apply <file>    verify: reduce a filled verdicts file to a pass/fail gate
   --max-verify <n>  verify: cap the claim↔citation worklist           (default: 40)
+  --complete        verify/check --answer: all pairs, no sampled success.
+  --batch-size <n>  verify --complete: pairs per batch file (default 40, 1–1000).
+                    verify --apply accepts comma-separated verdict file paths.
   --phase <name>    orchestrate: emit one phase only — enrich | verify-answer
   --eco             orchestrate: emit only RUNBOOK.md + agents/*.md (the explicit
                     low-token sequential path)
@@ -166,6 +169,7 @@ const VALUE_FLAGS = new Set([
   "question",
   "apply",
   "max-verify",
+  "batch-size",
   "phase",
   "base",
   // `mcp` only. The flag sets are global, so these are accepted (and ignored)
@@ -185,6 +189,7 @@ const BOOL_FLAGS = new Set([
   "quiet",
   "force",
   "semantic",
+  "complete",
   "prose",
   "eco",
   "list",
@@ -704,11 +709,12 @@ async function cmdAsk(p: Parsed): Promise<void> {
 }
 
 function cmdCheck(p: Parsed): void {
+  if (p.bools.has("complete") && !p.values.answer) fail("--complete requires --answer <file>");
   const out = resolveOut(p, resolve(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out);
 
   if (p.values.answer) {
-    const res = checkAnswer(out, resolve(p.values.answer), { semantic: p.bools.has("semantic"), repo });
+    const res = checkAnswer(out, resolve(p.values.answer), { semantic: p.bools.has("semantic"), complete: p.bools.has("complete"), repo });
     if (p.bools.has("json")) {
       process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     } else if (!p.bools.has("quiet")) {
@@ -718,6 +724,7 @@ function cmdCheck(p: Parsed): void {
         lines.push(`  semantic: supported ${s.supported} · partial ${s.partial} · refuted ${s.refuted} · unsupported ${s.unsupported}`);
         for (const f of s.failures.slice(0, 8)) lines.push(`  ✗ semantic ${f.claimId} (${f.citation}): ${f.verdict}`);
       }
+      if (res.coverage) lines.push(`  coverage (${res.coverage.mode}): ${res.coverage.covered}/${res.coverage.expected} claim↔citation pairs`);
       for (const e of res.errors) lines.push(`  error:    ${e}`);
       for (const w of res.warnings ?? []) lines.push(`  warning:  ${w}`);
       process.stdout.write(lines.join("\n") + "\n");
@@ -772,7 +779,12 @@ function cmdVerify(p: Parsed): void {
   if (p.values.apply) {
     let res;
     try {
-      res = applyVerdicts(dir, resolve(p.values.apply));
+      res = applyVerdicts(dir, p.values.apply.split(",").map(f => resolve(f.trim())));
+      if (p.bools.has("complete")) {
+        const out = resolveOut(p, resolve(p.values.repo ?? "."));
+        const gate = checkAnswer(out, answerPath, { complete: true, repo: resolveRepoRoot(p, out) });
+        if (!gate.ok) { for (const error of gate.errors) process.stderr.write(error + "\n"); res = { ...res, ok: false }; }
+      }
     } catch (e) {
       fail((e as Error).message); // clean message, no stack trace
     }
@@ -785,9 +797,10 @@ function cmdVerify(p: Parsed): void {
   if (!existsSync(answerPath)) fail(`answer file not found: ${answerPath}`);
   const out = resolveOut(p, resolve(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out);
-  const maxVerify = p.values["max-verify"] ? Number(p.values["max-verify"]) : VERIFY_MAX;
-  if (!Number.isFinite(maxVerify) || maxVerify <= 0) fail("invalid --max-verify");
-  const wl = runVerify(answerPath, repo, { maxVerify });
+  const maxVerify = p.values["max-verify"] !== undefined ? Number(p.values["max-verify"]) : undefined;
+  if (maxVerify !== undefined && (!Number.isFinite(maxVerify) || maxVerify <= 0)) fail("invalid --max-verify");
+  const batchSize = p.values["batch-size"] !== undefined ? Number(p.values["batch-size"]) : undefined;
+  const wl = runVerify(answerPath, repo, { maxVerify, complete: p.bools.has("complete"), batchSize });
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(wl, null, 2) + "\n");
     return;

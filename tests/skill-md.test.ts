@@ -50,7 +50,7 @@ describe("SKILL.md is installable", () => {
     expect(len, `SKILL.md description is ${len} chars — over the host cap`).toBeLessThanOrEqual(1024);
   });
 
-  it("describes BOTH trigger sets (build it AND navigate it)", () => {
+  it("describes both capabilities (build it and navigate it)", () => {
     const description = (parse(frontmatter) as { description: string }).description;
     expect(description).toMatch(/index|build/i);
     expect(description).toMatch(/where is|navigate/i);

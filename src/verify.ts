@@ -10,6 +10,8 @@ const VALID_VERDICTS: VerdictKind[] = ["supported", "partial", "refuted", "unsup
 export interface VerifyWorklist {
   answer: string;
   pairs: ClaimEvidencePair[];
+  coverage?: { mode: "complete" | "sampled"; total: number; selected: number };
+  batches?: string[];
 }
 
 // ---- claim-unit splitting (a citation in a code fence/comment can't ground) ----
@@ -175,7 +177,7 @@ function readExcerpt(repo: string, c: Citation): string {
 // a citation in a heading (dropped as a claim unit) or to an empty file (no
 // excerpt) yields no pair. `check --semantic` sizes coverage off THIS, not the
 // mechanical count, so it never demands verification it can't produce.
-export function buildClaimPairs(answerText: string, repo: string): ClaimEvidencePair[] {
+export function buildClaimPairs(answerText: string, repo: string, opts: { complete?: boolean } = {}): ClaimEvidencePair[] {
   const pairs: ClaimEvidencePair[] = [];
   let claimNo = 0;
   for (const { parse, display } of claimPairs(answerText)) {
@@ -183,7 +185,8 @@ export function buildClaimPairs(answerText: string, repo: string): ClaimEvidence
     if (!cites.length) continue;
     claimNo++;
     const claimId = `C${claimNo}`;
-    const claimText = display.replace(/\s+/g, " ").trim().slice(0, 400);
+    const normalized = display.replace(/\s+/g, " ").trim();
+    const claimText = opts.complete ? normalized : normalized.slice(0, 400);
     for (const c of cites) {
       const digest = readExcerpt(repo, c);
       if (!digest) continue; // unresolved/dangling — the mechanical check handles it
@@ -193,15 +196,37 @@ export function buildClaimPairs(answerText: string, repo: string): ClaimEvidence
   return pairs;
 }
 
-export function runVerify(answerPath: string, repo: string, opts: { maxVerify?: number } = {}): VerifyWorklist {
+// A syntactically valid citation to an empty/unreadable excerpt is not an
+// adjudicable pair. Complete mode must reject it, not shrink its denominator.
+export function unreadableClaimCitations(answerText: string, repo: string): string[] {
+  return [...new Set(claimPairs(answerText).flatMap(({ parse }) => parseCitations(parse).filter(c => !readExcerpt(repo, c)).map(c => c.raw)))];
+}
+
+export function runVerify(answerPath: string, repo: string, opts: { maxVerify?: number; complete?: boolean; batchSize?: number } = {}): VerifyWorklist {
+  if (opts.complete && opts.maxVerify !== undefined) throw new Error("--complete conflicts with --max-verify");
+  if (opts.batchSize !== undefined && (!opts.complete || !Number.isSafeInteger(opts.batchSize) || opts.batchSize < 1 || opts.batchSize > 1000)) throw new Error("--batch-size requires --complete and an integer from 1 to 1000");
   const answer = readFileSync(answerPath, "utf8");
-  const pairs = buildClaimPairs(answer, repo);
-  const max = Math.max(1, Math.floor(opts.maxVerify ?? VERIFY_MAX));
+  if (opts.complete) {
+    const unreadable = unreadableClaimCitations(answer, repo);
+    if (unreadable.length) throw new Error(`--complete: empty or unreadable claim excerpt(s): ${unreadable.join(", ")} — cite nonempty supporting source before verification`);
+  }
+  const pairs = buildClaimPairs(answer, repo, { complete: opts.complete });
+  const max = opts.complete ? pairs.length : Math.max(1, Math.floor(opts.maxVerify ?? VERIFY_MAX));
   const kept = pairs.length > max ? pairs.slice(0, max) : pairs;
-  const worklist: VerifyWorklist = { answer: answerPath, pairs: kept };
+  const coverage = { mode: opts.complete ? "complete" as const : "sampled" as const, total: pairs.length, selected: kept.length };
+  const worklist: VerifyWorklist = { answer: answerPath, pairs: kept, coverage };
 
   const dir = dirname(answerPath);
-  const todo = { answer: answerPath, pairs: kept.map((p) => ({ ...p, verdict: null as VerdictKind | null, note: "" })) };
+  const todo = { answer: answerPath, coverage, pairs: kept.map((p) => ({ ...p, verdict: null as VerdictKind | null, note: "" })) };
+  if (opts.complete) {
+    const size = opts.batchSize ?? VERIFY_MAX;
+    worklist.batches = [];
+    for (let i = 0; i < todo.pairs.length; i += size) {
+      const file = `VERIFY.batch-${String(worklist.batches.length + 1).padStart(3, "0")}.todo.json`;
+      writeFileSync(join(dir, file), JSON.stringify({ answer: answerPath, coverage, pairs: todo.pairs.slice(i, i + size) }, null, 2));
+      worklist.batches.push(file);
+    }
+  }
   writeFileSync(join(dir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
   writeFileSync(join(dir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
   return worklist;
@@ -218,6 +243,7 @@ function renderWorklistMd(wl: VerifyWorklist, total: number, kept: number): stri
       `\`ultraindex verify --apply verdicts.json --answer <file>\`.`,
   );
   if (kept < total) out.push(`\n_Showing ${kept} of ${total} pair(s) — capped._`);
+  if (wl.batches) out.push(`\nComplete worklist: ${total} pair(s). Current batches: ${wl.batches.join(", ") || "none"}. Adjudicate these files, then pass their comma-separated paths to --apply. Gate with check --answer <file> --semantic --complete; worklist generation is not verification.`);
   out.push("");
   for (const p of wl.pairs) {
     out.push(`## ${p.claimId} · ${p.citation}`);
@@ -261,14 +287,18 @@ function loadTodoPairs(dir: string): Map<string, ClaimEvidencePair> | undefined 
 // Phase B — read an agent-filled verdicts file (a `{ pairs: Verdict[] }` object
 // or a bare `Verdict[]`), validate it, reduce to a VerifyResult, and persist
 // VERIFY.json in `dir` (the answer's directory) for `check --semantic` / render.
-export function applyVerdicts(dir: string, verdictsPath: string): VerifyResult {
-  let raw: unknown;
+export function applyVerdicts(dir: string, verdictsPath: string | string[]): VerifyResult {
+  const list: any[] = [];
   try {
-    raw = JSON.parse(readFileSync(verdictsPath, "utf8"));
+    for (const file of typeof verdictsPath === "string" ? [verdictsPath] : verdictsPath) {
+      const raw = JSON.parse(readFileSync(file, "utf8"));
+      const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.pairs) ? raw.pairs : undefined;
+      if (!rows) throw new Error("expected pairs[] or a verdict array");
+      list.push(...rows);
+    }
   } catch (e) {
     throw new Error(`verdicts file is not valid JSON (${(e as Error).message})`);
   }
-  const list: any[] = Array.isArray(raw) ? raw : Array.isArray((raw as any)?.pairs) ? (raw as any).pairs : [];
   // The documented parallel skeptic-subagent contract has skeptics RETURN
   // { claimId, citation, verdict, note } — no digest/claim/path. An orchestrator
   // that writes those returns as-is would persist EMPTY digests, and
@@ -288,6 +318,7 @@ export function applyVerdicts(dir: string, verdictsPath: string): VerifyResult {
   // A malformed row or a misspelled verdict token is a HARD error, not a silent
   // drop/coercion — a "pass" must never rest on a verdict the tool couldn't read.
   const errors: string[] = [];
+  const seen = new Set<string>();
   list.forEach((v, i) => {
     if (!v || typeof v.claimId !== "string" || typeof v.citation !== "string") {
       errors.push(`entry ${i}: missing "claimId" and/or "citation"`);
@@ -297,6 +328,9 @@ export function applyVerdicts(dir: string, verdictsPath: string): VerifyResult {
       errors.push(`${v.claimId} (${v.citation}): invalid verdict ${JSON.stringify(v.verdict)} — use exactly one of ${VALID_VERDICTS.join(", ")}`);
       return;
     }
+    const key = JSON.stringify([v.claimId, v.citation]);
+    if (seen.has(key)) { errors.push(`duplicate pair ${v.claimId} (${v.citation})`); return; }
+    seen.add(key);
     const src = todoPairs?.get(`${v.claimId} ${v.citation}`);
     verdicts.push({
       claimId: v.claimId,
@@ -332,6 +366,26 @@ export function citationlessClaims(text: string): string[] {
     }
   }
   return out;
+}
+
+// Validate ONE persisted verdict row. A row attests something only when it is a
+// COMPLETE, readable record: the identity/evidence fields verify captured, plus
+// one of the four verdict tokens. Returns a human-readable problem, or undefined
+// when the row is a completed verdict. `check --semantic` gates on this so a
+// half-filled ledger (a still-null verdict, a misspelled token, a row that is not
+// even an object) fails closed with an actionable message instead of being
+// silently counted as coverage — or crashing on a primitive row.
+export function verdictRowProblem(row: unknown): string | undefined {
+  if (typeof row !== "object" || row === null || Array.isArray(row)) {
+    return `not a verdict object (got ${row === null ? "null" : Array.isArray(row) ? "array" : typeof row})`;
+  }
+  const r = row as Record<string, unknown>;
+  const missing = (["claimId", "claim", "citation", "path", "digest"] as const).filter((f) => typeof r[f] !== "string");
+  if (missing.length) return `missing or non-string field(s): ${missing.join(", ")}`;
+  if (!VALID_VERDICTS.includes(r.verdict as VerdictKind)) {
+    return `verdict is ${JSON.stringify(r.verdict) ?? "undefined"} — use exactly one of ${VALID_VERDICTS.join(", ")}`;
+  }
+  return undefined;
 }
 
 // Content-level grounding: a verdict attests one SPECIFIC excerpt. Re-read each

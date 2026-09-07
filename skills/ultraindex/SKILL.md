@@ -1,12 +1,21 @@
 ---
 name: ultraindex
-description: "Build and maintain a cited codebase encyclopedia when a repository is too large for direct inspection or the user asks where behavior lives, how a flow works, what a change affects, or 'where is a feature handled?'. Use codeindex instead for plain deterministic code search."
+description: "Build and navigate a cited codebase encyclopedia to locate behavior, trace flows, and assess change impact."
+disable-model-invocation: true
 license: MIT
 metadata:
   version: 7.8.0
 ---
 
 # ultraindex — the verified knowledge layer over codeindex
+
+For a handoff that claims **every** answer claim was checked, use `verify
+--complete --answer <file> --repo <dir>`. Read and adjudicate the current batch
+files listed in VERIFY.md (default 40 pairs each; `--batch-size` changes that).
+Fold the comma-separated verdict paths with `verify --apply`, then gate with
+`check --answer <file> --semantic --complete`. Default verification is sampled;
+do not describe it as complete when pairs remain uncovered. Generation is only
+a worklist, and support still requires reading the excerpts.
 
 The mechanical work is not ours. `ultraindex` vendors
 **[codeindex](https://github.com/maxgfr/codeindex)** — a deterministic,

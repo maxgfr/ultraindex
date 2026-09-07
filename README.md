@@ -1,5 +1,30 @@
 # ultraindex
 
+## Verify every claim, including long answers
+
+`verify --answer ANSWER.md --repo . --complete --batch-size 40` writes the full
+`VERIFY.todo.json` and lists bounded `VERIFY.batch-NNN.todo.json` files in its
+JSON/Markdown output. Adjudicate the **listed current batches**, then fold their
+paths with `verify --answer ANSWER.md --apply verdicts-1.json,verdicts-2.json`.
+Duplicate pairs are refused. Gate with `check --out .ultraindex --answer ANSWER.md
+--repo . --semantic --complete`: any missing pair, unreadable/stale evidence or
+substantive uncited prose fails, even above 40 pairs. JSON reports expected and
+covered counts. Worklist generation alone never proves a claim supported.
+
+Default verification remains sampled at 40 pairs. `--complete` conflicts with
+`--max-verify`; `--batch-size` (1–1000) requires `--complete`. The final gate checks
+the live answer and source, regardless of metadata in a submitted batch.
+Complete mode also rejects empty cited source lines and retains each normalized
+claim in full, so an old 400-character sampled verdict cannot attest a longer
+claim or a changed suffix. Default sampled claim truncation is unchanged.
+
+## Manual skill invocation
+
+Invoke `$ultraindex` explicitly in Codex or `/ultraindex` in Claude Code.
+The shipped skill disables automatic activation in both hosts; CLI commands
+remain unchanged. Other hosts may not honor these settings. Existing installed
+copies need to be updated to receive this invocation policy.
+
 > **[codeindex](https://github.com/maxgfr/codeindex) tells you where things are.
 > ultraindex tells you what they mean — and proves it.**
 >

@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
-import type { CheckResult, Manifest, VerifyResult } from "./types.js";
-import { loadVerify, buildClaimPairs, citationlessClaims, reduceVerdicts, revalidateVerdicts, VERIFY_MAX } from "./verify.js";
+import type { CheckResult, Manifest, Verdict, VerifyResult } from "./types.js";
+import { loadVerify, buildClaimPairs, citationlessClaims, unreadableClaimCitations, reduceVerdicts, revalidateVerdicts, verdictRowProblem, VERIFY_MAX } from "./verify.js";
 import { walk, readText, sha1, compileGlobs, byStr } from "./engine.js";
 import { loadGraph, loadManifest, indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
@@ -179,6 +179,18 @@ export interface AnswerCheck {
   errors: string[];
   warnings?: string[];
   semantic?: VerifyResult; // populated only by `check --semantic` (folds VERIFY.json)
+  coverage?: { mode: "complete" | "sampled"; expected: number; covered: number };
+}
+
+// Name an unreadable persisted verdict row by whatever identity survives on it,
+// so the error points at a claim rather than only at an array index.
+function rowLabel(row: unknown): string {
+  const r = row as Record<string, unknown> | null;
+  if (!r || typeof r !== "object") return "";
+  const id = typeof r.claimId === "string" ? r.claimId : "";
+  const cite = typeof r.citation === "string" ? `[${r.citation}]` : "";
+  const label = [id, cite].filter(Boolean).join(" ");
+  return label ? ` (${label})` : "";
 }
 
 // Validate an answer file's citations against the index — the Q&A grounding
@@ -190,7 +202,7 @@ export interface AnswerCheck {
 // disk — the MCP server, whose client wrote the answer into a chat turn and has
 // no file to point at. When it is given, `answerPath` is only a label for
 // messages. The file path remains the CLI's route, unchanged.
-export function checkAnswer(outDir: string, answerPath: string, opts: { semantic?: boolean; repo?: string; answerText?: string } = {}): AnswerCheck {
+export function checkAnswer(outDir: string, answerPath: string, opts: { semantic?: boolean; complete?: boolean; repo?: string; answerText?: string } = {}): AnswerCheck {
   const errors: string[] = [];
   const graph = loadGraph(outDir);
   if (!graph) return { ok: false, citations: 0, resolved: 0, errors: ["no index — run `ultraindex build` first"] };
@@ -207,7 +219,7 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
   const warnings: string[] = [];
   if (attempts > 0) {
     const missing = citationlessClaims(text);
-    if (missing.length) warnings.push(`${missing.length} claim(s) carry no [file:line] citation — grounding is not enforced on them`);
+    if (missing.length) (opts.complete ? errors : warnings).push(`${missing.length} claim(s) carry no [file:line] citation — grounding is not enforced on them`);
   }
 
   // Non-failing staleness nudge: citations resolve against the INDEX (recorded
@@ -216,6 +228,10 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
   // content drift only warns here (`check` on the index is where staleness blocks).
   const manifest = loadManifest(outDir);
   const repoRoot = opts.repo ?? manifest?.repo;
+  if (opts.complete && repoRoot) {
+    const unreadable = unreadableClaimCitations(text, repoRoot);
+    if (unreadable.length) errors.push(`--complete: empty or unreadable claim excerpt(s): ${unreadable.join(", ")} — these cited claims cannot be verified`);
+  }
   if (manifest && repoRoot && cc.resolved.length) {
     const cited = [...new Set(cc.resolved.map((c) => c.path))];
     const drifted = cited.filter((rel) => {
@@ -230,7 +246,7 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
   }
 
   const result: AnswerCheck = { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
-  if (opts.semantic) {
+  if (opts.semantic || opts.complete) {
     const sem = loadVerify(dirname(answerPath));
     if (!sem) {
       // `--semantic` is an explicit request for the high-assurance gate, so a
@@ -249,10 +265,30 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
         "--semantic: VERIFY.json has no verdicts[] to re-reduce from — regenerate it with `verify --apply <verdicts.json>` (a persisted summary alone is not attestable)",
       );
     } else {
+      // Only a COMPLETED row attests anything. Screen the raw rows BEFORE they
+      // are reduced or counted as coverage: a still-null verdict, a misspelled
+      // token or a row that is not even an object is an unadjudicated claim wearing
+      // a ledger entry, so it fails CLOSED with the row named — and a malformed
+      // row is reported, never dereferenced into a stack trace.
+      const rows: Verdict[] = [];
+      const badRows: string[] = [];
+      sem.verdicts.forEach((row, i) => {
+        const problem = verdictRowProblem(row);
+        if (problem === undefined) rows.push(row);
+        else badRows.push(`verdicts[${i}]${rowLabel(row)}: ${problem}`);
+      });
+      if (badRows.length) {
+        result.ok = false;
+        for (const b of badRows.slice(0, 12)) {
+          errors.push(`--semantic: VERIFY.json ${b}; a row without a readable verdict adjudicates nothing — re-run \`verify\`, adjudicate every pair, then \`verify --apply <verdicts.json>\``);
+        }
+        if (badRows.length > 12) errors.push(`--semantic: …and ${badRows.length - 12} more unreadable verdict row(s)`);
+      }
+
       // NEVER trust the persisted summary: recompute ok/failures/pairs from the
       // raw verdicts[] on every check, so a hand-edited or stale summary cannot
       // flip the gate. The recomputed verdict is the one reported and enforced.
-      const recomputed = reduceVerdicts(sem.verdicts);
+      const recomputed = reduceVerdicts(rows);
       if (sem.ok !== recomputed.ok || sem.pairs !== recomputed.pairs || (sem.failures?.length ?? 0) !== recomputed.failures.length) {
         warnings.push("--semantic: VERIFY.json summary disagrees with its verdicts[] — verdict recomputed from the raw verdicts");
       }
@@ -265,14 +301,15 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
       // the live repo. A verdict whose cited content drifted since `verify` (or
       // whose digest was edited) attests nothing, so a mismatch hard-fails.
       if (repoRoot) {
-        const mismatches = revalidateVerdicts(sem.verdicts, repoRoot);
+        const mismatches = revalidateVerdicts(rows, repoRoot);
         for (const m of mismatches.slice(0, 12)) {
           errors.push(`--semantic: ${m.claimId} [${m.citation}] — ${m.reason}; re-run \`verify\` and re-adjudicate`);
         }
         if (mismatches.length > 12) errors.push(`--semantic: …and ${mismatches.length - 12} more excerpt mismatch(es)`);
         if (mismatches.length) result.ok = false;
       } else {
-        warnings.push("--semantic: repo root unknown (no --repo and no manifest) — excerpt re-validation skipped");
+        (opts.complete ? errors : warnings).push("--semantic: repo root unknown (no --repo and no manifest) — excerpt re-validation skipped");
+        if (opts.complete) result.ok = false;
       }
 
       // Coverage guard, matched by IDENTITY (claim + citation + digest; claimId is
@@ -282,12 +319,16 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
       // mechanical citation count, which also counts citations in headings or to
       // empty files that verify can never pair. Use the SAME repo `verify` resolved
       // its excerpts from (explicit --repo wins, else the manifest's recorded root)
-      // so both sides of the match read the same content.
-      const currentPairs = repoRoot ? buildClaimPairs(text, repoRoot) : [];
+      // so both sides of the match read the same content. Only a COMPLETED row is
+      // coverage: a pair whose persisted verdict is null or unreadable is NOT
+      // adjudicated, so it must not satisfy the guard.
+      const currentPairs = repoRoot ? buildClaimPairs(text, repoRoot, { complete: opts.complete }) : [];
       const expected = currentPairs.length;
       const pairKey = (p: { claim: string; citation: string; digest: string }) => `${p.claim}\u0000${p.citation}\u0000${p.digest}`;
-      const adjudicated = new Set(sem.verdicts.map(pairKey));
+      const adjudicated = new Set(rows.map(pairKey));
       const covered = currentPairs.filter((p) => adjudicated.has(pairKey(p))).length;
+      result.coverage = { mode: opts.complete ? "complete" : "sampled", expected, covered };
+      if (opts.complete && expected === 0) { result.ok = false; errors.push("--complete: no verifiable claim pairs; cannot attest complete verification"); }
       if (covered === 0 && expected > 0) {
         result.ok = false;
         errors.push(
@@ -303,7 +344,7 @@ export function checkAnswer(outDir: string, answerPath: string, opts: { semantic
         // reader must catch. Only a large answer that genuinely exceeds the cap
         // has a legitimate reason for partial coverage (capping truncates); there
         // it stays a warning with the remedy of raising `--max-verify`.
-        if (expected <= VERIFY_MAX) {
+        if (opts.complete || expected <= VERIFY_MAX) {
           result.ok = false;
           errors.push(
             `--semantic: only ${covered} of the answer's ${expected} verifiable claim↔citation pair(s) are adjudicated — ${expected - covered} claim(s) carry no verdict (a deleted verdict, or a claim added/edited after \`verify --apply\`); re-run \`verify\` on a fresh worklist and re-adjudicate before gating`,

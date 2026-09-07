@@ -19422,7 +19422,7 @@ function readExcerpt(repo, c2) {
   const e = Math.max(c2.start, c2.end ?? c2.start);
   return lines.slice(s, e).join("\n").slice(0, 800).trim();
 }
-function buildClaimPairs(answerText, repo) {
+function buildClaimPairs(answerText, repo, opts = {}) {
   const pairs = [];
   let claimNo = 0;
   for (const { parse, display } of claimPairs(answerText)) {
@@ -19430,7 +19430,8 @@ function buildClaimPairs(answerText, repo) {
     if (!cites.length) continue;
     claimNo++;
     const claimId = `C${claimNo}`;
-    const claimText = display.replace(/\s+/g, " ").trim().slice(0, 400);
+    const normalized = display.replace(/\s+/g, " ").trim();
+    const claimText = opts.complete ? normalized : normalized.slice(0, 400);
     for (const c2 of cites) {
       const digest = readExcerpt(repo, c2);
       if (!digest) continue;
@@ -19439,14 +19440,33 @@ function buildClaimPairs(answerText, repo) {
   }
   return pairs;
 }
+function unreadableClaimCitations(answerText, repo) {
+  return [...new Set(claimPairs(answerText).flatMap(({ parse }) => parseCitations(parse).filter((c2) => !readExcerpt(repo, c2)).map((c2) => c2.raw)))];
+}
 function runVerify(answerPath, repo, opts = {}) {
+  if (opts.complete && opts.maxVerify !== void 0) throw new Error("--complete conflicts with --max-verify");
+  if (opts.batchSize !== void 0 && (!opts.complete || !Number.isSafeInteger(opts.batchSize) || opts.batchSize < 1 || opts.batchSize > 1e3)) throw new Error("--batch-size requires --complete and an integer from 1 to 1000");
   const answer = readFileSync15(answerPath, "utf8");
-  const pairs = buildClaimPairs(answer, repo);
-  const max = Math.max(1, Math.floor(opts.maxVerify ?? VERIFY_MAX));
+  if (opts.complete) {
+    const unreadable = unreadableClaimCitations(answer, repo);
+    if (unreadable.length) throw new Error(`--complete: empty or unreadable claim excerpt(s): ${unreadable.join(", ")} \u2014 cite nonempty supporting source before verification`);
+  }
+  const pairs = buildClaimPairs(answer, repo, { complete: opts.complete });
+  const max = opts.complete ? pairs.length : Math.max(1, Math.floor(opts.maxVerify ?? VERIFY_MAX));
   const kept = pairs.length > max ? pairs.slice(0, max) : pairs;
-  const worklist = { answer: answerPath, pairs: kept };
+  const coverage = { mode: opts.complete ? "complete" : "sampled", total: pairs.length, selected: kept.length };
+  const worklist = { answer: answerPath, pairs: kept, coverage };
   const dir = dirname8(answerPath);
-  const todo = { answer: answerPath, pairs: kept.map((p) => ({ ...p, verdict: null, note: "" })) };
+  const todo = { answer: answerPath, coverage, pairs: kept.map((p) => ({ ...p, verdict: null, note: "" })) };
+  if (opts.complete) {
+    const size = opts.batchSize ?? VERIFY_MAX;
+    worklist.batches = [];
+    for (let i2 = 0; i2 < todo.pairs.length; i2 += size) {
+      const file = `VERIFY.batch-${String(worklist.batches.length + 1).padStart(3, "0")}.todo.json`;
+      writeFileSync6(join31(dir, file), JSON.stringify({ answer: answerPath, coverage, pairs: todo.pairs.slice(i2, i2 + size) }, null, 2));
+      worklist.batches.push(file);
+    }
+  }
   writeFileSync6(join31(dir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
   writeFileSync6(join31(dir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
   return worklist;
@@ -19460,6 +19480,8 @@ function renderWorklistMd(wl, total, kept) {
   );
   if (kept < total) out2.push(`
 _Showing ${kept} of ${total} pair(s) \u2014 capped._`);
+  if (wl.batches) out2.push(`
+Complete worklist: ${total} pair(s). Current batches: ${wl.batches.join(", ") || "none"}. Adjudicate these files, then pass their comma-separated paths to --apply. Gate with check --answer <file> --semantic --complete; worklist generation is not verification.`);
   out2.push("");
   for (const p of wl.pairs) {
     out2.push(`## ${p.claimId} \xB7 ${p.citation}`);
@@ -19496,13 +19518,17 @@ function loadTodoPairs(dir) {
   return map;
 }
 function applyVerdicts(dir, verdictsPath) {
-  let raw;
+  const list = [];
   try {
-    raw = JSON.parse(readFileSync15(verdictsPath, "utf8"));
+    for (const file of typeof verdictsPath === "string" ? [verdictsPath] : verdictsPath) {
+      const raw = JSON.parse(readFileSync15(file, "utf8"));
+      const rows = Array.isArray(raw) ? raw : Array.isArray(raw?.pairs) ? raw.pairs : void 0;
+      if (!rows) throw new Error("expected pairs[] or a verdict array");
+      list.push(...rows);
+    }
   } catch (e) {
     throw new Error(`verdicts file is not valid JSON (${e.message})`);
   }
-  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.pairs) ? raw.pairs : [];
   const todoPairs = loadTodoPairs(dir);
   const backfill = (row2, field, src) => {
     if (typeof row2[field] === "string" && row2[field] !== "") return row2[field];
@@ -19510,6 +19536,7 @@ function applyVerdicts(dir, verdictsPath) {
   };
   const verdicts = [];
   const errors = [];
+  const seen = /* @__PURE__ */ new Set();
   list.forEach((v, i2) => {
     if (!v || typeof v.claimId !== "string" || typeof v.citation !== "string") {
       errors.push(`entry ${i2}: missing "claimId" and/or "citation"`);
@@ -19519,6 +19546,12 @@ function applyVerdicts(dir, verdictsPath) {
       errors.push(`${v.claimId} (${v.citation}): invalid verdict ${JSON.stringify(v.verdict)} \u2014 use exactly one of ${VALID_VERDICTS.join(", ")}`);
       return;
     }
+    const key = JSON.stringify([v.claimId, v.citation]);
+    if (seen.has(key)) {
+      errors.push(`duplicate pair ${v.claimId} (${v.citation})`);
+      return;
+    }
+    seen.add(key);
     const src = todoPairs?.get(`${v.claimId}\0${v.citation}`);
     verdicts.push({
       claimId: v.claimId,
@@ -19551,6 +19584,18 @@ function citationlessClaims(text) {
     }
   }
   return out2;
+}
+function verdictRowProblem(row2) {
+  if (typeof row2 !== "object" || row2 === null || Array.isArray(row2)) {
+    return `not a verdict object (got ${row2 === null ? "null" : Array.isArray(row2) ? "array" : typeof row2})`;
+  }
+  const r = row2;
+  const missing = ["claimId", "claim", "citation", "path", "digest"].filter((f) => typeof r[f] !== "string");
+  if (missing.length) return `missing or non-string field(s): ${missing.join(", ")}`;
+  if (!VALID_VERDICTS.includes(r.verdict)) {
+    return `verdict is ${JSON.stringify(r.verdict) ?? "undefined"} \u2014 use exactly one of ${VALID_VERDICTS.join(", ")}`;
+  }
+  return void 0;
 }
 function revalidateVerdicts(verdicts, repo) {
   const out2 = [];
@@ -19737,6 +19782,14 @@ function runCheck(outDir, repo, opts = {}) {
     proseUnknown
   };
 }
+function rowLabel(row2) {
+  const r = row2;
+  if (!r || typeof r !== "object") return "";
+  const id = typeof r.claimId === "string" ? r.claimId : "";
+  const cite = typeof r.citation === "string" ? `[${r.citation}]` : "";
+  const label = [id, cite].filter(Boolean).join(" ");
+  return label ? ` (${label})` : "";
+}
 function checkAnswer(outDir, answerPath, opts = {}) {
   const errors = [];
   const graph = loadGraph(outDir);
@@ -19750,10 +19803,14 @@ function checkAnswer(outDir, answerPath, opts = {}) {
   const warnings = [];
   if (attempts > 0) {
     const missing = citationlessClaims(text);
-    if (missing.length) warnings.push(`${missing.length} claim(s) carry no [file:line] citation \u2014 grounding is not enforced on them`);
+    if (missing.length) (opts.complete ? errors : warnings).push(`${missing.length} claim(s) carry no [file:line] citation \u2014 grounding is not enforced on them`);
   }
   const manifest = loadManifest(outDir);
   const repoRoot = opts.repo ?? manifest?.repo;
+  if (opts.complete && repoRoot) {
+    const unreadable = unreadableClaimCitations(text, repoRoot);
+    if (unreadable.length) errors.push(`--complete: empty or unreadable claim excerpt(s): ${unreadable.join(", ")} \u2014 these cited claims cannot be verified`);
+  }
   if (manifest && repoRoot && cc.resolved.length) {
     const cited = [...new Set(cc.resolved.map((c2) => c2.path))];
     const drifted = cited.filter((rel2) => {
@@ -19767,7 +19824,7 @@ function checkAnswer(outDir, answerPath, opts = {}) {
     }
   }
   const result = { ok: errors.length === 0, citations: attempts, resolved: cc.resolved.length, errors };
-  if (opts.semantic) {
+  if (opts.semantic || opts.complete) {
     const sem = loadVerify(dirname9(answerPath));
     if (!sem) {
       result.ok = false;
@@ -19780,7 +19837,21 @@ function checkAnswer(outDir, answerPath, opts = {}) {
         "--semantic: VERIFY.json has no verdicts[] to re-reduce from \u2014 regenerate it with `verify --apply <verdicts.json>` (a persisted summary alone is not attestable)"
       );
     } else {
-      const recomputed = reduceVerdicts(sem.verdicts);
+      const rows = [];
+      const badRows = [];
+      sem.verdicts.forEach((row2, i2) => {
+        const problem = verdictRowProblem(row2);
+        if (problem === void 0) rows.push(row2);
+        else badRows.push(`verdicts[${i2}]${rowLabel(row2)}: ${problem}`);
+      });
+      if (badRows.length) {
+        result.ok = false;
+        for (const b of badRows.slice(0, 12)) {
+          errors.push(`--semantic: VERIFY.json ${b}; a row without a readable verdict adjudicates nothing \u2014 re-run \`verify\`, adjudicate every pair, then \`verify --apply <verdicts.json>\``);
+        }
+        if (badRows.length > 12) errors.push(`--semantic: \u2026and ${badRows.length - 12} more unreadable verdict row(s)`);
+      }
+      const recomputed = reduceVerdicts(rows);
       if (sem.ok !== recomputed.ok || sem.pairs !== recomputed.pairs || (sem.failures?.length ?? 0) !== recomputed.failures.length) {
         warnings.push("--semantic: VERIFY.json summary disagrees with its verdicts[] \u2014 verdict recomputed from the raw verdicts");
       }
@@ -19790,27 +19861,33 @@ function checkAnswer(outDir, answerPath, opts = {}) {
         errors.push(`semantic verification failed: ${recomputed.failures.length} claim(s) refuted or unsupported by their cited excerpt (see VERIFY.json)`);
       }
       if (repoRoot) {
-        const mismatches = revalidateVerdicts(sem.verdicts, repoRoot);
+        const mismatches = revalidateVerdicts(rows, repoRoot);
         for (const m of mismatches.slice(0, 12)) {
           errors.push(`--semantic: ${m.claimId} [${m.citation}] \u2014 ${m.reason}; re-run \`verify\` and re-adjudicate`);
         }
         if (mismatches.length > 12) errors.push(`--semantic: \u2026and ${mismatches.length - 12} more excerpt mismatch(es)`);
         if (mismatches.length) result.ok = false;
       } else {
-        warnings.push("--semantic: repo root unknown (no --repo and no manifest) \u2014 excerpt re-validation skipped");
+        (opts.complete ? errors : warnings).push("--semantic: repo root unknown (no --repo and no manifest) \u2014 excerpt re-validation skipped");
+        if (opts.complete) result.ok = false;
       }
-      const currentPairs = repoRoot ? buildClaimPairs(text, repoRoot) : [];
+      const currentPairs = repoRoot ? buildClaimPairs(text, repoRoot, { complete: opts.complete }) : [];
       const expected = currentPairs.length;
       const pairKey = (p) => `${p.claim}\0${p.citation}\0${p.digest}`;
-      const adjudicated = new Set(sem.verdicts.map(pairKey));
+      const adjudicated = new Set(rows.map(pairKey));
       const covered = currentPairs.filter((p) => adjudicated.has(pairKey(p))).length;
+      result.coverage = { mode: opts.complete ? "complete" : "sampled", expected, covered };
+      if (opts.complete && expected === 0) {
+        result.ok = false;
+        errors.push("--complete: no verifiable claim pairs; cannot attest complete verification");
+      }
       if (covered === 0 && expected > 0) {
         result.ok = false;
         errors.push(
           `--semantic: none of the answer's ${expected} verifiable claim\u2194citation pair(s) match the adjudicated verdicts \u2014 the answer was not actually verified (stale or foreign VERIFY.json); re-run \`verify\` on a fresh worklist`
         );
       } else if (covered < expected) {
-        if (expected <= VERIFY_MAX) {
+        if (opts.complete || expected <= VERIFY_MAX) {
           result.ok = false;
           errors.push(
             `--semantic: only ${covered} of the answer's ${expected} verifiable claim\u2194citation pair(s) are adjudicated \u2014 ${expected - covered} claim(s) carry no verdict (a deleted verdict, or a claim added/edited after \`verify --apply\`); re-run \`verify\` on a fresh worklist and re-adjudicate before gating`
@@ -21704,6 +21781,9 @@ Options:
   --answer <file>   check/verify: the answer file whose citations to validate
   --apply <file>    verify: reduce a filled verdicts file to a pass/fail gate
   --max-verify <n>  verify: cap the claim\u2194citation worklist           (default: 40)
+  --complete        verify/check --answer: all pairs, no sampled success.
+  --batch-size <n>  verify --complete: pairs per batch file (default 40, 1\u20131000).
+                    verify --apply accepts comma-separated verdict file paths.
   --phase <name>    orchestrate: emit one phase only \u2014 enrich | verify-answer
   --eco             orchestrate: emit only RUNBOOK.md + agents/*.md (the explicit
                     low-token sequential path)
@@ -21747,6 +21827,7 @@ var VALUE_FLAGS2 = /* @__PURE__ */ new Set([
   "question",
   "apply",
   "max-verify",
+  "batch-size",
   "phase",
   "base",
   // `mcp` only. The flag sets are global, so these are accepted (and ignored)
@@ -21766,6 +21847,7 @@ var BOOL_FLAGS = /* @__PURE__ */ new Set([
   "quiet",
   "force",
   "semantic",
+  "complete",
   "prose",
   "eco",
   "list",
@@ -22209,10 +22291,11 @@ async function cmdAsk(p) {
   process.stdout.write(res.content);
 }
 function cmdCheck(p) {
+  if (p.bools.has("complete") && !p.values.answer) fail("--complete requires --answer <file>");
   const out2 = resolveOut2(p, resolve9(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   if (p.values.answer) {
-    const res2 = checkAnswer(out2, resolve9(p.values.answer), { semantic: p.bools.has("semantic"), repo });
+    const res2 = checkAnswer(out2, resolve9(p.values.answer), { semantic: p.bools.has("semantic"), complete: p.bools.has("complete"), repo });
     if (p.bools.has("json")) {
       process.stdout.write(JSON.stringify(res2, null, 2) + "\n");
     } else if (!p.bools.has("quiet")) {
@@ -22222,6 +22305,7 @@ function cmdCheck(p) {
         lines.push(`  semantic: supported ${s.supported} \xB7 partial ${s.partial} \xB7 refuted ${s.refuted} \xB7 unsupported ${s.unsupported}`);
         for (const f of s.failures.slice(0, 8)) lines.push(`  \u2717 semantic ${f.claimId} (${f.citation}): ${f.verdict}`);
       }
+      if (res2.coverage) lines.push(`  coverage (${res2.coverage.mode}): ${res2.coverage.covered}/${res2.coverage.expected} claim\u2194citation pairs`);
       for (const e of res2.errors) lines.push(`  error:    ${e}`);
       for (const w of res2.warnings ?? []) lines.push(`  warning:  ${w}`);
       process.stdout.write(lines.join("\n") + "\n");
@@ -22269,7 +22353,15 @@ function cmdVerify(p) {
   if (p.values.apply) {
     let res;
     try {
-      res = applyVerdicts(dir, resolve9(p.values.apply));
+      res = applyVerdicts(dir, p.values.apply.split(",").map((f) => resolve9(f.trim())));
+      if (p.bools.has("complete")) {
+        const out3 = resolveOut2(p, resolve9(p.values.repo ?? "."));
+        const gate = checkAnswer(out3, answerPath, { complete: true, repo: resolveRepoRoot(p, out3) });
+        if (!gate.ok) {
+          for (const error of gate.errors) process.stderr.write(error + "\n");
+          res = { ...res, ok: false };
+        }
+      }
     } catch (e) {
       fail(e.message);
     }
@@ -22281,9 +22373,10 @@ function cmdVerify(p) {
   if (!existsSync18(answerPath)) fail(`answer file not found: ${answerPath}`);
   const out2 = resolveOut2(p, resolve9(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
-  const maxVerify = p.values["max-verify"] ? Number(p.values["max-verify"]) : VERIFY_MAX;
-  if (!Number.isFinite(maxVerify) || maxVerify <= 0) fail("invalid --max-verify");
-  const wl = runVerify(answerPath, repo, { maxVerify });
+  const maxVerify = p.values["max-verify"] !== void 0 ? Number(p.values["max-verify"]) : void 0;
+  if (maxVerify !== void 0 && (!Number.isFinite(maxVerify) || maxVerify <= 0)) fail("invalid --max-verify");
+  const batchSize = p.values["batch-size"] !== void 0 ? Number(p.values["batch-size"]) : void 0;
+  const wl = runVerify(answerPath, repo, { maxVerify, complete: p.bools.has("complete"), batchSize });
   if (p.bools.has("json")) {
     process.stdout.write(JSON.stringify(wl, null, 2) + "\n");
     return;
