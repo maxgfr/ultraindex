@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [7.10.0](https://github.com/maxgfr/ultraindex/compare/v7.9.0...v7.10.0) (2026-09-07)
+
+
+### Features
+
+* harden verification, add workflows and require explicit skill invocation ([8a59889](https://github.com/maxgfr/ultraindex/commit/8a5988996022d14c9a1c3546502d443137d0da33))
+
 # [7.9.0](https://github.com/maxgfr/ultraindex/compare/v7.8.0...v7.9.0) (2026-09-07)
 
 
