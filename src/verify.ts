@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type { ClaimEvidencePair, Verdict, VerdictKind, VerifyResult } from "./types.js";
 import { parseCitations, type Citation } from "./cite.js";
 
@@ -202,6 +202,27 @@ export function unreadableClaimCitations(answerText: string, repo: string): stri
   return [...new Set(claimPairs(answerText).flatMap(({ parse }) => parseCitations(parse).filter(c => !readExcerpt(repo, c)).map(c => c.raw)))];
 }
 
+// Regenerating a worklist replaces its generated batches, including when the
+// next run is sampled or has no pairs. Never sweep arbitrary neighboring files:
+// only regular, correctly named batch JSON owned by this answer is removable.
+function removeStaleBatches(dir: string, answerPath: string, current: string[]): void {
+  const keep = new Set(current);
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile() || !/^VERIFY\.batch-\d{3,}\.todo\.json$/.test(entry.name) || keep.has(entry.name)) continue;
+    const path = join(dir, entry.name);
+    let batch: unknown;
+    try {
+      batch = JSON.parse(readFileSync(path, "utf8"));
+    } catch {
+      continue; // Unrecognized content is not ours to delete.
+    }
+    if (!batch || typeof batch !== "object") continue;
+    const doc = batch as { answer?: unknown; pairs?: unknown; coverage?: { mode?: unknown } };
+    if (typeof doc.answer !== "string" || resolve(doc.answer) !== resolve(answerPath) || !Array.isArray(doc.pairs) || doc.coverage?.mode !== "complete") continue;
+    unlinkSync(path);
+  }
+}
+
 export function runVerify(answerPath: string, repo: string, opts: { maxVerify?: number; complete?: boolean; batchSize?: number } = {}): VerifyWorklist {
   if (opts.complete && opts.maxVerify !== undefined) throw new Error("--complete conflicts with --max-verify");
   if (opts.batchSize !== undefined && (!opts.complete || !Number.isSafeInteger(opts.batchSize) || opts.batchSize < 1 || opts.batchSize > 1000)) throw new Error("--batch-size requires --complete and an integer from 1 to 1000");
@@ -227,6 +248,7 @@ export function runVerify(answerPath: string, repo: string, opts: { maxVerify?: 
       worklist.batches.push(file);
     }
   }
+  removeStaleBatches(dir, answerPath, worklist.batches ?? []);
   writeFileSync(join(dir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
   writeFileSync(join(dir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
   return worklist;

@@ -6,6 +6,9 @@
 `VERIFY.todo.json` and lists bounded `VERIFY.batch-NNN.todo.json` files in its
 JSON/Markdown output. Adjudicate the **listed current batches**, then fold their
 paths with `verify --answer ANSWER.md --apply verdicts-1.json,verdicts-2.json`.
+Regenerating verification removes obsolete generated batches for that answer,
+including when switching back to sampled mode; unrelated files are preserved.
+Save adjudications to separate verdict files before regenerating the worklist.
 Duplicate pairs are refused. Gate with `check --out .ultraindex --answer ANSWER.md
 --repo . --semantic --complete`: any missing pair, unreadable/stale evidence or
 substantive uncited prose fails, even above 40 pairs. JSON reports expected and

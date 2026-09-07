@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { resolve as resolve9, join as join38, dirname as dirname12 } from "path";
+import { resolve as resolve10, join as join38, dirname as dirname12 } from "path";
 import { existsSync as existsSync18 } from "fs";
 import { pathToFileURL as pathToFileURL3, fileURLToPath as fileURLToPath4 } from "url";
 import { realpathSync as realpathSync5 } from "fs";
@@ -19360,8 +19360,8 @@ function runStatus(outDir) {
 import { dirname as dirname9, join as join32 } from "path";
 
 // src/verify.ts
-import { existsSync as existsSync14, readFileSync as readFileSync15, writeFileSync as writeFileSync6 } from "fs";
-import { dirname as dirname8, join as join31 } from "path";
+import { existsSync as existsSync14, readFileSync as readFileSync15, readdirSync as readdirSync5, unlinkSync, writeFileSync as writeFileSync6 } from "fs";
+import { dirname as dirname8, join as join31, resolve as resolve6 } from "path";
 
 // src/cite.ts
 var EXT_TOKEN = /\[((?:[^[\]\n]|\[(?:[^[\]\n]|\[[^\]\n]*\])*\])*?\.[A-Za-z0-9]{1,8}(?::\d+(?:-\d+)?)?)\]/g;
@@ -19580,6 +19580,23 @@ function buildClaimPairs(answerText, repo, opts = {}) {
 function unreadableClaimCitations(answerText, repo) {
   return [...new Set(claimPairs(answerText).flatMap(({ parse }) => parseCitations(parse).filter((c2) => !readExcerpt(repo, c2)).map((c2) => c2.raw)))];
 }
+function removeStaleBatches(dir, answerPath, current) {
+  const keep = new Set(current);
+  for (const entry2 of readdirSync5(dir, { withFileTypes: true })) {
+    if (!entry2.isFile() || !/^VERIFY\.batch-\d{3,}\.todo\.json$/.test(entry2.name) || keep.has(entry2.name)) continue;
+    const path = join31(dir, entry2.name);
+    let batch;
+    try {
+      batch = JSON.parse(readFileSync15(path, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!batch || typeof batch !== "object") continue;
+    const doc = batch;
+    if (typeof doc.answer !== "string" || resolve6(doc.answer) !== resolve6(answerPath) || !Array.isArray(doc.pairs) || doc.coverage?.mode !== "complete") continue;
+    unlinkSync(path);
+  }
+}
 function runVerify(answerPath, repo, opts = {}) {
   if (opts.complete && opts.maxVerify !== void 0) throw new Error("--complete conflicts with --max-verify");
   if (opts.batchSize !== void 0 && (!opts.complete || !Number.isSafeInteger(opts.batchSize) || opts.batchSize < 1 || opts.batchSize > 1e3)) throw new Error("--batch-size requires --complete and an integer from 1 to 1000");
@@ -19604,6 +19621,7 @@ function runVerify(answerPath, repo, opts = {}) {
       worklist.batches.push(file);
     }
   }
+  removeStaleBatches(dir, answerPath, worklist.batches ?? []);
   writeFileSync6(join31(dir, "VERIFY.todo.json"), JSON.stringify(todo, null, 2));
   writeFileSync6(join31(dir, "VERIFY.md"), renderWorklistMd(worklist, pairs.length, kept.length));
   return worklist;
@@ -20206,7 +20224,7 @@ async function runAsk(outDir, repo, question, k = 5, budget) {
 
 // src/orchestrate.ts
 import { existsSync as existsSync15, mkdirSync as mkdirSync5, readFileSync as readFileSync16, writeFileSync as writeFileSync7 } from "fs";
-import { dirname as dirname10, join as join35, resolve as resolve6 } from "path";
+import { dirname as dirname10, join as join35, resolve as resolve7 } from "path";
 
 // src/orchestrate-templates.ts
 import { join as join34 } from "path";
@@ -20429,7 +20447,7 @@ function listPhases(ctx) {
     try {
       const todo = JSON.parse(readFileSync16(verifyWl, "utf8"));
       const owner = todo && typeof todo.answer === "string" ? todo.answer : void 0;
-      if (ctx.answer !== void 0 && owner !== void 0 && resolve6(owner) !== resolve6(ctx.answer)) {
+      if (ctx.answer !== void 0 && owner !== void 0 && resolve7(owner) !== resolve7(ctx.answer)) {
         verifyReason = `its worklist ${verifyWl} belongs to ${owner} \u2014 re-run: ${verifyPrereq}`;
       } else if (todo && Array.isArray(todo.pairs)) {
         verifyReady = true;
@@ -20533,7 +20551,7 @@ import { createInterface as createInterface2 } from "readline";
 
 // src/mcp/handlers.ts
 import { existsSync as existsSync16, readFileSync as readFileSync17, realpathSync as realpathSync3, statSync as statSync11 } from "fs";
-import { isAbsolute as isAbsolute4, join as join36, resolve as resolve7, sep as sep3 } from "path";
+import { isAbsolute as isAbsolute4, join as join36, resolve as resolve8, sep as sep3 } from "path";
 
 // src/index-lock.ts
 var chains = /* @__PURE__ */ new Map();
@@ -20577,7 +20595,7 @@ function positive(v, key) {
 function requiredRepo(args2, defaults) {
   const repo = str2(args2.repo) ?? defaults.defaultRepo;
   if (!repo) throw new ToolError("`repo` is required: an absolute path to the repository root.");
-  const abs = resolve7(repo);
+  const abs = resolve8(repo);
   if (!existsSync16(abs)) throw new ToolError(`repo not found: ${abs}`);
   return abs;
 }
@@ -20590,7 +20608,7 @@ function resolveOut(args2, repo) {
   const explicit = str2(args2.out);
   if (explicit) {
     if (!isAbsolute4(explicit)) throw new ToolError("`out` must be an absolute path.");
-    return resolve7(explicit);
+    return resolve8(explicit);
   }
   const dotted = join36(repo, ".ultraindex");
   if (existsSync16(dotted)) return dotted;
@@ -20858,7 +20876,7 @@ function handleRead(args2, repo, out2) {
     try {
       return realpathSync3(d);
     } catch {
-      return resolve7(d);
+      return resolve8(d);
     }
   });
   if (!allowed.some((root) => real === root || real.startsWith(root + sep3))) {
@@ -21360,14 +21378,14 @@ function str3(v) {
 var DECLARED = new Set([...TOOLS2, ...WRITE_TOOLS].map((t) => t.name));
 
 // src/mcp/resources.ts
-import { existsSync as existsSync17, readdirSync as readdirSync5, readFileSync as readFileSync18, realpathSync as realpathSync4, statSync as statSync12 } from "fs";
-import { basename as basename6, dirname as dirname11, join as join37, resolve as resolve8, sep as sep4 } from "path";
+import { existsSync as existsSync17, readdirSync as readdirSync6, readFileSync as readFileSync18, realpathSync as realpathSync4, statSync as statSync12 } from "fs";
+import { basename as basename6, dirname as dirname11, join as join37, resolve as resolve9, sep as sep4 } from "path";
 import { fileURLToPath as fileURLToPath3 } from "url";
 var SKILL_NAME = "ultraindex";
 var URI_SCHEME = "skill://";
 function resolveSkillRoot(moduleDir) {
   const here = moduleDir ?? dirname11(fileURLToPath3(import.meta.url));
-  const candidates = [resolve8(here, ".."), resolve8(here, "..", "skills", SKILL_NAME), resolve8(here, "..", "..", "skills", SKILL_NAME)];
+  const candidates = [resolve9(here, ".."), resolve9(here, "..", "skills", SKILL_NAME), resolve9(here, "..", "..", "skills", SKILL_NAME)];
   return candidates.find((dir) => existsSync17(join37(dir, "SKILL.md")));
 }
 function listResources(moduleDir) {
@@ -21376,7 +21394,7 @@ function listResources(moduleDir) {
   const out2 = [describe(root, "SKILL.md", `${SKILL_NAME}: the skill`)];
   const refDir = join37(root, "references");
   if (!existsSync17(refDir)) return out2;
-  for (const file of readdirSync5(refDir).sort()) {
+  for (const file of readdirSync6(refDir).sort()) {
     if (!file.endsWith(".md")) continue;
     out2.push(describe(root, join37("references", file), `${SKILL_NAME} reference: ${basename6(file, ".md")}`));
   }
@@ -21390,7 +21408,7 @@ function readResource(uri, moduleDir) {
   if (!root) throw new ResourceError("no skill payload found next to this build \u2014 nothing to read");
   const rel2 = uri.slice(URI_SCHEME.length);
   if (!rel2) throw new ResourceError("empty resource path");
-  const target = resolve8(root, rel2);
+  const target = resolve9(root, rel2);
   const rootReal = realpathSync4(root);
   let targetReal;
   try {
@@ -21671,14 +21689,14 @@ function startHttpServer(opts = {}) {
   server.requestTimeout = 0;
   server.headersTimeout = 6e4;
   server.keepAliveTimeout = 12e4;
-  return new Promise((resolve10, reject) => {
+  return new Promise((resolve11, reject) => {
     server.once("error", reject);
     server.listen(opts.port ?? 0, bind, () => {
       server.removeListener("error", reject);
       const addr2 = server.address();
       const port = typeof addr2 === "object" && addr2 ? addr2.port : opts.port ?? 0;
       const host = bind.includes(":") ? `[${bind}]` : bind;
-      resolve10({
+      resolve11({
         server,
         port,
         url: `http://${host}:${port}${MCP_PATH}`,
@@ -21787,7 +21805,7 @@ function sendJson(res, status, body2, origin, extra = {}) {
 }
 var DRAIN_LIMIT = MAX_BODY_BYTES * 8;
 function readBody(req) {
-  return new Promise((resolve10, reject) => {
+  return new Promise((resolve11, reject) => {
     const chunks = [];
     let size = 0;
     let over = false;
@@ -21811,7 +21829,7 @@ function readBody(req) {
     });
     req.on("end", () => {
       if (over) reject(new Error("too large"));
-      else resolve10(Buffer.concat(chunks).toString("utf8"));
+      else resolve11(Buffer.concat(chunks).toString("utf8"));
     });
     req.on("error", reject);
     req.on("aborted", () => reject(new Error("client aborted the request")));
@@ -22092,7 +22110,7 @@ function splitList(s) {
   return parts2.length ? parts2 : void 0;
 }
 function resolveOut2(p, base) {
-  if (p.values.out) return resolve9(p.values.out);
+  if (p.values.out) return resolve10(p.values.out);
   const dotted = join38(base, ".ultraindex");
   if (existsSync18(dotted)) return dotted;
   const docs = join38(base, "docs", "ultraindex");
@@ -22100,13 +22118,13 @@ function resolveOut2(p, base) {
   return dotted;
 }
 function resolveRepoRoot(p, out2) {
-  if (p.values.repo) return resolve9(p.values.repo);
-  return loadManifest(out2)?.repo ?? resolve9(".");
+  if (p.values.repo) return resolve10(p.values.repo);
+  return loadManifest(out2)?.repo ?? resolve10(".");
 }
 async function cmdBuild(p) {
-  const repo = resolve9(p.values.repo ?? ".");
+  const repo = resolve10(p.values.repo ?? ".");
   if (!existsSync18(repo)) fail(`repo not found: ${repo}`);
-  const out2 = p.values.out ? resolve9(p.values.out) : join38(repo, ".ultraindex");
+  const out2 = p.values.out ? resolve10(p.values.out) : join38(repo, ".ultraindex");
   const maxBytes = p.values["max-bytes"] ? Number(p.values["max-bytes"]) : void 0;
   if (maxBytes !== void 0 && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
   const maxFiles = p.values["max-files"] ? Number(p.values["max-files"]) : void 0;
@@ -22181,7 +22199,7 @@ async function cmdBuild(p) {
   process.stderr.write(lines.join("\n") + "\n");
 }
 async function cmdFind(p) {
-  const base = resolve9(p.values.repo ?? ".");
+  const base = resolve10(p.values.repo ?? ".");
   const out2 = resolveOut2(p, base);
   const query = p.positional.join(" ").trim();
   if (!query) fail('missing query \u2014 usage: ultraindex find "<task keywords>"');
@@ -22213,7 +22231,7 @@ async function cmdFind(p) {
   process.stdout.write(lines.join("\n"));
 }
 async function cmdEmbed(p) {
-  const base = resolve9(p.values.repo ?? ".");
+  const base = resolve10(p.values.repo ?? ".");
   const out2 = resolveOut2(p, base);
   let tier = resolveEmbedTier(base);
   if (!tier) {
@@ -22250,7 +22268,7 @@ async function cmdEmbed(p) {
   process.stderr.write(lines.join("\n") + "\n");
 }
 function cmdNeighbors(p) {
-  const base = resolve9(p.values.repo ?? ".");
+  const base = resolve10(p.values.repo ?? ".");
   const out2 = resolveOut2(p, base);
   const target = p.positional[0];
   if (!target) fail("missing target \u2014 usage: ultraindex neighbors <file|module-slug>");
@@ -22281,7 +22299,7 @@ function cmdNeighbors(p) {
   process.stdout.write(lines.join("\n") + "\n");
 }
 function cmdSymbols(p) {
-  const out2 = resolveOut2(p, resolve9(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve10(p.values.repo ?? "."));
   const query = p.positional.join(" ").trim();
   if (!query) fail('missing symbol name \u2014 usage: ultraindex symbols "<name>"');
   const res = runSymbols(out2, query);
@@ -22307,7 +22325,7 @@ function cmdSymbols(p) {
   process.stdout.write(lines.join("\n") + "\n");
 }
 function cmdImpact(p) {
-  const out2 = resolveOut2(p, resolve9(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve10(p.values.repo ?? "."));
   const target = p.positional[0];
   if (!target) fail("missing target \u2014 usage: ultraindex impact <file|module-slug>");
   if (!indexExists(out2)) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
@@ -22330,7 +22348,7 @@ function cmdImpact(p) {
   process.stdout.write(lines.join("\n") + "\n");
 }
 function cmdDelta(p) {
-  const out2 = resolveOut2(p, resolve9(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve10(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   if (p.values.base && p.bools.has("staged")) {
     fail("--staged reviews the staged changeset against HEAD; it does not take --base");
@@ -22346,7 +22364,7 @@ function cmdDelta(p) {
   process.stdout.write(formatDeltaPanel2(res));
 }
 function cmdMap(p) {
-  const base = resolve9(p.values.repo ?? ".");
+  const base = resolve10(p.values.repo ?? ".");
   const out2 = resolveOut2(p, base);
   if (p.bools.has("json")) {
     if (p.values.module) fail("--json applies to the map view, not a single entry (read the markdown)");
@@ -22374,7 +22392,7 @@ function cmdMap(p) {
   process.stdout.write(content.endsWith("\n") ? content : content + "\n");
 }
 function cmdStatus(p) {
-  const base = resolve9(p.values.repo ?? ".");
+  const base = resolve10(p.values.repo ?? ".");
   const out2 = resolveOut2(p, base);
   const res = runStatus(out2);
   if (res === void 0) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
@@ -22396,7 +22414,7 @@ function cmdStatus(p) {
   process.stdout.write(lines.join("\n") + "\n");
 }
 function cmdDossier(p) {
-  const out2 = resolveOut2(p, resolve9(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve10(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   const slug = p.positional[0];
   if (!slug) fail("missing module slug \u2014 usage: ultraindex dossier <module-slug>");
@@ -22409,7 +22427,7 @@ function cmdDossier(p) {
   process.stdout.write(content);
 }
 async function cmdAsk(p) {
-  const out2 = resolveOut2(p, resolve9(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve10(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   const question = (p.positional.join(" ") || p.values.q || p.values.question || "").trim();
   if (!question) fail('missing question \u2014 usage: ultraindex ask "<question>"');
@@ -22429,10 +22447,10 @@ async function cmdAsk(p) {
 }
 function cmdCheck(p) {
   if (p.bools.has("complete") && !p.values.answer) fail("--complete requires --answer <file>");
-  const out2 = resolveOut2(p, resolve9(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve10(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   if (p.values.answer) {
-    const res2 = checkAnswer(out2, resolve9(p.values.answer), { semantic: p.bools.has("semantic"), complete: p.bools.has("complete"), repo });
+    const res2 = checkAnswer(out2, resolve10(p.values.answer), { semantic: p.bools.has("semantic"), complete: p.bools.has("complete"), repo });
     if (p.bools.has("json")) {
       process.stdout.write(JSON.stringify(res2, null, 2) + "\n");
     } else if (!p.bools.has("quiet")) {
@@ -22485,14 +22503,14 @@ function cmdCheck(p) {
 function cmdVerify(p) {
   const answer = p.values.answer;
   if (!answer) fail("missing --answer <file> \u2014 usage: ultraindex verify --answer <file> [--repo <dir>]");
-  const answerPath = resolve9(answer);
+  const answerPath = resolve10(answer);
   const dir = dirname12(answerPath);
   if (p.values.apply) {
     let res;
     try {
-      res = applyVerdicts(dir, p.values.apply.split(",").map((f) => resolve9(f.trim())));
+      res = applyVerdicts(dir, p.values.apply.split(",").map((f) => resolve10(f.trim())));
       if (p.bools.has("complete")) {
-        const out3 = resolveOut2(p, resolve9(p.values.repo ?? "."));
+        const out3 = resolveOut2(p, resolve10(p.values.repo ?? "."));
         const gate = checkAnswer(out3, answerPath, { complete: true, repo: resolveRepoRoot(p, out3) });
         if (!gate.ok) {
           for (const error of gate.errors) process.stderr.write(error + "\n");
@@ -22508,7 +22526,7 @@ function cmdVerify(p) {
     return;
   }
   if (!existsSync18(answerPath)) fail(`answer file not found: ${answerPath}`);
-  const out2 = resolveOut2(p, resolve9(p.values.repo ?? "."));
+  const out2 = resolveOut2(p, resolve10(p.values.repo ?? "."));
   const repo = resolveRepoRoot(p, out2);
   const maxVerify = p.values["max-verify"] !== void 0 ? Number(p.values["max-verify"]) : void 0;
   if (maxVerify !== void 0 && (!Number.isFinite(maxVerify) || maxVerify <= 0)) fail("invalid --max-verify");
@@ -22525,11 +22543,11 @@ function cmdVerify(p) {
   );
 }
 function cmdOrchestrate(p) {
-  const base = resolve9(p.values.repo ?? ".");
+  const base = resolve10(p.values.repo ?? ".");
   const out2 = resolveOut2(p, base);
   const repo = resolveRepoRoot(p, out2);
   const engine = realpathSync5(fileURLToPath4(import.meta.url));
-  const ctx = { out: out2, repo, engine, answer: p.values.answer ? resolve9(p.values.answer) : void 0 };
+  const ctx = { out: out2, repo, engine, answer: p.values.answer ? resolve10(p.values.answer) : void 0 };
   if (p.bools.has("list")) {
     process.stdout.write(JSON.stringify({ phases: listPhases(ctx) }, null, 2) + "\n");
     return;
@@ -22636,7 +22654,7 @@ async function main() {
           void running.close().then(() => process.exit(0));
         });
       }
-      await new Promise((resolve10) => running.server.once("close", resolve10));
+      await new Promise((resolve11) => running.server.once("close", resolve11));
       return;
     }
   }

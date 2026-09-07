@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runBuild } from "../src/build.js";
@@ -67,6 +67,36 @@ describe("complete semantic verification", () => {
     expect(() => runVerify(answer, repo, { complete: true, maxVerify: 1 })).toThrow();
     expect(() => runVerify(answer, repo, { complete: true, batchSize: 0 })).toThrow();
     expect(() => runVerify(answer, repo, { batchSize: 5 })).toThrow();
+  });
+
+  it("replaces stale generated batches when the answer shrinks from 41 to 25 claims", () => {
+    const { repo, answer } = fixture();
+    runVerify(answer, repo, { complete: true, batchSize: 20 });
+    writeFileSync(answer, readFileSync(answer, "utf8").split("\n\n").slice(0, 25).join("\n\n"));
+    const current = runVerify(answer, repo, { complete: true, batchSize: 20 });
+    expect(readdirSync(repo).filter(name => /^VERIFY\.batch-\d+\.todo\.json$/.test(name)).sort()).toEqual(current.batches);
+    expect(current.batches!.map(name => JSON.parse(readFileSync(join(repo, name), "utf8")).pairs.length)).toEqual([20, 5]);
+  });
+
+  it.each(["sampled", "empty"])("removes obsolete batches when regenerating a %s worklist", mode => {
+    const { repo, answer } = fixture();
+    const previous = runVerify(answer, repo, { complete: true, batchSize: 20 });
+    if (mode === "empty") writeFileSync(answer, "# No claims\n");
+    runVerify(answer, repo, { complete: mode === "empty" });
+    expect(previous.batches!.every(name => !existsSync(join(repo, name)))).toBe(true);
+  });
+
+  it("cleans only regular generated batches owned by this answer, preserving unrelated files and links", () => {
+    const { repo, answer } = fixture();
+    runVerify(answer, repo, { complete: true, batchSize: 20 });
+    const unrelated = ["VERIFY.batch-notes.todo.json", "VERIFY.batch-003.todo.json.backup", "verdicts.json", "VERIFY.batch-900.todo.json", "VERIFY.batch-901.todo.json"];
+    for (const name of unrelated) writeFileSync(join(repo, name), name === "VERIFY.batch-901.todo.json" ? JSON.stringify({ answer: join(repo, "OTHER.md"), coverage: { mode: "complete" }, pairs: [] }) : "keep this");
+    mkdirSync(join(repo, "VERIFY.batch-902.todo.json"));
+    symlinkSync(join(repo, "verdicts.json"), join(repo, "VERIFY.batch-903.todo.json"));
+    runVerify(answer, repo);
+    expect(existsSync(join(repo, "VERIFY.batch-003.todo.json"))).toBe(false);
+    for (const name of [...unrelated, "VERIFY.batch-902.todo.json", "VERIFY.batch-903.todo.json"]) expect(existsSync(join(repo, name))).toBe(true);
+    expect(readFileSync(join(repo, "verdicts.json"), "utf8")).toBe("keep this");
   });
 
   it("rejects a cited claim whose in-range source line is empty in complete mode only", () => {
