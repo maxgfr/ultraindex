@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [7.11.1](https://github.com/maxgfr/ultraindex/compare/v7.11.0...v7.11.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* **engine:** unify pins, repins and shared engine adapters ([4702f00](https://github.com/maxgfr/ultraindex/commit/4702f00e1f76a99f18c392ebe154f0d74af6a1d3))
+* **engine:** unify pins, repins and shared engine adapters ([e3f1e79](https://github.com/maxgfr/ultraindex/commit/e3f1e79566d188b8fe36cd23b601f38dde0d4d05))
+* **engine:** unify pins, repins and shared engine adapters ([6211924](https://github.com/maxgfr/ultraindex/commit/6211924fdaf10ec46e037d6af87c6a258cf1ce91))
+
 # [7.11.0](https://github.com/maxgfr/ultraindex/compare/v7.10.1...v7.11.0) (2026-09-08)
 
 
