@@ -9,7 +9,7 @@ metadata:
 
 # ultraindex — the verified knowledge layer over codeindex
 
-Use the bundled CodeIndex-backed commands to locate relevant files, symbols and relationships, then inspect the cited source before drawing conclusions. Report caps, skipped files, unavailable extractors and blocked sources as coverage limits. An empty or partial result does not establish that nothing exists.
+For engine evidence and coverage limits, read [engine-evidence](references/engine-evidence.md).
 
 For a handoff that claims **every** answer claim was checked, use `verify
 --complete --answer <file> --repo <dir>`. Read and adjudicate the current batch
