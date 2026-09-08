@@ -460,3 +460,5 @@ Releases are Conventional-Commit-driven via semantic-release (GitHub releases).
 ## License
 
 MIT
+
+See [shared engine maintenance](ENGINE-MAINTENANCE.md) for pins, source adoption checks and the daily repin workflow.

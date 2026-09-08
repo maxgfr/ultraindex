@@ -1,0 +1,47 @@
+{
+  "name": "ultraindex",
+  "vendorDir": "src/vendor",
+  "engines": {
+    "codeindex": {
+      "repo": "maxgfr/codeindex",
+      "minRef": "v2.27.1",
+      "meta": "engine.meta.json",
+      "files": [
+        {
+          "remote": "scripts/engine.mjs",
+          "local": "codeindex-engine.mjs"
+        },
+        {
+          "remote": "scripts/engine.d.mts",
+          "local": "codeindex-engine.d.mts"
+        }
+      ],
+      "forks": {
+        "src/cli.ts:warmGrammars": "CLI best-effort provisioning with user-facing diagnostics and exit status restoration.",
+        "src/mcp/handlers.ts:warmGrammars": "MCP once-per-session provisioning with a returned coverage note.",
+        "src/delta.ts:DeltaModule": "Persisted-index delta module schema.",
+        "src/delta.ts:DeltaResult": "Persisted-index delta response includes index freshness.",
+        "src/delta.ts:DeltaError": "Consumer delta validation error schema.",
+        "src/delta.ts:formatDeltaPanel": "Ultraindex CLI rendering of persisted-index delta and freshness notes.",
+        "src/render/mermaid.ts:renderMermaid": "Delegates renderMermaidClustered with the consumer title.",
+        "src/types.ts:SCHEMA_VERSION": "Version of the Ultraindex persisted index schema."
+      },
+      "usageFloor": 87
+    }
+  },
+  "repin": {
+    "artifacts": [
+      "src/vendor",
+      "scripts",
+      "skills",
+      "package.json",
+      "pnpm-lock.yaml",
+      "skill.json",
+      ".github/workflows/engine-repin.yml"
+    ],
+    "workflows": [
+      "ci.yml",
+      "release.yml"
+    ]
+  }
+}
