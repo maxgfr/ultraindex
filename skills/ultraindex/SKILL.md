@@ -4,7 +4,7 @@ description: "Build and navigate a cited codebase encyclopedia to locate behavio
 disable-model-invocation: true
 license: MIT
 metadata:
-  version: 7.10.1
+  version: 7.11.0
 ---
 
 # ultraindex — the verified knowledge layer over codeindex
