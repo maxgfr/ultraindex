@@ -7,6 +7,15 @@ All notable changes to this project are documented here, generated automatically
 
 ### Bug Fixes
 
+* attribute module summary excerpts and verify measurement labels ([d5a95bc](https://github.com/maxgfr/ultraindex/commit/d5a95bc3ec7a94070900a6f43c243971d294700a))
+* distinguish token estimates from measured agent savings ([bdf6058](https://github.com/maxgfr/ultraindex/commit/bdf605855f5a89fd9781643595e95eef1a5e3ba5))
+* **engine:** update shared engines and maintenance tool ([50ce22d](https://github.com/maxgfr/ultraindex/commit/50ce22d3e3e5a59575f03639693c80aeacbaf4ce))
+
+## [7.11.3](https://github.com/maxgfr/ultraindex/compare/v7.11.2...v7.11.3) (2026-09-09)
+
+
+### Bug Fixes
+
 * **engine:** update shared engines and maintenance tool ([50ce22d](https://github.com/maxgfr/ultraindex/commit/50ce22d3e3e5a59575f03639693c80aeacbaf4ce))
 
 ## [7.11.2](https://github.com/maxgfr/ultraindex/compare/v7.11.1...v7.11.2) (2026-09-08)
