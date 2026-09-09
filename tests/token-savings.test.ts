@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 // Smoke test for the eval (evals/token-savings/run.mjs): runs it end-to-end on
 // the smallest committed fixture (its default target, tests/fixtures/mini-repo)
 // through the SHIPPED bundle, and asserts it exits 0 and emits the documented
-// shape. Absolute token counts and timings are environment-dependent
-// measurements, so only the shape and the one CAPABILITY claim are asserted.
+// shape. Token figures are character proxies; timings depend on the environment.
+// Assert the shape, measurement limits and citation-resolution capability.
 //
 // Deliberately NOT asserted: that ultraindex reads fewer tokens than the
 // baseline. On this fixture it does not, and it should not be made to — 14 tiny
@@ -41,6 +41,9 @@ describe("token-savings eval (smoke)", () => {
 
     expect(report.target).toBe("tests/fixtures/mini-repo");
     expect(report.tokenizer).toBe("ceil(chars/4)");
+    expect(report.measurementKind).toBe("character-proxy");
+    expect(report.agentExecuted).toBe(false);
+    expect(report.limitations.length).toBeGreaterThan(0);
 
     // One-off costs are reported separately, never hidden inside a task.
     expect(report.indexBuild.ms).toBeGreaterThan(0);
@@ -63,7 +66,7 @@ describe("token-savings eval (smoke)", () => {
     expect(report.totals.baseline).toBe(tasks.reduce((n, t) => n + t.baseline.tokens, 0));
 
     // The markdown report follows the JSON block.
-    expect(r.stdout).toContain("| Task | ultraindex tokens | baseline tokens |");
+    expect(r.stdout).toContain("| Task | ultraindex estimated tokens | baseline estimated tokens |");
 
     // THE claim worth pinning: the gate actually rejects an unfounded citation.
     // A resolvable citation passes, an unresolvable one fails, and the baseline

@@ -18834,12 +18834,33 @@ function runBuild(opts, builtAt) {
   });
   const ctx = buildResolveContext(scan2);
   const { modules, moduleOf } = buildModules(scan2);
-  const graph = buildGraph(scan2, ctx, modules, moduleOf, { version: VERSION, schemaVersion: SCHEMA_VERSION2 });
-  const records = new Map(scan2.files.map((f) => [f.rel, f]));
+  const records = new Map(
+    scan2.files.map((f) => [f.rel, f])
+  );
+  for (const module2 of modules) {
+    const members = module2.members.map((rel2) => records.get(rel2));
+    const readme = members.find(
+      (f) => /^(readme|index)\.(md|mdx)$/i.test(basename4(f.rel))
+    );
+    if (readme?.summary || readme?.title) continue;
+    const source = members.find(
+      (f) => f.summary && f.summary === module2.summary
+    );
+    if (source)
+      module2.summary = `Excerpt from ${source.rel}: ${module2.summary}`;
+  }
+  const graph = buildGraph(scan2, ctx, modules, moduleOf, {
+    version: VERSION,
+    schemaVersion: SCHEMA_VERSION2
+  });
   const paths = indexPaths(opts.out);
   ensureDir(opts.out);
   const prev = loadManifest(opts.out);
-  const communities = detectCommunities(graph.modules, graph.moduleEdges, prev?.communities);
+  const communities = detectCommunities(
+    graph.modules,
+    graph.moduleEdges,
+    prev?.communities
+  );
   for (const m of graph.modules) {
     const id = communities.get(m.slug);
     if (id !== void 0) m.community = id;
@@ -18864,11 +18885,19 @@ function runBuild(opts, builtAt) {
   const sync = syncEntries(opts.out, entryInputs, prev?.modules ?? {});
   const mermaid = opts.mermaid ? renderMermaid2(graph) : void 0;
   writeFileIfChanged(paths.graph, renderGraphJson(graph));
-  writeFileIfChanged(paths.symbols, renderSymbolsJson(buildSymbolIndex(scan2, computeSymbolRefs(scan2))));
+  writeFileIfChanged(
+    paths.symbols,
+    renderSymbolsJson(buildSymbolIndex(scan2, computeSymbolRefs(scan2)))
+  );
   if (mermaid) writeFileIfChanged(paths.mermaid, mermaid.content);
   else removeFile(paths.mermaid);
-  writeFileIfChanged(paths.index, renderIndex(graph, { repoName: basename4(opts.repo) || "repo", mermaid }));
-  const cappedNote = scan2.capped ? [`file scan hit the --max-files cap (${opts.maxFiles ?? DEFAULT_MAX_FILES}); the index is PARTIAL \u2014 raise --max-files to index the whole repo`] : [];
+  writeFileIfChanged(
+    paths.index,
+    renderIndex(graph, { repoName: basename4(opts.repo) || "repo", mermaid })
+  );
+  const cappedNote = scan2.capped ? [
+    `file scan hit the --max-files cap (${opts.maxFiles ?? DEFAULT_MAX_FILES}); the index is PARTIAL \u2014 raise --max-files to index the whole repo`
+  ] : [];
   const extraNotes = [
     ...ctx.warnings,
     ...cappedNote,
@@ -18876,18 +18905,37 @@ function runBuild(opts, builtAt) {
     ...opts.mermaid ? [] : ["mermaid diagram disabled (--no-mermaid)"]
   ];
   const outRel = !isAbsolute2(relative(opts.repo, opts.out)) && !relative(opts.repo, opts.out).startsWith("..") ? relative(opts.repo, opts.out) : opts.out;
-  const manifest = buildManifest(scan2, graph, outRel, sync, builtAt, extraNotes, {
-    include: opts.include,
-    exclude: opts.exclude,
-    maxBytes: opts.maxBytes,
-    maxFiles: opts.maxFiles,
-    gitignore: opts.gitignore
-  }, prev);
+  const manifest = buildManifest(
+    scan2,
+    graph,
+    outRel,
+    sync,
+    builtAt,
+    extraNotes,
+    {
+      include: opts.include,
+      exclude: opts.exclude,
+      maxBytes: opts.maxBytes,
+      maxFiles: opts.maxFiles,
+      gitignore: opts.gitignore
+    },
+    prev
+  );
   writeFileIfChanged(paths.manifest, renderManifestJson(manifest));
   if (!opts.noCache) {
     const files = {};
-    for (const f of scan2.files) files[f.rel] = { hash: f.hash, record: f, size: f.size, mtimeMs: scan2.mtimes.get(f.rel) };
-    const cacheOut = { schemaVersion: SCHEMA_VERSION2, extractorVersion: EXTRACTOR_VERSION, files };
+    for (const f of scan2.files)
+      files[f.rel] = {
+        hash: f.hash,
+        record: f,
+        size: f.size,
+        mtimeMs: scan2.mtimes.get(f.rel)
+      };
+    const cacheOut = {
+      schemaVersion: SCHEMA_VERSION2,
+      extractorVersion: EXTRACTOR_VERSION,
+      files
+    };
     writeFileIfChanged(paths.cache, JSON.stringify(cacheOut) + "\n");
   }
   return { outDir: opts.out, graph, manifest, capped: scan2.capped };
