@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [7.11.4](https://github.com/maxgfr/ultraindex/compare/v7.11.3...v7.11.4) (2026-09-09)
+
+
+### Bug Fixes
+
+* **skills:** preserve manual invocation across agent hosts ([7a1b2d3](https://github.com/maxgfr/ultraindex/commit/7a1b2d3bc52670823492e88a98ebdb9e39d5bd81))
+
 ## [7.11.3](https://github.com/maxgfr/ultraindex/compare/v7.11.2...v7.11.3) (2026-09-09)
 
 
