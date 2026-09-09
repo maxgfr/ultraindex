@@ -8,27 +8,12 @@
 // and retrieval is the vendored codeindex engine's job — the eval was proving
 // the ENGINE's worth under ultraindex's name. codeindex benchmarks that itself.
 //
-// What is measured here is what ultraindex alone provides: the cost of reaching
-// an EXPLAINED, GROUNDED answer.
-//
-//   1. "what does module Y do, and why" — one enriched encyclopedia entry vs
-//      reading every file in the module. The source states what the code does;
-//      only the entry states why it exists, so the baseline is doing strictly
-//      less work for strictly more tokens. Enrichment is a one-off, reported
-//      separately and never hidden inside a task — exactly like the build.
-//   2. "answer a question from real source" — `ask` assembles a budget-capped
-//      evidence packet vs searching and reading every matched file in full.
-//   3. "is that answer actually founded?" — reported as a CAPABILITY, not a
-//      ratio. `check --answer` exits non-zero on a citation that does not
-//      resolve; the baseline has no equivalent, so the honest cell is n/a
-//      rather than a fabricated speedup.
-//
-// Both strategies are metered by the tokens of EVERY byte the agent would read
-// (all command stdout+stderr, plus full file contents for the baseline), with
-// tokens = ceil(chars / 4). Wall-clock ms is recorded per strategy.
-//
-// Plain Node, zero dependencies. Whatever the ratios come out to be, they are
-// printed as measured — no fabrication.
+// Measures deterministic retrieval payload sizes and command wall-clock time.
+// Token figures are ceil(chars / 4), not model usage. The baseline reads every
+// matched source file in full; it does not model a selective agent. Encyclopedia
+// enrichment is prewritten fixture content, and its authoring cost is excluded.
+// The citation gate checks resolution, not whether a claim is supported.
+// No agent executes this evaluation and no productivity benefit is established.
 //
 // Usage:
 //   node evals/token-savings/run.mjs [--repo <dir>] [--module <slug>]
@@ -263,7 +248,10 @@ const report = {
   module: moduleSlug,
   question,
   tokenizer: "ceil(chars/4)",
-  measures: "cost of an EXPLAINED, GROUNDED answer — retrieval is the codeindex engine's job and is benchmarked there",
+  measurementKind: "character-proxy",
+  agentExecuted: false,
+  measures: "estimated context size of generated evidence versus a full-file reading baseline; not measured agent utility",
+  limitations: ["No model is executed; token counts use ceil(chars/4).", "The baseline reads all matching files, not an agent selectively reading source.", "Enrichment is hand-written: its reported text size excludes the reasoning and input cost of authoring it."],
   indexBuild,
   enrichCost,
   tasks,
@@ -282,7 +270,7 @@ process.stdout.write(
     "=== REPORT ===",
     `Target: ${report.target} (${searchTool} baseline, tokens = ceil(chars/4))`,
     "",
-    "| Task | ultraindex tokens | baseline tokens | ratio (baseline/ultra) | ultraindex ms | baseline ms |",
+    "| Task | ultraindex estimated tokens | baseline estimated tokens | estimate ratio | ultraindex ms | baseline ms |",
     "| --- | ---: | ---: | ---: | ---: | ---: |",
     ...rows,
     `| **total** | **${totals.ultraindex}** | **${totals.baseline}** | **${totals.ratio}x** | | |`,
@@ -292,11 +280,11 @@ process.stdout.write(
       `${grounding.ultraindex.catchesUnfoundedCitation ? "the unfounded answer is REJECTED" : "GATE FAILED"}. ` +
       "No baseline equivalent, so no ratio is claimed.",
     "",
-    `One-off, amortized across every later question (never counted inside a task): ` +
+    `One-off setup, excluded from the task totals: ` +
       `index build ${indexBuild.ms} ms / ${indexBuild.tokens} output tokens; enrichment ${enrichCost.tokens} tokens.`,
     "",
-    "Note: the module-purpose baseline reads every file and still cannot answer WHY the module exists —",
-    "that is not written in the source. The token ratio therefore understates the gap.",
+    ...report.limitations,
+    "Use paired agent trials with equivalent tools and budgets to measure answer quality and actual usage.",
     ...(totals.ratio < 1
       ? [
           "",
