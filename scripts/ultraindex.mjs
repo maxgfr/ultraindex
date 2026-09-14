@@ -18140,7 +18140,7 @@ ${HELP}`);
 init_text();
 
 // src/types.ts
-var VERSION = "7.11.6";
+var VERSION = "7.11.7";
 var SCHEMA_VERSION2 = 5;
 
 // src/build.ts
