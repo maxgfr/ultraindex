@@ -70,7 +70,7 @@
     "vitest": "^4.1.0",
     "web-tree-sitter": "^0.26.10",
     "yaml": "^2.9.0",
-    "@maxgfr/webindex": "https://codeload.github.com/maxgfr/webindex/tar.gz/349ee061e60225ad00b33e9a8aad43189418cd13"
+    "@maxgfr/webindex": "https://codeload.github.com/maxgfr/webindex/tar.gz/cddbfc97ae321c39986e8bc5d1f647b6a185cf37"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
