@@ -252,6 +252,7 @@ describe("computeDelta — buckets, ordering, partitions", () => {
       dangling: [],
       deleted: [],
       unindexed: [],
+      broken: [],
       // `run` calls the engine core directly; runDelta re-specialises this
       // note to name symbols.json (see src/delta.ts).
       notes: ["symbol index missing — symbol-level attribution disabled"],

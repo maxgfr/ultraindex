@@ -73,7 +73,7 @@ describe("incremental build (cache.json)", () => {
   // through utimesSync/statSync exactly on any filesystem.
   const MT = new Date("2026-06-01T00:00:00.000Z");
 
-  it("stat fastpath: an unchanged (size,mtime) NON-DOC file reuses its stale record; --full-hash catches the edit", () => {
+  it("stat fastpath: an unchanged (size,mtime) code file reuses its stale record; --full-hash catches the edit", () => {
     const root = repo({ "src/a.ts": "export function alpha() {}\n" });
     const out = outDir();
     const a = join(root, "src", "a.ts");
@@ -97,17 +97,21 @@ describe("incremental build (cache.json)", () => {
     expect(fresh.alpha).toBeUndefined();
   });
 
-  it("docs are EXEMPT from the fastpath — a size/mtime-preserving doc edit is still re-read", () => {
+  it("docs take the stat fastpath too — a size/mtime-preserving doc edit keeps its cached title; --full-hash catches it", () => {
     const root = repo({ "README.md": "# Alpha\n", "src/x.ts": "export const x = 1;\n" });
     const out = outDir();
     const rd = join(root, "README.md");
+    const title = () => loadGraph(out)!.files.find((f) => f.rel === "README.md")!.title;
     utimesSync(rd, MT, MT);
     runBuild({ repo: root, out, mermaid: false, json: false }, TIME);
     writeFileSync(rd, "# Bravo\n"); // same byte length as "# Alpha\n"
     utimesSync(rd, MT, MT);
     runBuild({ repo: root, out, mermaid: false, json: false }, TIME);
-    const title = loadGraph(out)!.files.find((f) => f.rel === "README.md")!.title;
-    expect(title).toBe("Bravo"); // re-read despite an unchanged (size,mtime) key
+    expect(title()).toBe("Alpha"); // proves the doc reused its record without a re-read
+
+    // --full-hash disables the fastpath for docs as well, re-reads, and catches the change.
+    runBuild({ repo: root, out, fullHash: true, mermaid: false, json: false }, TIME);
+    expect(title()).toBe("Bravo");
   });
 
   it("discards a cache written by a different extractor version", () => {
