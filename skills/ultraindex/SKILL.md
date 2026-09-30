@@ -4,7 +4,7 @@ description: Build and navigate a cited codebase encyclopedia to locate behavior
 disable-model-invocation: true
 license: MIT
 metadata:
-  version: 7.11.8
+  version: 7.11.9
   opencode/autoinvoke: 'false'
 ---
 
