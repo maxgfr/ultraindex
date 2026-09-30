@@ -124,9 +124,9 @@ export interface BuildOptions {
 export interface ExtractionCache {
   schemaVersion: number;
   extractorVersion: number;
-  // `size`/`mtimeMs` are the stat fastpath's key: on the next build a NON-DOC file
-  // whose size AND mtime both match its cache entry reuses `record` without being
-  // read or hashed. OPTIONAL/additive — a cache written before the fastpath (or an
+  // `size`/`mtimeMs` are the stat fastpath's key: on the next build a file (docs
+  // included) whose size AND mtime both match its cache entry reuses `record`
+  // without being read or hashed. OPTIONAL/additive — a cache written before the fastpath (or an
   // entry missing either field) simply falls through to the content-hash check.
   files: Record<string, { hash: string; record: FileRecord; size?: number; mtimeMs?: number }>;
 }
