@@ -27099,7 +27099,7 @@ ${HELP}`);
 init_text();
 
 // src/types.ts
-var VERSION = "7.11.11";
+var VERSION = "7.11.12";
 var SCHEMA_VERSION2 = 5;
 
 // src/build.ts
