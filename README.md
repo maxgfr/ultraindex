@@ -23,9 +23,11 @@ claim or a changed suffix. Default sampled claim truncation is unchanged.
 
 ## Invocation
 
-**Manual by default.** `ultraindex` runs when you ask for it: `$ultraindex` in Codex,
-`/ultraindex` in Claude Code or OpenCode. The agent never starts it on its own, and
-CLI commands are unchanged. One setting per host makes it automatic — see
+**On request by default.** `ultraindex` runs when you ask for it: the agent may call
+it when you request a cited codebase encyclopedia, and you can invoke it
+directly with `$ultraindex` in Codex, `/ultraindex` in Claude Code or OpenCode.
+The agent does not pick it up on its own, and CLI commands are unchanged. One
+setting per host makes it explicit-only — see
 [Manual or automatic](#manual-or-automatic).
 
 > **[codeindex](https://github.com/maxgfr/codeindex) tells you where things are.
@@ -465,30 +467,31 @@ See [shared engine maintenance](ENGINE-MAINTENANCE.md) for pins, source adoption
 
 ## Manual or automatic
 
-`ultraindex` ships **explicit-only**, and `skills add` installs it that way: it runs
-when you invoke it, never when the agent feels like it. Use `$ultraindex` in Codex,
-`/ultraindex` in Claude Code or OpenCode, prefixing the plugin namespace when it is
-installed as a Claude plugin.
+`ultraindex` ships **model-invocable, on request**, and `skills add` installs it
+that way: the agent may call it through its skill tool, but the description
+restricts it to explicit requests, so it runs when you ask for it, not on its
+own. You can still invoke it directly with `$ultraindex` in Codex, `/ultraindex` in
+Claude Code or OpenCode, prefixing the plugin namespace when it is installed as a
+Claude plugin.
 
-Letting the agent choose it is one setting per host, applied to the
+Making it explicit-only again is one setting per host, applied to the
 **installed** copy of the skill:
 
-| Host | Shipped, manual | Automatic |
+| Host | Shipped, on request | Explicit-only |
 | --- | --- | --- |
-| Claude Code | `disable-model-invocation: true` in `SKILL.md` | delete that line, or set it to `false` |
-| Codex | `allow_implicit_invocation: false` under `policy:` in `agents/openai.yaml` | set it to `true` |
-| OpenCode | `metadata.opencode/autoinvoke: 'false'` in `SKILL.md` | delete that entry, or set it to `'true'` |
+| Claude Code | no `disable-model-invocation` in `SKILL.md` | add `disable-model-invocation: true` |
+| Codex | `allow_implicit_invocation: true` under `policy:` in `agents/openai.yaml` | set it to `false` |
+| OpenCode | `metadata.opencode/autoinvoke: 'true'` in `SKILL.md` | set it to `'false'` |
 
-Claude Code can do it without touching the file: put
-`"skillOverrides": { "ultraindex": "on" }` in `settings.json`, where
-`"user-invocable-only"` forces manual mode back. Plugin installs ignore
-`skillOverrides`, so edit the frontmatter there. Updating or reinstalling the
+Claude Code can do it without touching the file:
+`"skillOverrides": { "ultraindex": "user-invocable-only" }` in `settings.json`
+leaves `/ultraindex` working while hiding the skill from the model. Plugin installs
+ignore `skillOverrides`, so edit the frontmatter there. Updating or reinstalling the
 skill restores the shipped default, so reapply the change afterwards.
 
-OpenCode V1 reads no `autoinvoke` metadata. Keep it manual with
-`permission.skill` in `~/.config/opencode/opencode.json` or the project
-configuration, retaining unrelated permissions; dropping the entry, or setting
-`"allow"`, is what lets the agent reach it:
+OpenCode V1 reads no `autoinvoke` metadata; `permission.skill` in
+`~/.config/opencode/opencode.json` or the project configuration is how you force
+explicit-only there. Retain unrelated permissions:
 
 ```json
 {

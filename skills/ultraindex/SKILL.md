@@ -1,11 +1,10 @@
 ---
 name: ultraindex
-description: Build and navigate a cited codebase encyclopedia to locate behavior, trace flows, and assess change impact.
-disable-model-invocation: true
+description: Build and navigate a cited codebase encyclopedia to locate behavior, trace flows, and assess change impact. Use only when the user explicitly asks for ultraindex or for a cited codebase encyclopedia.
 license: MIT
 metadata:
   version: 7.11.14
-  opencode/autoinvoke: 'false'
+  opencode/autoinvoke: 'true'
 ---
 
 # ultraindex — the verified knowledge layer over codeindex
