@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [7.12.0](https://github.com/maxgfr/ultraindex/compare/v7.11.14...v7.12.0) (2026-10-08)
+
+
+### Features
+
+* **skill:** let the agent invoke ultraindex on request ([fb154ba](https://github.com/maxgfr/ultraindex/commit/fb154ba0702c384d2101fe259d91d0f4c35965f8))
+
 ## [7.11.14](https://github.com/maxgfr/ultraindex/compare/v7.11.13...v7.11.14) (2026-10-05)
 
 
