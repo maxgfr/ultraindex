@@ -136,9 +136,9 @@ node scripts/ultraindex.mjs orchestrate [--out <dir>] [--repo <dir>] [--answer <
 
 | Your harness | How to run each phase |
 |---|---|
-| Claude Code exposes Workflow | `orchestrate --phase <p>`, then `Workflow({ scriptPath: "<index>/orchestration/<p>.workflow.mjs" })`. Enrichers WRITE their own `encyclopedia/<slug>.md` entries (the sanctioned disjoint-write exception) and return what they wrote; refuters only RETURN verdict fragments you fold and `verify --apply` yourself. |
-| Codex or another host exposes subagents | Same `orchestrate`; dispatch one subagent per batch following `<index>/orchestration/agents/<role>.md` (the workflow script shows batches + prompts). |
-| Eco mode, or no subagents | `orchestrate --eco` → follow `<index>/orchestration/RUNBOOK.md` sequentially, playing each role yourself. Correctness-identical; only wall-clock differs. |
+| Any host with subagents (Codex, Claude Code, OpenCode, …) | `orchestrate --phase <p>`, then dispatch one native subagent per batch of items, each following `<index>/orchestration/agents/<role>.md` (the `dispatch:` line names the contract, the batch size and where the items come from). Enrichers WRITE their own `encyclopedia/<slug>.md` entries (the sanctioned disjoint-write exception) and return what they wrote; refuters only RETURN verdict fragments you fold and `verify --apply` yourself. |
+| Single agent, eco mode, or no subagents | `orchestrate --eco` → follow `<index>/orchestration/RUNBOOK.md` sequentially, playing each role yourself. Correctness-identical; only wall-clock differs. |
+| Optional — Claude Code | Launch `<index>/orchestration/<p>.workflow.mjs` with the Workflow tool (`Workflow({ scriptPath: "…" })`) for one-call parallel fan-out over the same contracts and batches. |
 
 Fan-out is an optimization, never a requirement — the gates (`check`,
 `verify --apply`) are harness-independent and every phase has a sequential fallback

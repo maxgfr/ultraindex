@@ -30665,7 +30665,10 @@ function phaseWorkflowScript(ph, ctx, batchSize) {
   return [
     `export const meta = ${JSON.stringify(meta)}`,
     ``,
-    `// NOT a plain Node script: launch via the Workflow tool \u2014 Workflow({ scriptPath: ${JSON.stringify(scriptPath)} }).`,
+    `// Optional Claude Code fast path \u2014 NOT a plain Node script: launch via the Workflow tool \u2014`,
+    `// Workflow({ scriptPath: ${JSON.stringify(scriptPath)} }).`,
+    `// Any other host: dispatch the sibling agents/${spec.role}.md contract to one native subagent per`,
+    `// batch below (ITEMS=<batch>); a single agent follows RUNBOOK.md (--eco) instead.`,
     `// Emitted by \`ultraindex orchestrate\` from ${source}. The index is the`,
     `// source of truth: if it changes, re-run \`orchestrate --phase ${ph.name}\` before launching.`,
     // The clobber rationale only holds where agents WRITE (the enrich
@@ -30790,7 +30793,7 @@ ${status}
 5. **Semantic layer** (only if \`vectors.json\` exists): \`${engine} embed --out ${ctx.out}\`.
 6. **Verify an answer** (high assurance): \`${engine} verify --answer <answer.md> --repo ${ctx.repo}\` writes \`VERIFY.todo.json\` next to the answer. For EVERY pair, apply \`${join42(agents, "refuter.md")}\` yourself (verdict + note), save your rows as \`verdicts.json\`, then \`${engine} verify --apply verdicts.json --answer <answer.md>\` and gate with \`${engine} check --answer <answer.md> --semantic --out ${ctx.out}\`.
 
-With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${ctx.out} --phase <p>\` then \`Workflow({ scriptPath: "${join42(ctx.out, "orchestration", "<p>.workflow.mjs")}" })\` \u2014 one repo-wide \`check\` after the join either way, and no \`build\` or \`map\` while agents are in flight.
+With subagents available (any host \u2014 Codex, Claude Code, OpenCode, \u2026), fan out instead: \`orchestrate --out ${ctx.out} --phase <p>\`, then dispatch one native subagent per batch of items, each told to read and follow \`${agents}/<role>.md\` verbatim with its \`ITEMS=<batch>\` (enrich: module slugs in \`status --json\` queue order; verify-answer: 1-based positions in the worklist's \`pairs[]\`). Optional \u2014 Claude Code: launch \`${join42(ctx.out, "orchestration", "<p>.workflow.mjs")}\` with the Workflow tool for one-call parallel fan-out. One repo-wide \`check\` after the join either way, and no \`build\` or \`map\` while agents are in flight.
 `;
 }
 
@@ -32256,9 +32259,10 @@ Commands:
   verify     Emit a claim\u2194citation worklist for adversarial support-checking of
              an answer, then (--apply <verdicts.json>) gate on refuted/unsupported.
   orchestrate  Emit the index's multi-agent fan-out from its CURRENT state into
-             <out>/orchestration/: one workflow script per ready phase (enrich =
-             the status work-queue; verify-answer = the claim\u2194citation worklist),
-             the dispatch contracts, and a sequential RUNBOOK fallback.
+             <out>/orchestration/: the dispatch contracts (agents/*.md, for any
+             host's subagents), a sequential RUNBOOK for a single agent, and an
+             optional Claude Code Workflow script per ready phase (enrich = the
+             status work-queue; verify-answer = the claim\u2194citation worklist).
   grammars   Manage the tree-sitter grammars that power AST-exact symbols. The
              wasm is no longer vendored: \`grammars pull\` downloads the
              per-release tarball into a shared per-machine cache
@@ -32931,11 +32935,17 @@ function cmdOrchestrate(p) {
     for (const ph of res.phases) {
       const w = workflows.find((x) => x === join46(out2, "orchestration", `${ph.name}.workflow.mjs`));
       if (!w) continue;
-      lines.push(`  launch:   Workflow({ scriptPath: ${JSON.stringify(w)} })`);
+      const spec = phaseSpec(ph.name);
+      const items = ph.name === "enrich" ? "module slugs in `status --json` queue order" : "1-based positions in the worklist's pairs[]";
       lines.push(
-        `  join:     ${phaseSpec(ph.name).joinHint(ctx, ph)}` + (ph.name === "enrich" ? ` \u2014 after all agents return; no \`build\` or \`map\` while they run` : ` \u2014 fold the agents' returned fragments into <verdicts.json> first`)
+        `  dispatch: any host with subagents \u2014 one subagent per batch of \u2264${BATCH_SIZE} (${ph.items} item(s) \u2192 ${Math.ceil(ph.items / BATCH_SIZE)} subagent(s)), each following ${join46(out2, "orchestration", "agents", `${spec.role}.md`)} with ITEMS=<batch> (${items}) and WORKLIST=${ph.worklist}`
       );
+      lines.push(
+        `  join:     ${spec.joinHint(ctx, ph)}` + (ph.name === "enrich" ? ` \u2014 after all agents return; no \`build\` or \`map\` while they run` : ` \u2014 fold the agents' returned fragments into <verdicts.json> first`)
+      );
+      lines.push(`  optional: Claude Code \u2014 Workflow({ scriptPath: ${JSON.stringify(w)} }) runs the same fan-out in one call`);
     }
+    lines.push(`  solo:     no subagents? follow ${join46(out2, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
   } else {
     lines.push(`  next:     follow ${join46(out2, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
   }
@@ -33010,8 +33020,14 @@ async function main() {
 `);
       process.stderr.write(`  tools:  ${running.server.listening ? "ready" : "starting"} \xB7 ${options.allowWrite ? "read/write" : "read-only"}
 `);
-      process.stderr.write(`  client: claude mcp add --transport http ultraindex ${running.url}
-`);
+      process.stderr.write(
+        [
+          `  connect: ${running.url} \u2014 register it with your MCP client, e.g.`,
+          `    Claude Code: claude mcp add --transport http ultraindex ${running.url}`,
+          `    Codex:       codex mcp add ultraindex --url ${running.url}`,
+          `    OpenCode:    opencode mcp add ultraindex --url ${running.url}`
+        ].join("\n") + "\n"
+      );
       for (const sig of ["SIGINT", "SIGTERM"]) {
         process.once(sig, () => {
           void running.close().then(() => process.exit(0));
