@@ -12,3 +12,8 @@ coverage/
 # node_modules by scripts/provision-grammars.mjs); never committed. The glob
 # also covers the atomic-rename temp dirs (.grammars-cache-tmp-*).
 .grammars-cache*
+
+# agent skill installs (produced by `npx skills add .`, never committed)
+.agents/skills/
+.claude/skills/
+skills-lock.json
