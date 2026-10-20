@@ -4,7 +4,6 @@ description: Build and navigate a cited codebase encyclopedia to locate behavior
 license: MIT
 metadata:
   version: 7.12.4
-  opencode/autoinvoke: 'true'
 ---
 
 # ultraindex — the verified knowledge layer over codeindex
