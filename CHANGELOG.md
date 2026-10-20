@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [7.13.0](https://github.com/maxgfr/ultraindex/compare/v7.12.4...v7.13.0) (2026-10-20)
+
+
+### Features
+
+* make orchestration and MCP hints agent-neutral ([#12](https://github.com/maxgfr/ultraindex/issues/12)) ([efd5054](https://github.com/maxgfr/ultraindex/commit/efd5054fe441955ed3bb4b589c1af94a6919cac5))
+
 ## [7.12.4](https://github.com/maxgfr/ultraindex/compare/v7.12.3...v7.12.4) (2026-10-19)
 
 
