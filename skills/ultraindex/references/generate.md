@@ -98,16 +98,17 @@ vectors reflect the new prose — `check` warns when they drift.
 
 Each module is an independent unit of work — its own `dossier`, its own
 `encyclopedia/<slug>.md`. So when many modules need enriching and your host
-supports subagents (for example Codex subagents or Claude Code Task/Workflow), fan out rather than read
+supports subagents (Codex, Claude Code, OpenCode, …), fan out rather than read
 every dossier into one context — reading them all yourself is exactly the
 context blow-up this skill exists to avoid. Without subagents the sequential loop
 above is the fallback: same steps, one module at a time.
 
 `orchestrate` now EMITS this exact fan-out from the current queue:
 `node scripts/ultraindex.mjs orchestrate --phase enrich` writes
-`<index>/orchestration/enrich.workflow.mjs` (the real slugs, batched, with
-absolute paths baked in), `agents/enricher.md` (the isolation contract below,
-made dispatchable) and a sequential `RUNBOOK.md` fallback — prefer it over
+`agents/enricher.md` (the isolation contract below, made dispatchable to any
+host's subagents), a sequential `RUNBOOK.md` for a single agent, and — as an
+optional Claude Code fast path — `<index>/orchestration/enrich.workflow.mjs` (the
+real slugs, batched, with absolute paths baked in) — prefer it over
 hand-writing the dispatch (see **Orchestration — route by harness** in
 SKILL.md). The rationale and the rules below apply unchanged either way.
 

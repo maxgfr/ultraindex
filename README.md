@@ -136,6 +136,7 @@ zero-dependency bundle:
 ```bash
 npx skills add maxgfr/ultraindex             # this project
 npx skills add maxgfr/ultraindex --global    # user-level, every project
+npx skills add maxgfr/ultraindex -a codex    # optional: target one agent
 ```
 
 The skill installs self-contained (its `SKILL.md` + workflow references + the
@@ -155,19 +156,26 @@ serves the engine's 26 repo-analysis tools — where things are:
 
 ```bash
 claude mcp add codeindex -- codeindex mcp      # brew install maxgfr/tap/codeindex
+# Codex: codex mcp add codeindex -- codeindex mcp · OpenCode: opencode mcp add codeindex -- codeindex mcp
 ```
 
 **ultraindex's** serves the knowledge layer on top — what things mean, and the
 protocol that keeps it honest. Different tools, different name, no collision
 when a client has both registered:
 
+Any MCP client works; register it with your agent's own command:
+
 ```bash
-# stdio — the default, and what Claude Code / Claude Desktop / Cursor expect
-claude mcp add ultraindex -- node /abs/path/to/scripts/ultraindex.mjs mcp
+# stdio — the default, and what every MCP client supports
+claude mcp add   ultraindex -- node /abs/path/to/scripts/ultraindex.mjs mcp   # Claude Code
+codex mcp add    ultraindex -- node /abs/path/to/scripts/ultraindex.mjs mcp   # Codex
+opencode mcp add ultraindex -- node /abs/path/to/scripts/ultraindex.mjs mcp   # OpenCode
 
 # or over HTTP, on loopback
 node scripts/ultraindex.mjs mcp --transport http --port 7338
-claude mcp add --transport http ultraindex http://127.0.0.1:7338/mcp
+claude mcp add --transport http ultraindex http://127.0.0.1:7338/mcp          # Claude Code
+codex mcp add    ultraindex --url http://127.0.0.1:7338/mcp                   # Codex
+opencode mcp add ultraindex --url http://127.0.0.1:7338/mcp                   # OpenCode
 ```
 
 Claude Desktop (`claude_desktop_config.json`) and Cursor (`.cursor/mcp.json`):
@@ -302,9 +310,11 @@ ultraindex grammars [status|pull]
   unsupported), then `--apply` reduces the verdicts to a pass/fail — so a cited
   excerpt must actually *support* its claim, not merely resolve.
 - **orchestrate** — emit the multi-agent fan-out for the CURRENT index state
-  into `<out>/orchestration/`: one workflow script per ready phase (`enrich` =
-  the `status` work-queue; `verify-answer` = the claim↔citation worklist), the
-  dispatch contracts, and a sequential `RUNBOOK.md` fallback. Deterministic and
+  into `<out>/orchestration/`: the dispatch contracts (`agents/*.md`, runnable
+  by any host's subagents), a sequential `RUNBOOK.md` for a single agent, and —
+  optionally, for Claude Code's Workflow tool — one `<phase>.workflow.mjs` per
+  ready phase (`enrich` = the `status` work-queue; `verify-answer` = the
+  claim↔citation worklist) for one-call parallel fan-out. Deterministic and
   idempotent — re-run it whenever the queue changes.
 - **grammars** `[status|pull]` — inspect or pre-warm the tree-sitter wasm cache.
   `build` pulls on first use, so this is only for going offline or diagnostics.

@@ -16,7 +16,7 @@ import { runStatus } from "./status.js";
 import { runCheck, checkAnswer } from "./check.js";
 import { runVerify, applyVerdicts, formatVerifyReport, VERIFY_MAX } from "./verify.js";
 import { runDossier, runAsk } from "./explain.js";
-import { listPhases, orchestrateRun } from "./orchestrate.js";
+import { BATCH_SIZE, listPhases, orchestrateRun } from "./orchestrate.js";
 import { phaseSpec } from "./orchestrate-templates.js";
 import { indexExists, loadGraph, loadManifest } from "./store.js";
 import { runStdioServer } from "./mcp/stdio.js";
@@ -79,9 +79,10 @@ Commands:
   verify     Emit a claim↔citation worklist for adversarial support-checking of
              an answer, then (--apply <verdicts.json>) gate on refuted/unsupported.
   orchestrate  Emit the index's multi-agent fan-out from its CURRENT state into
-             <out>/orchestration/: one workflow script per ready phase (enrich =
-             the status work-queue; verify-answer = the claim↔citation worklist),
-             the dispatch contracts, and a sequential RUNBOOK fallback.
+             <out>/orchestration/: the dispatch contracts (agents/*.md, for any
+             host's subagents), a sequential RUNBOOK for a single agent, and an
+             optional Claude Code Workflow script per ready phase (enrich = the
+             status work-queue; verify-answer = the claim↔citation worklist).
   grammars   Manage the tree-sitter grammars that power AST-exact symbols. The
              wasm is no longer vendored: \`grammars pull\` downloads the
              per-release tarball into a shared per-machine cache
@@ -843,14 +844,22 @@ function cmdOrchestrate(p: Parsed): void {
     for (const ph of res.phases) {
       const w = workflows.find((x) => x === join(out, "orchestration", `${ph.name}.workflow.mjs`));
       if (!w) continue;
-      lines.push(`  launch:   Workflow({ scriptPath: ${JSON.stringify(w)} })`);
+      const spec = phaseSpec(ph.name);
+      const items = ph.name === "enrich" ? "module slugs in `status --json` queue order" : "1-based positions in the worklist's pairs[]";
       lines.push(
-        `  join:     ${phaseSpec(ph.name).joinHint(ctx, ph)}` +
+        `  dispatch: any host with subagents — one subagent per batch of ≤${BATCH_SIZE} (${ph.items} item(s) → ` +
+          `${Math.ceil(ph.items / BATCH_SIZE)} subagent(s)), each following ${join(out, "orchestration", "agents", `${spec.role}.md`)} ` +
+          `with ITEMS=<batch> (${items}) and WORKLIST=${ph.worklist}`,
+      );
+      lines.push(
+        `  join:     ${spec.joinHint(ctx, ph)}` +
           (ph.name === "enrich"
             ? ` — after all agents return; no \`build\` or \`map\` while they run`
             : ` — fold the agents' returned fragments into <verdicts.json> first`),
       );
+      lines.push(`  optional: Claude Code — Workflow({ scriptPath: ${JSON.stringify(w)} }) runs the same fan-out in one call`);
     }
+    lines.push(`  solo:     no subagents? follow ${join(out, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
   } else {
     lines.push(`  next:     follow ${join(out, "orchestration", "RUNBOOK.md")} sequentially (the eco path)`);
   }
@@ -942,7 +951,14 @@ async function main(): Promise<void> {
       // remember which is which.
       process.stderr.write(`ultraindex: MCP server listening on ${running.url}\n`);
       process.stderr.write(`  tools:  ${running.server.listening ? "ready" : "starting"} · ${options.allowWrite ? "read/write" : "read-only"}\n`);
-      process.stderr.write(`  client: claude mcp add --transport http ultraindex ${running.url}\n`);
+      process.stderr.write(
+        [
+          `  connect: ${running.url} — register it with your MCP client, e.g.`,
+          `    Claude Code: claude mcp add --transport http ultraindex ${running.url}`,
+          `    Codex:       codex mcp add ultraindex --url ${running.url}`,
+          `    OpenCode:    opencode mcp add ultraindex --url ${running.url}`,
+        ].join("\n") + "\n",
+      );
       for (const sig of ["SIGINT", "SIGTERM"] as const) {
         process.once(sig, () => {
           void running.close().then(() => process.exit(0));

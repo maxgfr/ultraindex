@@ -3,8 +3,9 @@ import type { OrchestrateContext, PhaseInfo } from "./orchestrate.js";
 
 // ---------------------------------------------------------------------------
 // Templates for `ultraindex orchestrate` — the generator that turns the index's
-// CURRENT state into a launchable multi-agent Workflow per phase, the dispatch
-// contracts it references, and a sequential RUNBOOK fallback. Everything here
+// CURRENT state into the dispatch contracts any host's subagents can run, a
+// sequential RUNBOOK for a single agent, and — optionally — a launchable
+// multi-agent workflow per phase for Claude Code's Workflow tool. Everything here
 // is emitted by string concatenation with the index's constants injected as
 // JSON literals, so the workflow runs as-is under the Workflow tool:
 // `export const meta` stays a pure literal, and no emitted line ever calls
@@ -110,7 +111,10 @@ export function phaseWorkflowScript(ph: PhaseInfo, ctx: OrchestrateContext, batc
   return [
     `export const meta = ${JSON.stringify(meta)}`,
     ``,
-    `// NOT a plain Node script: launch via the Workflow tool — Workflow({ scriptPath: ${JSON.stringify(scriptPath)} }).`,
+    `// Optional Claude Code fast path — NOT a plain Node script: launch via the Workflow tool —`,
+    `// Workflow({ scriptPath: ${JSON.stringify(scriptPath)} }).`,
+    `// Any other host: dispatch the sibling agents/${spec.role}.md contract to one native subagent per`,
+    `// batch below (ITEMS=<batch>); a single agent follows RUNBOOK.md (--eco) instead.`,
     `// Emitted by \`ultraindex orchestrate\` from ${source}. The index is the`,
     `// source of truth: if it changes, re-run \`orchestrate --phase ${ph.name}\` before launching.`,
     // The clobber rationale only holds where agents WRITE (the enrich
@@ -243,6 +247,6 @@ ${status}
 5. **Semantic layer** (only if \`vectors.json\` exists): \`${engine} embed --out ${ctx.out}\`.
 6. **Verify an answer** (high assurance): \`${engine} verify --answer <answer.md> --repo ${ctx.repo}\` writes \`VERIFY.todo.json\` next to the answer. For EVERY pair, apply \`${join(agents, "refuter.md")}\` yourself (verdict + note), save your rows as \`verdicts.json\`, then \`${engine} verify --apply verdicts.json --answer <answer.md>\` and gate with \`${engine} check --answer <answer.md> --semantic --out ${ctx.out}\`.
 
-With subagents available, prefer the emitted workflows instead: \`orchestrate --out ${ctx.out} --phase <p>\` then \`Workflow({ scriptPath: "${join(ctx.out, "orchestration", "<p>.workflow.mjs")}" })\` — one repo-wide \`check\` after the join either way, and no \`build\` or \`map\` while agents are in flight.
+With subagents available (any host — Codex, Claude Code, OpenCode, …), fan out instead: \`orchestrate --out ${ctx.out} --phase <p>\`, then dispatch one native subagent per batch of items, each told to read and follow \`${agents}/<role>.md\` verbatim with its \`ITEMS=<batch>\` (enrich: module slugs in \`status --json\` queue order; verify-answer: 1-based positions in the worklist's \`pairs[]\`). Optional — Claude Code: launch \`${join(ctx.out, "orchestration", "<p>.workflow.mjs")}\` with the Workflow tool for one-call parallel fan-out. One repo-wide \`check\` after the join either way, and no \`build\` or \`map\` while agents are in flight.
 `;
 }

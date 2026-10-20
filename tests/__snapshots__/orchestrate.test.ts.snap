@@ -25,14 +25,17 @@ grounding gates; only wall-clock differs. Fan-out is an optimization, not a requ
 5. **Semantic layer** (only if \`vectors.json\` exists): \`node <ENGINE> embed --out <OUT>\`.
 6. **Verify an answer** (high assurance): \`node <ENGINE> verify --answer <answer.md> --repo <REPO>\` writes \`VERIFY.todo.json\` next to the answer. For EVERY pair, apply \`<OUT>/orchestration/agents/refuter.md\` yourself (verdict + note), save your rows as \`verdicts.json\`, then \`node <ENGINE> verify --apply verdicts.json --answer <answer.md>\` and gate with \`node <ENGINE> check --answer <answer.md> --semantic --out <OUT>\`.
 
-With subagents available, prefer the emitted workflows instead: \`orchestrate --out <OUT> --phase <p>\` then \`Workflow({ scriptPath: "<OUT>/orchestration/<p>.workflow.mjs" })\` — one repo-wide \`check\` after the join either way, and no \`build\` or \`map\` while agents are in flight.
+With subagents available (any host — Codex, Claude Code, OpenCode, …), fan out instead: \`orchestrate --out <OUT> --phase <p>\`, then dispatch one native subagent per batch of items, each told to read and follow \`<OUT>/orchestration/agents/<role>.md\` verbatim with its \`ITEMS=<batch>\` (enrich: module slugs in \`status --json\` queue order; verify-answer: 1-based positions in the worklist's \`pairs[]\`). Optional — Claude Code: launch \`<OUT>/orchestration/<p>.workflow.mjs\` with the Workflow tool for one-call parallel fan-out. One repo-wide \`check\` after the join either way, and no \`build\` or \`map\` while agents are in flight.
 "
 `;
 
 exports[`orchestrate — contracts & runbook > golden shape (paths normalized) > enrich.workflow.mjs 1`] = `
 "export const meta = {"name":"ultraindex-enrich","description":"Write or revise the 6 encyclopedia entries of an ultraindex index that need cited prose (disjoint-write fan-out)","phases":[{"title":"Enrich"}]}
 
-// NOT a plain Node script: launch via the Workflow tool — Workflow({ scriptPath: "<OUT>/orchestration/enrich.workflow.mjs" }).
+// Optional Claude Code fast path — NOT a plain Node script: launch via the Workflow tool —
+// Workflow({ scriptPath: "<OUT>/orchestration/enrich.workflow.mjs" }).
+// Any other host: dispatch the sibling agents/enricher.md contract to one native subagent per
+// batch below (ITEMS=<batch>); a single agent follows RUNBOOK.md (--eco) instead.
 // Emitted by \`ultraindex orchestrate\` from the CURRENT enrichment queue (exactly what \`status --json\` reports). The index is the
 // source of truth: if it changes, re-run \`orchestrate --phase enrich\` before launching.
 //
