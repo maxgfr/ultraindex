@@ -27,7 +27,7 @@ claim or a changed suffix. Default sampled claim truncation is unchanged.
 it when you request a cited codebase encyclopedia, and you can invoke it
 directly with `$ultraindex` in Codex, `/ultraindex` in Claude Code or OpenCode.
 The agent does not pick it up on its own, and CLI commands are unchanged. One
-setting per host makes it explicit-only — see
+setting makes it explicit-only — see
 [Manual or automatic](#manual-or-automatic).
 
 > **[codeindex](https://github.com/maxgfr/codeindex) tells you where things are.
