@@ -28006,7 +28006,7 @@ ${HELP}`);
 init_text();
 
 // src/types.ts
-var VERSION = "7.13.6";
+var VERSION = "7.13.7";
 var SCHEMA_VERSION2 = 5;
 
 // src/build.ts
