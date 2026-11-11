@@ -64,10 +64,12 @@ function staticTier(model: StaticEmbedModel): EmbedTier {
 }
 
 // The engine's endpoint protocol: POST <base>/embed {texts} -> {vectors}.
+// A real Response: the engine reads its headers (a declared size over the cap
+// is refused unread) and streams its body under a cap, as from a real server.
 function endpointFetch(vecFor: (text: string) => number[]) {
   return vi.fn(async (_url: string, init: { body: string }) => {
     const texts = (JSON.parse(init.body) as { texts: string[] }).texts;
-    return { ok: true, status: 200, json: async () => ({ vectors: texts.map(vecFor) }), text: async () => "" };
+    return new Response(JSON.stringify({ vectors: texts.map(vecFor) }), { status: 200, headers: { "content-type": "application/json" } });
   });
 }
 
