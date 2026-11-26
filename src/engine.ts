@@ -36,6 +36,8 @@ export type {
   SurpriseEdge,
   SymbolIndex,
   Tier,
+  WarmGrammarsOptions,
+  WarmGrammarsResult,
 } from "./vendor/codeindex-engine.mjs";
 
 export {
@@ -91,6 +93,7 @@ export {
   resolveImport,
   rrf,
   runCli,
+  runExtractWorker,
   scanRepo,
   sh,
   sha1,
@@ -99,6 +102,7 @@ export {
   tierForPath,
   untrackedFiles,
   walk,
+  warmGrammars,
 } from "./vendor/codeindex-engine.mjs";
 
 // NOT re-exported: the vendor engine's `renderMermaid(graph, opts?): string`.

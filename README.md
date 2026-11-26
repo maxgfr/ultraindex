@@ -249,6 +249,37 @@ Three things worth knowing:
   read-anything primitive for whoever finds it. Browser `Origin`s are checked
   for the same reason.
 
+## Use as a library
+
+A skill that builds on ultraindex vendors it the way ultraindex vendors
+codeindex: two files, `scripts/engine.mjs` and its self-contained declaration
+`scripts/engine.d.mts`, copied in as `vendor/ultraindex-engine.mjs` /
+`.d.mts` (the default layout of `webindex skill vendor`). Single-file ESM,
+Node 18+, zero runtime dependencies.
+
+```ts
+import { prepareGrammars, runBuild, runCheck, runFind, codeindex } from "./vendor/ultraindex-engine.mjs";
+
+await prepareGrammars();                 // AST precision; { pull: false } to stay offline
+const { graph } = runBuild({ repo, out, mermaid: false, json: false }, new Date().toISOString());
+const check = runCheck(out, repo);       // { ok, stale, errors, proseStale, ... }
+const hits = runFind(out, "retry backoff");
+codeindex.buildGraph;                    // the engine ultraindex pins
+```
+
+The surface is curated in `src/lib.ts`: build, check, status, citations,
+find, neighbors, impact, delta, symbols, evidence dossiers, prose freshness,
+the pure `verify` steps, the index loaders and the persisted types.
+
+- **No terminal output, no exit.** Nothing reachable from the library writes
+  to stdout or stderr, sets `process.exitCode` or calls `process.exit`.
+  Failures come back as values (`undefined` for a missing index, `errors[]`,
+  a `DeltaError`); grammar diagnostics come back in `notes`.
+- **One engine.** `codeindex` is the exact codeindex build ultraindex is
+  pinned to, re-exported as a namespace, not a second copy. A consumer vendors
+  ultraindex alone and gets graph and symbol shapes that always match the
+  index it reads.
+
 ## CLI
 
 ```
@@ -461,7 +492,7 @@ from a server, falls outside.
 
 ```
 pnpm install
-pnpm build        # tsup → scripts/ultraindex.mjs, mirrored into the skill dir
+pnpm build        # tsup → scripts/ultraindex.mjs (mirrored into the skill dir) + scripts/engine.mjs/.d.mts
 pnpm test         # vitest
 pnpm typecheck
 pnpm check:build  # asserts the committed bundles are reproducible

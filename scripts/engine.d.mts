@@ -1,0 +1,2778 @@
+declare const ENGINE_VERSION = "2.31.25";
+declare const SCHEMA_VERSION$1 = 5;
+declare const EXTRACTOR_VERSION = 22;
+declare const UNNAMED_RECEIVER = "?";
+type FileKind = "code" | "doc" | "config" | "asset" | "other";
+type EdgeKind = "contains" | "doc-link" | "import" | "call" | "extends" | "implements" | "use" | "mention";
+type Tier = 0 | 1 | 2;
+interface CodeSymbol {
+    name: string;
+    kind: string;
+    file: string;
+    line: number;
+    endLine?: number;
+    parent?: string;
+    parentPath?: string;
+    signature?: string;
+    doc?: string;
+    exported: boolean;
+    lang: string;
+}
+interface RawRef {
+    kind: "doc-link" | "import";
+    spec: string;
+    /** Speculative ref: an edge when it resolves to an in-repo file, otherwise dropped silently (never external, never dangling). */
+    soft?: true;
+}
+interface CodeLiteral {
+    value: string;
+    line: number;
+    kind: "string" | "number" | "regex";
+}
+interface LiteralSite {
+    file: string;
+    line: number;
+    holder?: string;
+    holderExported?: boolean;
+}
+interface LiteralDuplication {
+    value: string;
+    kind: CodeLiteral["kind"];
+    tier: "uncentralized" | "bypassed" | "competing";
+    holders: LiteralSite[];
+    literals: LiteralSite[];
+    files: number;
+    count: number;
+}
+interface RawRelation {
+    kind: "extends" | "implements";
+    from: string;
+    to: string;
+    line: number;
+}
+interface ImportAlias {
+    local: string;
+    name: string;
+    from?: string;
+}
+interface FileRecord {
+    rel: string;
+    ext: string;
+    size: number;
+    lines: number;
+    hash: string;
+    kind: FileKind;
+    lang: string;
+    title?: string;
+    summary?: string;
+    headings: string[];
+    symbols: CodeSymbol[];
+    refs: RawRef[];
+    pkg?: string;
+    idents?: string[];
+    calls?: {
+        name: string;
+        line: number;
+        receiver?: string;
+    }[];
+    importedNames?: string[];
+    importAliases?: ImportAlias[];
+    truncated?: true;
+    callsCapped?: true;
+    astFallback?: true;
+    extractFailed?: true;
+    generated?: "minified" | "bundle";
+    relations?: RawRelation[];
+    terms?: string[];
+    literals?: CodeLiteral[];
+}
+interface FileNode {
+    id: string;
+    kind: "file";
+    rel: string;
+    fileKind: FileKind;
+    lang: string;
+    module: string;
+    title?: string;
+    summary?: string;
+    symbols: number;
+    lines: number;
+    degIn: number;
+    degOut: number;
+    pagerank?: number;
+    testFile?: true;
+    generated?: "minified" | "bundle";
+}
+interface ModuleNode {
+    id: string;
+    kind: "module";
+    slug: string;
+    path: string;
+    title: string;
+    summary: string;
+    tier: Tier;
+    members: string[];
+    symbols: number;
+    degIn: number;
+    degOut: number;
+    community?: number;
+    pagerank?: number;
+    betweenness?: number;
+    testedBy?: string[];
+}
+interface Edge {
+    from: string;
+    to: string;
+    kind: EdgeKind;
+    weight: number;
+    dangling?: boolean;
+    reason?: string;
+    confidence?: "extracted" | "inferred";
+}
+interface Graph {
+    schemaVersion: number;
+    version: string;
+    commit?: string;
+    fileCount: number;
+    languages: Record<string, number>;
+    files: FileNode[];
+    modules: ModuleNode[];
+    fileEdges: Edge[];
+    moduleEdges: Edge[];
+    surprises?: SurpriseEdge[];
+    literalDuplications?: LiteralDuplication[];
+}
+interface SurpriseEdge {
+    from: string;
+    to: string;
+    kind: EdgeKind;
+    weight: number;
+    communities: [number, number];
+    pairEdges: number;
+}
+interface SymbolIndex {
+    schemaVersion: number;
+    defs: Record<string, {
+        file: string;
+        line: number;
+        endLine?: number;
+        kind: string;
+        exported: boolean;
+        lang: string;
+        parent?: string;
+    }[]>;
+    refs: Record<string, string[]>;
+}
+
+type Encoding = 'utf8' | 'utf8-bom' | 'utf16le' | 'utf16be' | 'latin1';
+interface TextRead {
+    /** Decoded text. Empty string when `ok` is false or the file is genuinely empty. */
+    text: string;
+    /** Raw bytes as read. Byte offsets in the inventory index into THIS buffer. */
+    buf: Uint8Array;
+    encoding: Encoding | null;
+    /** True when a NUL byte was found outside a BOM-declared UTF-16 file. */
+    binary: boolean;
+    bytes: number;
+    /** False when the file could not be read (vanished, permissions, EISDIR). */
+    ok: boolean;
+    /**
+     * Whether byte offsets computed from `text` address `buf` directly.
+     *
+     * True for utf8 and utf8-bom (the BOM is stripped from `text`, so offsets
+     * carry a +3 shift the caller must apply via `bodyStart`). False for UTF-16
+     * and latin1, where a decoded-string offset is not a file-byte offset. Those
+     * files are still inventoried, but `apply` refuses to patch them rather than
+     * writing at a plausible-looking wrong offset.
+     */
+    byteAddressable: boolean;
+    /** Offset in `buf` at which `text` begins — 3 for utf8-bom, 2 for UTF-16, else 0. */
+    bodyStart: number;
+}
+declare function readTextEx(abs: string): TextRead;
+/**
+ * Maps between JS string indices (UTF-16 code units) and UTF-8 byte offsets.
+ *
+ * Tree-sitter reports byte offsets; the hand-written lexers scan JS strings.
+ * Both feed one inventory, so exactly one coordinate system can survive, and it
+ * has to be bytes — that is what the patcher writes at. Getting this wrong is
+ * silent corruption on any file containing an accented character or an emoji,
+ * which for this tool is most of them.
+ *
+ * Pure-ASCII files take the identity fast path and allocate nothing, which is
+ * the overwhelmingly common case.
+ */
+declare class OffsetMap {
+    private readonly ascii;
+    /** charToByteTable[i] = byte offset of char index i. Length = text.length + 1. */
+    private readonly table;
+    private readonly lineStarts;
+    constructor(text: string);
+    /** UTF-8 byte offset of a JS string index. */
+    byteOf(charIndex: number): number;
+    /** 1-based line and 1-based column (in UTF-16 code units, matching editors). */
+    lineColOf(charIndex: number): {
+        line: number;
+        col: number;
+    };
+    get lineCount(): number;
+}
+
+declare const IGNORE_DIRS: Set<string>;
+declare const LOCKFILES: Set<string>;
+declare const BINARY_EXT: Set<string>;
+/** An observed exclusion. Directory contents are not enumerated. */
+interface WalkSkip {
+    rel: string;
+    reason: "binary-ext" | "lockfile" | "over-max-bytes" | "gitignored" | "minified" | "symlink-outside-root" | "broken-symlink" | "directory-symlink" | "file-symlink" | "ignore-dir" | "nested-repo" | "filter" | "unreadable";
+    directory: boolean;
+    size?: number;
+    /** For "gitignored": the rule that decided it — its file, 1-based line, and pattern as written. */
+    rule?: {
+        source: string;
+        line: number;
+        pattern: string;
+    };
+}
+interface WalkEntry {
+    rel: string;
+    abs: string;
+    directory: boolean;
+}
+interface WalkOptions {
+    maxFileBytes?: number;
+    maxFiles?: number;
+    gitignore?: boolean;
+    ignoreDirs?: string[];
+    /** Inventory modes opt in; source indexing retains its existing defaults. */
+    includeLockfiles?: boolean;
+    includeBinary?: boolean;
+    includeOversize?: boolean;
+    includeMinified?: boolean;
+    /** Keep in-repo FILE symlinks as files of their own (skipped by default — see walk). */
+    includeFileSymlinks?: boolean;
+    trackedBuildDirs?: boolean;
+    /** Replace the binary extension policy, e.g. to retain textual SVG. */
+    binaryExtensions?: ReadonlySet<string>;
+    /** Called before entering a directory or accepting a file. False prunes it. */
+    filter?: (entry: WalkEntry) => boolean;
+    /** Observe exclusions without retaining a second inventory in memory. */
+    onSkip?: (entry: WalkSkip) => void;
+}
+interface WalkedFile {
+    rel: string;
+    abs: string;
+    size: number;
+    ext: string;
+    mtimeMs: number;
+}
+interface WalkResult {
+    files: WalkedFile[];
+    capped: boolean;
+    excluded: number;
+    oversized?: {
+        rel: string;
+        size: number;
+    }[];
+}
+declare const DEFAULT_MAX_FILES = 20000;
+declare function walk(root: string, opts?: WalkOptions): WalkResult;
+/** Compatibility reader; use readTextEx when empty, binary and unreadable differ. */
+declare function readText(abs: string): string;
+
+interface RepoScan {
+    root: string;
+    commit?: string;
+    files: FileRecord[];
+    languages: Record<string, number>;
+    docText: Map<string, string>;
+    mtimes: Map<string, number>;
+    capped: boolean;
+    excluded: number;
+    oversized?: {
+        rel: string;
+        size: number;
+    }[];
+    contentUnchanged: boolean;
+    cacheDirty: boolean;
+}
+interface ScanOptions {
+    include?: string[];
+    exclude?: string[];
+    scope?: string;
+    gitignore?: boolean;
+    ignoreDirs?: string[];
+    maxBytes?: number;
+    maxFiles?: number;
+    maxCallsPerFile?: number;
+    out?: string;
+    cache?: Map<string, {
+        hash: string;
+        record: FileRecord;
+        size?: number;
+        mtimeMs?: number;
+    }>;
+    fullHash?: boolean;
+    precomputedWalk?: WalkResult;
+    extracted?: Map<string, ExtractedRecord>;
+    onSkip?: (skip: ScanSkip) => void;
+}
+type ScanSkip = WalkSkip | {
+    rel: string;
+    reason: "index-output";
+    directory: false;
+    size: number;
+};
+interface ExtractedRecord {
+    size: number;
+    mtimeMs: number;
+    hash: string;
+    record?: FileRecord;
+}
+declare function buildCodeRecord(rel: string, ext: string, size: number, content: string, hash: string, lang: string, opts?: {
+    maxCallsPerFile?: number;
+}): FileRecord;
+declare function keptCodeFiles(root: string, opts?: ScanOptions): {
+    f: WalkedFile;
+    lang: string;
+}[];
+interface ScanSummary {
+    root: string;
+    commit?: string;
+    fileCount: number;
+    languages: Record<string, number>;
+    capped: boolean;
+    excluded: number;
+}
+declare function scanSummary(root: string, opts?: ScanOptions): ScanSummary;
+declare function scanRepo(root: string, opts?: ScanOptions): RepoScan;
+
+type PathVerdictReason = ScanSkip["reason"] | "outside-repo" | "not-found" | "max-files" | "no-indexed-files" | "not-walked";
+interface PathVerdict {
+    path: string;
+    indexed: boolean;
+    reason: PathVerdictReason | null;
+    detail: Record<string, unknown>;
+}
+declare function scanSkips(root: string, opts?: ScanOptions): {
+    skips: ScanSkip[];
+    files: WalkedFile[];
+    capped: boolean;
+};
+declare function skipHistogram(skips: readonly ScanSkip[]): Record<string, number>;
+declare function whyPath(root: string, path: string, opts?: ScanOptions): PathVerdict;
+
+declare const CORE_GRAMMARS: Set<string>;
+declare const EXTENDED_GRAMMARS: Set<string>;
+declare const EXT_GRAMMAR: Record<string, string>;
+declare function grammarKeyForExt(ext: string): string | undefined;
+type GrammarsTierName = "adjacent" | "env" | "cache" | "none";
+interface GrammarsTier {
+    tier: GrammarsTierName;
+    dir?: string;
+    cacheDir: string;
+    dirs: string[];
+}
+declare function sharedGrammarsCacheDir(): string;
+declare function resolveGrammarsTier(opts?: {
+    moduleDir?: string;
+}): GrammarsTier;
+interface GrammarFile {
+    sha1: string;
+    size: number;
+    mtimeMs: number;
+    at?: string;
+    engine?: string;
+}
+declare function resolveGrammarsDir(opts?: {
+    moduleDir?: string;
+}): string | undefined;
+declare function ensureGrammars(keys: Iterable<string>): Promise<void>;
+declare function allGrammarKeys(): string[];
+declare function grammarKeysForExts(exts: Iterable<string>): string[];
+declare function grammarReady(key: string): boolean;
+
+type PersistedCacheEntry = {
+    hash: string;
+    record: FileRecord;
+    size?: number;
+    mtimeMs?: number;
+};
+type PersistedCacheMap = Map<string, PersistedCacheEntry>;
+interface ExtractionProfile {
+    grammars: string[];
+    maxCallsPerFile?: number;
+    grammarFiles?: Record<string, GrammarFile>;
+}
+
+interface BuildIndexOptions extends ScanOptions {
+    meta?: {
+        version?: string;
+        schemaVersion?: number;
+    };
+    previousCommunities?: Record<string, string[]>;
+}
+interface IndexArtifacts {
+    scan: RepoScan;
+    graph: Graph;
+    symbols: SymbolIndex;
+    notes?: string[];
+}
+declare function buildIndexArtifacts(repo: string, opts?: BuildIndexOptions): IndexArtifacts;
+declare function buildArtifactsFromScan(scan: RepoScan, opts?: BuildIndexOptions): IndexArtifacts;
+
+declare const INDEX_DIR = ".codeindex";
+interface PersistedMeta {
+    engineVersion?: string;
+    commit?: string;
+    graphSha1?: string;
+    symbolsSha1?: string;
+    embed?: {
+        embedVersion?: number;
+        modelId?: string;
+        sha1?: string;
+    };
+    extraction?: ExtractionProfile;
+}
+declare function toCacheMap(scan: RepoScan): PersistedCacheMap;
+type UnusableIndex = "absent" | "unreadable" | "corrupt" | "schema" | "extractor";
+declare function readPersistedIndex(repo: string, indexDir?: string): {
+    cacheMap: PersistedCacheMap;
+    meta: PersistedMeta;
+} | undefined;
+declare function preloadArtifacts(repo: string, scan: RepoScan, meta: PersistedMeta, indexDir?: string): IndexArtifacts | undefined;
+declare function preloadSession(repo: string, opts: Omit<ScanOptions, "cache">, indexDir?: string): {
+    scan: RepoScan;
+    cacheMap: PersistedCacheMap;
+    arts?: IndexArtifacts;
+} | undefined;
+
+interface TreeDrift {
+    indexed: number;
+    unchanged: number;
+    touched: number;
+    modified: number;
+    added: number;
+    deleted: number;
+    reextract: number;
+}
+
+type IndexStaleness = UnusableIndex | "engine-version" | "extraction" | "files" | "graph.json" | "symbols.json";
+interface IndexStatus {
+    indexDir: string;
+    present: boolean;
+    usable: boolean;
+    reason?: UnusableIndex;
+    engineVersion: {
+        index: string | null;
+        current: string;
+    };
+    commit: {
+        index: string | null;
+        head: string | null;
+    };
+    files: TreeDrift | null;
+    artifactsFresh: boolean;
+    stale: IndexStaleness[];
+}
+interface IndexStatusOptions extends Omit<ScanOptions, "cache" | "precomputedWalk" | "extracted"> {
+    ast?: boolean;
+}
+declare function indexStatus(repo: string, opts?: IndexStatusOptions, indexDir?: string): IndexStatus;
+
+interface Job {
+    abs: string;
+    rel: string;
+    ext: string;
+    cachedHash?: string;
+}
+interface WorkerInput {
+    jobs: Job[];
+    grammarKeys: string[];
+    maxCallsPerFile?: number;
+}
+interface WorkerOutput {
+    ready: string[];
+    records: {
+        rel: string;
+        size: number;
+        mtimeMs: number;
+        hash: string;
+        record?: FileRecord;
+    }[];
+}
+declare function workerCount(requested?: number): number;
+declare function runExtractWorker(input: WorkerInput, post: (out: WorkerOutput) => void): Promise<void>;
+declare function extractInParallel(jobs: Job[], grammarKeys: string[], count: number, opts?: {
+    maxCallsPerFile?: number;
+    engineUrl?: string;
+}): Promise<Map<string, ExtractedRecord> | undefined>;
+declare function scanRepoParallel(root: string, opts?: ScanOptions & {
+    workers?: number;
+}): Promise<RepoScan>;
+
+declare function compileGlobs(globs: string[] | undefined): ((rel: string) => boolean) | null;
+
+interface IgnoreRule {
+    re: RegExp;
+    negated: boolean;
+    dirOnly: boolean;
+    test?: (rel: string, base: string) => boolean;
+    source?: string;
+    line?: number;
+    pattern?: string;
+}
+declare function parseGitignore(content: string, baseRel: string, source?: string): IgnoreRule[];
+declare function isIgnored(rules: readonly IgnoreRule[], rel: string, isDir: boolean): boolean;
+declare function decidingRule(rules: readonly IgnoreRule[], rel: string, isDir: boolean): IgnoreRule | undefined;
+
+declare const MARKDOWN_EXT: Set<string>;
+declare function isDoc(rel: string, ext: string): boolean;
+declare function isCode(ext: string): boolean;
+declare function classify(rel: string, ext: string): FileKind;
+
+type FileCategory = "code" | "test" | "config" | "schema" | "i18n" | "doc" | "style" | "asset" | "data" | "other";
+declare function categorize(rel: string, ext: string): FileCategory;
+
+declare function extToLang(ext: string): string;
+
+declare function extractSymbols(rel: string, ext: string, content: string, onFailure?: () => void): CodeSymbol[];
+declare function languageOf(ext: string): string;
+
+type GeneratedKind = NonNullable<FileRecord["generated"]>;
+
+interface CodeInfo {
+    symbols: CodeSymbol[];
+    summary?: string;
+    truncated?: true;
+    callsCapped?: true;
+    astFallback?: true;
+    extractFailed?: true;
+    generated?: GeneratedKind;
+    refs: RawRef[];
+    pkg?: string;
+    idents?: string[];
+    calls?: {
+        name: string;
+        line: number;
+        receiver?: string;
+    }[];
+    importedNames?: string[];
+    importAliases?: ImportAlias[];
+    terms?: string[];
+    literals?: CodeLiteral[];
+    relations?: RawRelation[];
+}
+declare function extractCode(rel: string, ext: string, content: string, opts?: {
+    maxCallsPerFile?: number;
+}): CodeInfo;
+
+interface MarkdownInfo {
+    title?: string;
+    summary?: string;
+    headings: string[];
+    refs: RawRef[];
+}
+declare function extractMarkdown(content: string): MarkdownInfo;
+
+declare function extractRst(rel: string, content: string): MarkdownInfo;
+
+interface AstResult {
+    symbols: CodeSymbol[];
+    refs: RawRef[];
+    pkg?: string;
+    idents: string[];
+    calls: {
+        name: string;
+        line: number;
+        receiver?: string;
+    }[];
+    importedNames: string[];
+    importAliases: ImportAlias[];
+    relations: RawRelation[];
+    terms: string[];
+    literals: CodeLiteral[];
+    truncated?: true;
+}
+declare function extractAst(rel: string, ext: string, content: string, opts?: {
+    maxCalls?: number;
+    imports?: boolean;
+    maxSymbols?: number;
+    onFailure?: (error: unknown) => void;
+}): AstResult | undefined;
+
+/** One definition a tags query captured. */
+interface TagDefinition {
+    /** The `@definition.<kind>` suffix — function, class, method, module, … */
+    kind: string;
+    name: string;
+    line: number;
+}
+/** Whether a vendored query exists for a grammar, and whether it compiled. */
+interface TagsQueryStatus {
+    /** A `<key>.tags.scm` was found next to the grammar. */
+    present: boolean;
+    /** It compiled against the loaded grammar. False means the two are out of step. */
+    compiled: boolean;
+}
+/**
+ * Report a grammar's query status. `extractTags` degrades to `[]` for a query
+ * that does not compile, which is right at runtime but makes a broken query
+ * indistinguishable from one that simply matched nothing — so the audit and its
+ * tests can check the difference here instead of guessing from an empty result.
+ */
+declare function tagsQueryStatus(key: string): TagsQueryStatus;
+/**
+ * Definitions the grammar's own `tags.scm` finds in this source, deduped and
+ * sorted. Empty when the grammar publishes no query, when it fails to compile,
+ * or when no grammar is loaded for the extension.
+ */
+declare function extractTags(ext: string, content: string): TagDefinition[];
+
+declare const DEFAULT_GRAMMARS_URL = "https://github.com/maxgfr/codeindex/releases/download/v2.31.25/grammars-2.31.25.tar.gz";
+interface GrammarsPullTarget {
+    url: string;
+    sha256Url?: string;
+}
+declare function resolveGrammarsPullTarget(): GrammarsPullTarget;
+declare function fetchGrammarsTarball(url: string, expectedSha256?: string, timeoutMs?: number): Promise<Uint8Array>;
+declare function fetchExpectedSha256(url: string, timeoutMs?: number): Promise<string>;
+declare function extractTarInto(rawTar: Uint8Array, destDir: string): string[];
+declare function extractGrammarsTarball(bytes: Uint8Array, destDir: string): string[];
+interface GrammarsPullResult {
+    ok: boolean;
+    status: "up-to-date" | "pulled" | "failed";
+    cacheDir: string;
+    /** One human-readable line; the CLI writes it to stderr, a library caller may log or drop it. */
+    message: string;
+}
+declare function pullGrammars(cacheDir: string, opts?: {
+    onNote?: (msg: string) => void;
+    target?: GrammarsPullTarget;
+}): Promise<GrammarsPullResult>;
+
+interface WarmGrammarsResult {
+    /** Tier AFTER the warm-up (a successful pull moves "none" → "cache"). */
+    tier: GrammarsTierName;
+    /** True when at least one requested grammar is loaded ⇒ the AST tier is live. */
+    ready: boolean;
+    /** True when this call populated the shared cache over the network. */
+    pulled: boolean;
+    /** Everything written to `onNote`, in order — so a caller can persist the trail in its run artifacts. */
+    notes: string[];
+}
+interface WarmGrammarsOptions {
+    /** Grammars to load. Default: every shipped grammar. Narrow it with `grammarKeysForExts` when the repo's languages are known. */
+    keys?: Iterable<string>;
+    /** Fetch the wasms into the shared cache when nothing is resolvable. Default true; `CODEINDEX_NO_GRAMMARS_PULL=1` forces false. */
+    pull?: boolean;
+    /** Prefix for the diagnostics ("ultrasec: …"). Default "codeindex". */
+    label?: string;
+    /** Where diagnostics go. Default: process.stderr. Pass a sink to keep stdout/stderr clean. */
+    onNote?: (msg: string) => void;
+}
+declare function warmGrammars(opts?: WarmGrammarsOptions): Promise<WarmGrammarsResult>;
+
+type Resolution = {
+    kind: "resolved";
+    target: string;
+} | {
+    kind: "external";
+} | {
+    kind: "dangling";
+    reason: string;
+};
+interface TsPath {
+    prefix: string;
+    star: boolean;
+    targets: string[];
+}
+interface TsConfigScope {
+    dir: string;
+    file: string;
+    baseUrl: string;
+    baseUrlSet: boolean;
+    paths: TsPath[];
+}
+interface ExportEntry {
+    key: string;
+    star: boolean;
+    targets: string[];
+}
+interface WorkspacePackage$1 {
+    name: string;
+    dir: string;
+    exportEntries: ExportEntry[];
+    mainCandidates: string[];
+    tsconfig?: string;
+}
+interface PackageScope {
+    dir: string;
+    importEntries: ExportEntry[];
+}
+interface GoModule {
+    module: string;
+    dir: string;
+    replaces: {
+        from: string;
+        toDir: string;
+    }[];
+}
+interface RustCrate {
+    name: string;
+    dir: string;
+    srcDir: string;
+    rootFile?: string;
+    renames?: Map<string, string>;
+    edition2015?: boolean;
+}
+interface JvmIndex {
+    types: Map<string, string>;
+    packages: Map<string, string>;
+    scalaPkg: Map<string, string>;
+}
+interface ResolveContext {
+    fileSet: Set<string>;
+    dirSet: Set<string>;
+    filesByDir: Map<string, string[]>;
+    tsConfigs: TsConfigScope[];
+    goModules: GoModule[];
+    rustCrates: RustCrate[];
+    javaRoots: string[];
+    pyRoots: string[];
+    workspacePackages: WorkspacePackage$1[];
+    packageScopes: PackageScope[];
+    cIncludeRoots: string[];
+    rubyLibRoots: string[];
+    phpPsr4: {
+        prefix: string;
+        dir: string;
+    }[];
+    csharpNamespaces: Map<string, string[]>;
+    jvm?: JvmIndex;
+    csharpPrefix?: Map<string, string>;
+    dartPackages?: Map<string, string>;
+    luaRoots?: string[];
+    svelteKitRoots?: string[];
+    root?: string;
+    elixirModules?: Map<string, string>;
+    warnings: string[];
+    jsMemo?: Map<string, Resolution>;
+    pyMemo?: Map<string, Resolution>;
+    cRootMemo?: Map<string, string | null>;
+    rubyRootMemo?: Map<string, string | null>;
+    phpPsr4Memo?: Map<string, string | null>;
+    dirFilesMemo?: Map<string, string[]>;
+}
+declare function buildResolveContext(scan: RepoScan): ResolveContext;
+declare function resolveDocLink(fromRel: string, spec: string, ctx: ResolveContext): Resolution;
+declare function resolveImport(fromRel: string, ext: string, spec: string, ctx: ResolveContext): Resolution;
+
+interface ModuleInfo {
+    slug: string;
+    path: string;
+    title: string;
+    tier: Tier;
+    members: string[];
+    summary: string;
+}
+declare function isTestFile(rel: string): boolean;
+declare function tierForPath(path: string): Tier | null;
+declare function buildModules(scan: RepoScan): {
+    modules: ModuleInfo[];
+    moduleOf: Map<string, string>;
+};
+
+declare function uniqueSymbolDefs(scan: RepoScan): Map<string, string>;
+declare function buildGraph(scan: RepoScan, ctx: ResolveContext, modules: ModuleInfo[], moduleOf: Map<string, string>, meta?: {
+    version?: string;
+    schemaVersion?: number;
+}): Graph;
+
+declare function resolveCallEdges(scan: RepoScan, importPairs: Set<string>, ctx?: ResolveContext): Edge[];
+
+/** One inheritance link with both ends bound to a declaration site. */
+interface ResolvedRelation {
+    kind: "extends" | "implements";
+    from: string;
+    fromFile: string;
+    fromLine: number;
+    to: string;
+    toFile: string;
+    toKind: string;
+}
+/**
+ * Every inheritance relation in the repo whose target resolves to a declaration
+ * here. Targets that do not (a framework base class, `std::exception`) are
+ * omitted — they are reported per-type as `unresolved` by the hierarchy below,
+ * so the information is available without inventing an edge to nothing.
+ *
+ * Deterministic: sorted, and never dependent on Map iteration order.
+ */
+declare function resolveRelations(scan: RepoScan, importPairs: Set<string>, ctx?: ResolveContext): ResolvedRelation[];
+/**
+ * File-level `extends`/`implements` edges, aggregated per (from, to, kind) pair.
+ * Self-edges are dropped: a type extending another in the same file is a real
+ * relation (the hierarchy reports it) but not a dependency between files.
+ */
+declare function resolveRelationEdges(scan: RepoScan, importPairs: Set<string>, ctx?: ResolveContext): Edge[];
+/** One end of a relation, as reported by the hierarchy. */
+interface HierarchyRef {
+    name: string;
+    file: string;
+    line: number;
+    kind: string;
+    /** A Go type whose method set covers the interface's, with no assertion saying so. */
+    structural?: true;
+}
+interface TypeHierarchyEntry {
+    name: string;
+    file: string;
+    line: number;
+    kind: string;
+    /** Base classes/supertraits this type declares, resolved. */
+    extends: HierarchyRef[];
+    /** Interfaces/traits/mixins this type provides, resolved. */
+    implements: HierarchyRef[];
+    /** Types that extend THIS one. */
+    extendedBy: HierarchyRef[];
+    /** Types that implement THIS one — the "who implements this interface" answer. */
+    implementedBy: HierarchyRef[];
+    /** Declared supertypes with no definition in this repo (a framework base class). */
+    unresolved: {
+        kind: "extends" | "implements";
+        to: string;
+    }[];
+}
+/**
+ * The full type hierarchy, keyed by `name` (and by `name@file` for a homonym
+ * declared in more than one file, mirroring how the caller index disambiguates).
+ * Insertion order is sorted, so serializing the map is deterministic.
+ */
+declare function buildTypeHierarchy(scan: RepoScan, importPairs: Set<string>): Map<string, TypeHierarchyEntry>;
+/**
+ * Everything that implements or extends `name`, TRANSITIVELY — the practical
+ * form of "who implements this interface": a class implementing a sub-interface
+ * of the one asked about is an implementation too, and a caller should not have
+ * to walk the chain itself. Breadth-first, cycle-safe, deterministic.
+ */
+declare function implementationsOf(hierarchy: Map<string, TypeHierarchyEntry>, name: string, declarations?: readonly {
+    name: string;
+    file: string;
+}[]): HierarchyRef[];
+/**
+ * The type a symbol ref names — `Name`, `Name@file`, `file#Name` (see
+ * src/symref.ts). A bare name answers with the key the hierarchy stores it
+ * under (the first homonym); the qualified forms reach every homonym.
+ *
+ * Entries do not record where a type is nested, so a ref constraining the
+ * PARENT (`Outer/Inner`, `file#Outer/Inner`) is settled by `declarations`:
+ * what the ref resolved to against the scan (query.ts resolveSymbolRef).
+ */
+declare function typeEntry(hierarchy: Map<string, TypeHierarchyEntry>, name: string, declarations?: readonly {
+    name: string;
+    file: string;
+}[]): TypeHierarchyEntry | undefined;
+
+type SymbolEdgeKind = "calls" | "extends" | "implements" | "overrides";
+interface SymbolNode {
+    /** Stable id: `file#Parent/name` for a member, `file#name` otherwise. */
+    id: string;
+    name: string;
+    kind: string;
+    file: string;
+    line: number;
+    endLine?: number;
+    exported: boolean;
+    doc?: string;
+    signature?: string;
+}
+interface SymbolEdge {
+    from: string;
+    to: string;
+    kind: SymbolEdgeKind;
+    /** How many distinct call sites back a `calls` edge. Always 1 for inheritance and overrides. */
+    weight: number;
+}
+interface SymbolGraph {
+    nodes: Map<string, SymbolNode>;
+    edges: SymbolEdge[];
+    /** id → outgoing edges, and id → incoming; both sorted. */
+    out: Map<string, SymbolEdge[]>;
+    in: Map<string, SymbolEdge[]>;
+    /** name → every node id declaring it, for looking a symbol up by bare name. */
+    byName: Map<string, string[]>;
+}
+declare function symbolId(s: Pick<CodeSymbol, "file" | "name" | "parent">): string;
+/**
+ * Build the symbol graph. `importPairs` is the resolved-import pair set the call
+ * binder uses for corroboration — pass the memoised one (derived.ts) so this
+ * shares work with the rest of a session.
+ *
+ * Deterministic: edges are aggregated into a Map keyed by (from, to, kind) and
+ * sorted before return, so two builds of one scan agree exactly.
+ */
+declare function buildSymbolGraph(scan: RepoScan, importPairs: Set<string>): SymbolGraph;
+type Direction = "out" | "in" | "both";
+interface Neighborhood {
+    /** Every declaration matching the requested name — the walk starts from all of them. */
+    root: SymbolNode[];
+    /** Reached nodes with the hop count at which each was first seen (root = 0). */
+    nodes: (SymbolNode & {
+        depth: number;
+    })[];
+    edges: SymbolEdge[];
+    /** True when the node cap stopped the walk short. */
+    truncated?: true;
+    /** The hop limit actually walked, present when a deeper walk was asked for. */
+    depthClamped?: number;
+}
+/**
+ * The bounded neighborhood of a symbol. Breadth-first, so `depth` is the true
+ * hop distance; cycle-safe; capped at MAX_NODES with `truncated` set rather than
+ * quietly returning a partial answer.
+ */
+declare function neighborhood(graph: SymbolGraph, name: string, opts?: {
+    depth?: number;
+    direction?: Direction;
+}): Neighborhood;
+
+interface CallerSite {
+    file: string;
+    line: number;
+    confidence?: "corroborated" | "unique-name";
+    caller?: string;
+}
+interface CallerIndexOptions {
+    recall?: boolean;
+}
+interface CallerEntry {
+    def: CodeSymbol;
+    callers: CallerSite[];
+}
+type CallerIndex = Map<string, CallerEntry>;
+declare function computeImportPairs(scan: RepoScan): Set<string>;
+declare function buildCallerIndex(scan: RepoScan, importPairs?: Set<string>, opts?: CallerIndexOptions): CallerIndex;
+declare function enclosingSymbol(scan: RepoScan, file: string, line: number): CodeSymbol | undefined;
+interface RawCallerSite {
+    file: string;
+    line: number;
+    receiver?: string;
+    enclosingSymbol?: CodeSymbol;
+}
+type RawCallerIndex = Map<string, RawCallerSite[]>;
+declare function buildRawCallerIndex(scan: RepoScan): RawCallerIndex;
+
+declare function symbolsOverview(scan: RepoScan, rel: string): CodeSymbol[];
+interface SymbolMatch extends CodeSymbol {
+    body?: string;
+}
+interface FindSymbolOptions {
+    substring?: boolean;
+    includeBody?: boolean;
+    maxResults?: number;
+    /**
+     * Return only what LOCATES a declaration — name, kind, file, line — dropping
+     * the signature, line span, visibility and language.
+     *
+     * The default answer carries the complete signature because "what shape is
+     * it" is the question that follows "where is it" almost every time, and one
+     * round trip beats two. But it is not free: measured on `Route` in
+     * create-t3-turbo, the full answer is 1,561 bytes against 640 for a
+     * locate-only one — and when the caller genuinely only wants a path, the
+     * signature is context spent on a question nobody asked.
+     *
+     * So it is the CALLER's choice rather than ours, and the default does not
+     * move: an agent that knows it is only resolving a path can say so.
+     */
+    concise?: boolean;
+}
+declare function findSymbol(scan: RepoScan, namePath: string, opts?: FindSymbolOptions): SymbolMatch[];
+interface SymbolReferences {
+    defs: CodeSymbol[];
+    callSites: (CallerSite & {
+        def?: string;
+    })[];
+    referencingFiles: string[];
+}
+declare function findReferences(scan: RepoScan, ref: string): SymbolReferences;
+
+interface EditResult {
+    file: string;
+    startLine: number;
+    endLine: number;
+    lines: number;
+    warnings?: string[];
+}
+interface EditOptions {
+    line?: number;
+    strict?: boolean;
+}
+declare function resolveUniqueSymbol(scan: RepoScan, namePath: string, file?: string, line?: number): CodeSymbol;
+declare function replaceSymbolBody(scan: RepoScan, namePath: string, body: string, file?: string, opts?: EditOptions): EditResult;
+declare function insertAfterSymbol(scan: RepoScan, namePath: string, body: string, file?: string, opts?: EditOptions): EditResult;
+declare function insertBeforeSymbol(scan: RepoScan, namePath: string, body: string, file?: string, opts?: EditOptions): EditResult;
+
+declare function writeMemory(repo: string, name: string, content: string): string;
+declare function readMemory(repo: string, name: string): string | undefined;
+declare function memoryRefusal(repo: string, name: string): string | undefined;
+declare function deleteMemory(repo: string, name: string): boolean;
+declare function listMemories(repo: string): string[];
+
+type WorkspaceKind = "npm" | "pnpm" | "lerna" | "nx" | "cargo" | "go" | "maven" | "uv" | "composer" | "gradle";
+interface WorkspacePackage {
+    name: string;
+    dir: string;
+    kind: WorkspaceKind;
+    manifest: string;
+    description?: string;
+    dependsOn?: string[];
+}
+interface WorkspaceInfo {
+    packages: WorkspacePackage[];
+    cycle?: string[];
+    topoOrder: string[];
+    warnings: string[];
+    packageOf(rel: string): WorkspacePackage | undefined;
+}
+declare function detectWorkspaces(root: string): WorkspaceInfo;
+
+declare function pagerankOf(ids: string[], edges: Edge[], damping?: number): Map<string, number>;
+declare function betweennessOf(ids: string[], edges: Edge[]): Map<string, number>;
+declare function applyCentrality(graph: Graph): string[];
+
+declare function communityOf(graph: Graph, slug: string): number | undefined;
+declare function detectCommunities(modules: ModuleNode[], edges: Edge[], previous?: Record<string, string[]>): Map<string, number>;
+
+declare function isTestPath(rel: string): boolean;
+interface TestMap {
+    testFiles: Set<string>;
+    testedByFile: Map<string, string[]>;
+    testedByModule: Map<string, string[]>;
+}
+declare function computeTestMap(graph: Graph): TestMap;
+declare function testsForModule(graph: Graph, slug: string): string[];
+declare function untestedModules(graph: Graph): ModuleNode[];
+
+declare function computeSurprises(graph: Graph): SurpriseEdge[];
+declare function isSurprising(graph: Graph, from: string, to: string): boolean;
+
+declare function computeSymbolRefs(scan: RepoScan): Map<string, Set<string>>;
+declare function buildSymbolIndex(scan: RepoScan, refs?: Map<string, Set<string>>, schemaVersion?: number): SymbolIndex;
+declare function renderSymbolsJson(index: SymbolIndex): string;
+
+declare function renderGraphJson(graph: Graph): string;
+
+interface RenderScipOptions {
+    projectRoot?: string;
+    toolVersion?: string;
+}
+declare function renderScip(scan: RepoScan, opts?: RenderScipOptions): Uint8Array;
+
+declare function headCommit(dir: string): string | undefined;
+interface DiffFile {
+    path: string;
+    status: "added" | "modified" | "deleted" | "renamed";
+    oldPath?: string;
+    binary?: boolean;
+    linesAdded?: number;
+    linesDeleted?: number;
+}
+interface Hunk {
+    start: number;
+    end: number;
+    approx?: boolean;
+}
+interface DiffSpec {
+    mergeBase?: string;
+    staged?: boolean;
+}
+declare function isGitWorktree(dir: string): boolean;
+declare function resolveBaseRef(dir: string, base?: string): {
+    ref: string;
+    mergeBase: string;
+    note?: string;
+} | {
+    error: string;
+};
+declare function diffFiles(dir: string, spec: DiffSpec): DiffFile[];
+declare function diffHunks(dir: string, spec: DiffSpec): Map<string, Hunk[]>;
+declare function untrackedFiles(dir: string): string[];
+interface ChurnResult {
+    churn: Map<string, number>;
+    ok: boolean;
+    error?: string;
+    shallow?: boolean;
+    commits: number;
+}
+declare function gitChurn(dir: string, opts?: {
+    since?: string;
+}): ChurnResult;
+declare function changedSince(dir: string, ref: string): Set<string>;
+
+interface SearchHit {
+    file: string;
+    line: number;
+    col: number;
+    text: string;
+}
+interface GrepOptions {
+    globs?: string[];
+    scope?: string;
+    maxHits?: number;
+    ignoreCase?: boolean;
+    filesWithMatches?: boolean;
+    gitignore?: boolean;
+    ignoreDirs?: string[];
+    maxFileBytes?: number;
+    timeoutMs?: number;
+    noRipgrep?: boolean;
+}
+interface GrepResult {
+    hits: SearchHit[];
+    truncated: boolean;
+    filesMatched: number;
+    timedOut: boolean;
+    notes: string[];
+}
+declare function grepRepoEx(root: string, pattern: string, opts?: GrepOptions): GrepResult;
+declare function grepRepo(root: string, pattern: string, opts?: GrepOptions): SearchHit[];
+
+interface ShResult {
+    ok: boolean;
+    status: number | null;
+    stdout: string;
+    stderr: string;
+    missing: boolean;
+    errorCode?: string;
+}
+declare function sh(cmd: string, args: string[], opts?: {
+    cwd?: string;
+    input?: string;
+    timeoutMs?: number;
+    env?: Record<string, string | undefined>;
+    maxBufferBytes?: number;
+}): ShResult;
+declare function have(cmd: string): boolean;
+declare function slugify(input: string): string;
+declare function clip(s: string, max: number): string;
+declare function clipInline(s: string, max: number): string;
+declare function escapeRegExp(s: string): string;
+declare function foldText(s: string): string;
+declare function keywords(question: string, keep?: (raw: string) => boolean): string[];
+declare function rankedKeywords(question: string): string[];
+declare function rrf<T>(lists: T[][], keyOf: (item: T) => string, k?: number): Map<string, number>;
+declare function subtokens(raw: string): string[];
+
+declare const FIELDS: readonly ["name", "path", "heading", "summary", "doc", "body"];
+type Field = (typeof FIELDS)[number];
+type RankMode = "graph" | "lexical";
+interface SearchOptions {
+    limit?: number;
+    fuzzy?: boolean;
+    exact?: boolean;
+    rank?: RankMode;
+}
+/** A specific declaration a result matched, so a caller can jump straight to it. */
+interface SymbolHit$1 {
+    name: string;
+    kind: string;
+    line: number;
+}
+interface SearchResult {
+    file: string;
+    score: number;
+    matchedTerms: string[];
+    topSymbols: string[];
+    matchedFields?: Field[];
+    line?: number;
+    symbolHits?: SymbolHit$1[];
+    fuzzyTerms?: string[];
+    bridgedOnly?: true;
+}
+/**
+ * Whether the query really found anything, as one word.
+ *
+ * `weak` is the case this whole diagnostic exists for. Searching `nullGipStep7`
+ * against a repo that has `nullGipStep2` returns twenty results at scores no
+ * different from a real hit, because `subtokens` splits the identifier into
+ * ["nullgipstep7", "null", "gip", "step7"] and the subtokens match plenty of
+ * files on their own. The one token that mattered — the whole identifier — has
+ * df 0, no bridge, and appeared in NO output field at all. A caller could not
+ * tell "found it" from "found nothing and improvised".
+ */
+type QueryVerdict = "match" | "weak" | "none";
+interface TermDiagnostic {
+    term: string;
+    df: number;
+    /** How a df==0 term still earned score, when it did. Absent when df > 0. */
+    bridge?: {
+        via: "stem" | "trigram";
+        to: string[];
+        dice: number;
+    };
+}
+interface QueryExplanation {
+    query: string;
+    /** Post keywords() + subtokens(), in query order. */
+    terms: TermDiagnostic[];
+    /**
+     * Raw tokens keywords() discarded as stopwords or 1-char noise, in order. A
+     * stopword the query searched for after all — the query's only word, or a
+     * capitalised name the corpus declares — is not listed.
+     */
+    droppedStopwords: string[];
+    /** df==0 AND no stem/trigram bridge — present in the repo nowhere, sorted. */
+    unresolvedTerms: string[];
+    /**
+     * For a single-token query, the whole lowercased identifier with its df.
+     * df 0 here means the thing asked for is not in this tree, whatever the
+     * rows below say.
+     */
+    wholeIdentifier?: {
+        term: string;
+        df: number;
+    };
+    verdict: QueryVerdict;
+    /** A sentence a human or an agent can act on. Absent when verdict is "match". */
+    note?: string;
+    bridgedOnlyResults: number;
+    resultCount: number;
+}
+interface ExplainedSearch {
+    results: SearchResult[];
+    explain: QueryExplanation;
+}
+/**
+ * Rank the scanned files against a natural-language (or identifier) query.
+ * Pure and deterministic: same scan + query + options → the same results,
+ * byte-for-byte.
+ */
+declare function searchIndex(scan: RepoScan, query: string, opts?: SearchOptions): SearchResult[];
+/**
+ * `searchIndex` plus the diagnostics it throws away, in ONE pass.
+ *
+ * `explainQuery(scan, q, o).results` is `searchIndex(scan, q, o)`, asserted by
+ * a test rather than promised by a comment — they are literally the same code
+ * path, which is why the ranking cannot drift between them.
+ */
+declare function explainQuery(scan: RepoScan, query: string, opts?: SearchOptions): ExplainedSearch;
+
+declare const EMBED_VERSION = 4;
+interface StaticEmbedModel {
+    modelId: string;
+    dim: number;
+    unk: string;
+    unkId: number;
+    vocabSize: number;
+    vocab: Map<string, number>;
+    weights: Float64Array;
+}
+declare function resolveEmbedModelDir(repo?: string): string | undefined;
+declare function hasEmbedModel(repo?: string): boolean;
+declare function loadEmbedModel(dir?: string): StaticEmbedModel | undefined;
+interface EmbedPullTarget {
+    url: string;
+    sha256?: string;
+}
+declare function resolveEmbedPullUrl(): EmbedPullTarget;
+
+declare function basicTokenize(text: string): string[];
+declare function wordpiece(word: string, model: StaticEmbedModel): number[];
+declare function tokenize(text: string, model: StaticEmbedModel): number[];
+declare function roundHalfToEven(x: number): number;
+declare function quantize(vec: ArrayLike<number>): Int8Array;
+declare function encode(model: StaticEmbedModel, text: string): Int8Array;
+declare function intDot(a: Int8Array, b: Int8Array): number;
+
+interface EmbeddingRecord {
+    file: string;
+    symbol?: string;
+    line?: number;
+    textHash?: string;
+    vec: Int8Array;
+}
+interface EmbeddingIndex {
+    embedVersion: number;
+    modelId: string;
+    dim: number;
+    records: EmbeddingRecord[];
+}
+interface EmbeddingUnit {
+    file: string;
+    symbol?: string;
+    line?: number;
+    text: string;
+}
+declare function unitHash(text: string): string;
+declare function embeddingUnits(scan: RepoScan): EmbeddingUnit[];
+declare function buildEmbeddingIndex(scan: RepoScan, model: StaticEmbedModel, opts?: {
+    previous?: EmbeddingIndex;
+}): EmbeddingIndex;
+declare function serializeEmbeddings(index: EmbeddingIndex): Uint8Array;
+declare function deserializeEmbeddings(bytes: Uint8Array): EmbeddingIndex;
+
+interface SemanticSearchOptions extends SearchOptions {
+    model?: StaticEmbedModel;
+    queryVec?: Int8Array;
+    rrfK?: number;
+}
+interface SemanticSearchResult extends SearchResult {
+    semanticSymbol?: string;
+}
+interface SemanticQueryExplanation extends QueryExplanation {
+    /** Rows only the embedding side found — no lexical match at all. */
+    semanticOnlyResults: number;
+}
+interface ExplainedSemanticSearch {
+    results: SemanticSearchResult[];
+    explain: QueryExplanation | SemanticQueryExplanation;
+}
+declare function explainSemantic(scan: RepoScan, query: string, index: EmbeddingIndex | undefined, opts?: SemanticSearchOptions): ExplainedSemanticSearch;
+declare function searchSemantic(scan: RepoScan, query: string, index: EmbeddingIndex | undefined, opts?: SemanticSearchOptions): SemanticSearchResult[];
+
+interface EmbedEndpointOptions {
+    url?: string;
+    timeoutMs?: number;
+    headers?: Record<string, string>;
+    batchSize?: number;
+    concurrency?: number;
+    maxResponseBytes?: number;
+}
+declare function resolveEmbedEndpoint(opts?: EmbedEndpointOptions): string | undefined;
+declare function embedEndpointUrl(base: string): string;
+declare function healthzUrl(base: string): string;
+declare function embedViaEndpoint(texts: string[], opts?: EmbedEndpointOptions): Promise<number[][]>;
+declare function probeEndpoint(base: string, opts?: EmbedEndpointOptions): Promise<boolean>;
+declare function encodeQueryViaEndpoint(query: string, opts?: EmbedEndpointOptions): Promise<Int8Array>;
+declare function endpointModelId(opts?: EmbedEndpointOptions): Promise<string>;
+declare function buildEndpointIndex(scan: RepoScan, opts?: EmbedEndpointOptions & {
+    previous?: EmbeddingIndex;
+    modelId?: string;
+}): Promise<EmbeddingIndex>;
+
+interface OnboardOptions {
+    /** Token budget for the repo-map section (default 900). */
+    budgetTokens?: number;
+    /** Persist the brief as a memory (default true). */
+    remember?: boolean;
+    /** Memory name (default "onboarding"). */
+    memoryName?: string;
+}
+interface OnboardBrief {
+    /** The rendered brief, markdown. */
+    brief: string;
+    /** Where it was persisted, when it was. */
+    memory?: string;
+    /** Why it could not be persisted (a read-only checkout, a symlinked .codeindex). */
+    memoryError?: string;
+}
+/**
+ * Compose a project brief from the analyses this engine already computes.
+ *
+ * Deterministic apart from the git section, which is skipped wholesale when
+ * this is not a git checkout rather than emitted empty — a heading with nothing
+ * under it reads as "no churn", which is a different claim from "not measured".
+ */
+declare function onboardBrief(scan: RepoScan, graph: Graph, opts?: OnboardOptions): OnboardBrief;
+
+interface LspMessage {
+    jsonrpc: "2.0";
+    id?: number | string;
+    method?: string;
+    params?: unknown;
+    result?: unknown;
+    error?: {
+        code: number;
+        message: string;
+    };
+}
+/** A reference the LSP reported, normalised to the engine's 1-based lines. */
+interface LspRef {
+    /** Repo-relative, posix separators — the same key every other artifact uses. */
+    file: string;
+    line: number;
+    character?: number;
+}
+/** A call site, distinct from the declaration of the function making it. */
+interface LspIncomingCall extends LspRef {
+    caller: LspRef & {
+        name: string;
+        kind: number;
+    };
+}
+/**
+ * The largest frame this client will assemble, in bytes.
+ *
+ * Not a performance knob: a malformed or hostile `Content-Length` is otherwise
+ * an unbounded allocation driven by a process the user configured but did not
+ * write. 32 MiB is far above any real `textDocument/references` response.
+ */
+declare const MAX_FRAME_BYTES: number;
+declare function encodeMessage(msg: LspMessage): string;
+/**
+ * An incremental frame reader.
+ *
+ * Feed it whatever arrives; it returns the messages that are complete. Buffers
+ * BYTES rather than a string, because decoding each chunk on arrival is what
+ * corrupts a multi-byte character split across two chunks.
+ */
+declare function createFramer(): {
+    push(chunk: Uint8Array | string): LspMessage[];
+};
+/** `file:///abs/path` for a repo-relative path, percent-encoding each segment. */
+declare function fileUri(root: string, rel: string): string;
+/**
+ * The inverse, or undefined when the URI points outside the repository.
+ *
+ * `root` may be several spellings of one directory: a server reports
+ * realpath'd URIs (tsserver, pyright) while --repo is only resolve()d, so
+ * under /tmp (really /private/tmp on macOS) or a symlinked checkout every
+ * reference read as outside the repo and was dropped. The caller passes the
+ * real path too; this module stays free of the filesystem.
+ */
+declare function relFromUri(root: string | readonly string[], uri: string): string | undefined;
+/**
+ * Normalise whatever `textDocument/references` or `textDocument/definition`
+ * returned into engine coordinates.
+ *
+ * Handles all three shapes the spec permits — a single Location, an array of
+ * Locations, and an array of LocationLinks — because which one you get is a
+ * per-server, per-request choice, and a client that assumes one silently
+ * returns nothing against the others.
+ *
+ * LSP lines are 0-based; every line number in this engine is 1-based. Output is
+ * deduped and sorted so an LSP answer is as deterministic as a static one, even
+ * though the server's ordering is not guaranteed.
+ */
+declare function locationsToRefs(root: string | readonly string[], raw: unknown): LspRef[];
+
+interface LspTransport {
+    write(chunk: string): void;
+    onData(cb: (chunk: Uint8Array | string) => void): void;
+    /** Fired when the far side goes away, however it went away. */
+    onExit(cb: (code: number | null) => void): void;
+    close(): void;
+    /** The last non-empty line the far side wrote to stderr, when there is one. */
+    lastError?(): string | undefined;
+    /** Kill the far side NOW, synchronously — for a host that is exiting. */
+    kill?(): void;
+}
+interface LspSessionOptions {
+    /** Absolute repository root; every URI is built against it. */
+    root: string;
+    /**
+     * Other spellings of the same root a server may answer with — its real
+     * path, when `root` goes through a symlink (/tmp on macOS). Answers under
+     * any of them are read as the repository's.
+     */
+    rootAliases?: readonly string[];
+    timeoutMs?: number;
+    startupTimeoutMs?: number;
+    initializationOptions?: unknown;
+}
+interface LspCapabilities {
+    references: boolean;
+    definition: boolean;
+    implementation: boolean;
+    typeHierarchy: boolean;
+    callHierarchy: boolean;
+}
+interface LspSession {
+    readonly capabilities: LspCapabilities;
+    didOpen(rel: string, text: string, languageId: string): void;
+    references(rel: string, line: number, character: number): Promise<LspRef[]>;
+    definition(rel: string, line: number, character: number): Promise<LspRef[]>;
+    incomingCalls(rel: string, line: number, character: number): Promise<LspIncomingCall[]>;
+    shutdown(): Promise<void>;
+    /** False once the server died or the session was shut down. */
+    alive(): boolean;
+}
+/** Thrown when a request outlives its budget. Named so callers can tell it apart. */
+declare class LspTimeout extends Error {
+    constructor(method: string, ms: number);
+}
+declare function openLspSession(transport: LspTransport, options: LspSessionOptions): Promise<LspSession>;
+
+interface LspServerConfig {
+    /** Stable id, used in `source` labels and in `lsp status`. */
+    id: string;
+    /** Engine `lang` strings (see src/lang/registry.ts), not LSP language ids. */
+    languages: string[];
+    /** What `didOpen` announces. Defaults to each declaration's language. */
+    languageId?: string;
+    command: string;
+    args?: string[];
+    env?: Record<string, string>;
+    initializationOptions?: unknown;
+    /** Per-request budget, ms (default 5000). */
+    timeoutMs?: number;
+    /** How long `initialize` may take, ms (default 15000). */
+    startupTimeoutMs?: number;
+}
+interface LspConfig {
+    version: 1;
+    servers: LspServerConfig[];
+}
+type LspConfigSource = "env" | "repo" | "cwd" | "user" | "none";
+interface ResolvedLspConfigPath {
+    path: string | undefined;
+    source: LspConfigSource;
+    /** A repo (or cwd) config left unread because it was not trusted. */
+    ignored?: string;
+}
+/** Whether a repository may configure the commands the LSP tier spawns. */
+interface LspTrust {
+    /** `--trust-lsp-config`; CODEINDEX_TRUST_LSP_CONFIG=1 grants it too. */
+    trustRepoConfig?: boolean;
+}
+/**
+ * Resolution ladder: an explicit env var wins outright; then the repo, then
+ * the working directory — both only when trusted (see TRUST above); then the
+ * per-user config.
+ *
+ * `CODEINDEX_LSP_CONFIG` set to an empty string, `0` or `off` DISABLES the tier
+ * even when a repo config exists — the escape hatch for a CI job that must not
+ * spawn anything, without deleting a file the rest of the team relies on.
+ */
+declare function resolveLspConfigPath(repo: string, trust?: LspTrust): ResolvedLspConfigPath;
+/** Validate a parsed payload, throwing with the field that is wrong. */
+declare function parseLspConfig(payload: unknown): LspConfig;
+/**
+ * The config for a repository, or undefined when the tier was not asked for.
+ *
+ * NEVER THROWS on an absent file — absent is the normal case and must cost
+ * nothing. A file that exists but is malformed DOES throw, because at that
+ * point someone asked for the tier and silently ignoring their config is worse
+ * than failing: they would spend the afternoon wondering why nothing improved.
+ */
+declare function loadLspConfig(repo: string, trust?: LspTrust): LspConfig | undefined;
+/** The server that claims a language, or undefined. First match wins. */
+declare function serverForLang(config: LspConfig, lang: string): LspServerConfig | undefined;
+
+interface LspAgreement {
+    /** Files both tiers report — corroborated by two independent methods. */
+    both: string[];
+    /** Files only the language server found — the static tier under-recalled. */
+    lspOnly: string[];
+    /** Files only the static tier found — where the homonyms are. */
+    staticOnly: string[];
+}
+interface LspBlock {
+    server: string;
+    ok: boolean;
+    /**
+     * The server kept answering with declarations only although the static tier
+     * found call sites: it may still be indexing, or those sites are homonyms.
+     */
+    partial?: true;
+    /** Why it could not answer (`ok` false), or why the answer looks partial. */
+    reason?: string;
+    refs: LspRef[];
+    agreement: LspAgreement;
+}
+interface LspReferences extends SymbolReferences {
+    lsp?: LspBlock;
+}
+/** An `lsp` block for a tier that could not run, with the reason named. */
+declare function lspUnavailable(server: string, reason: string): LspBlock;
+/**
+ * A symbol's column on its declaration line.
+ *
+ * CodeSymbol carries `line`/`endLine` and no column (src/types.ts), because a
+ * column is worth nothing to any other consumer and persisting one would widen
+ * every artifact. LSP needs `{line, character}`, so it is derived HERE, from
+ * the source, and never stored.
+ *
+ * Returns 0 when the name is not on that line — a position a server will simply
+ * find no references for, which is the right failure: an empty LSP answer that
+ * leaves the static tiers untouched.
+ */
+declare function columnOfSymbol(root: string, rel: string, line: number, name: string): number;
+/** Cross the two answers into the agreement matrix, deterministically. */
+declare function agreementOf(refs: LspRef[], statik: SymbolReferences): LspAgreement;
+
+interface LspCallersBlock {
+    server: string;
+    ok: boolean;
+    /** No incoming calls although the static tier found callers (see LspBlock). */
+    partial?: true;
+    reason?: string;
+    calls: LspIncomingCall[];
+    agreement: LspAgreement;
+}
+type LspCallers<T extends object> = T & {
+    lsp?: LspCallersBlock;
+};
+
+type OpenResult = {
+    ok: true;
+    session: LspSession;
+    transport: LspTransport;
+} | {
+    ok: false;
+    reason: string;
+};
+/** What a query gets to work with, pooled or not. */
+interface LspLease {
+    session: LspSession;
+    /**
+     * The session has already given an answer beyond bare declarations, so its
+     * index is built: a declaration-only answer from it is believed rather than
+     * retried as a server that is still warming up.
+     */
+    readonly warm: boolean;
+    markWarm(): void;
+}
+type LeaseResult<T> = {
+    ok: true;
+    value: T;
+} | {
+    ok: false;
+    reason: string;
+};
+interface LspPoolOptions {
+    /** Close a session after this long without a query, ms (default 5 min). */
+    idleMs?: number;
+    /** How a session is opened; tests inject one. */
+    open?: (server: LspServerConfig, root: string) => Promise<OpenResult>;
+}
+declare class LspSessionPool {
+    private readonly entries;
+    private readonly idleMs;
+    private readonly open;
+    private readonly live;
+    private readonly killAll;
+    private hooked;
+    private closed;
+    constructor(options?: LspPoolOptions);
+    /** Live sessions, for tests and status. */
+    get size(): number;
+    use<T>(server: LspServerConfig, root: string, stamp: string, fn: (lease: LspLease) => Promise<T>, retried?: boolean): Promise<LeaseResult<T>>;
+    /** Shut every session down. The host calls this when it stops. */
+    close(): Promise<void>;
+    private retire;
+    private shutdown;
+    private readonly onSignal;
+    private hook;
+    /** Drop the hooks once nothing they could kill is left. */
+    private unhook;
+}
+
+/** How a query reaches its servers, and whether the repo may configure them. */
+interface LspQueryOptions extends LspTrust {
+    /**
+     * Reuse sessions across queries (the MCP server passes its own). Without
+     * one, each query opens a fresh session and shuts it down before returning.
+     */
+    pool?: LspSessionPool;
+}
+interface LspServerStatus {
+    id: string;
+    languages: string[];
+    command: string;
+    /** `have(command)` — resolvable on PATH. No spawn. */
+    onPath: boolean;
+    /** Files in this scan whose language this server claims. */
+    filesInRepo: number;
+    /** --probe only: did `initialize` succeed, and what did it advertise. */
+    reachable?: boolean;
+    capabilities?: LspCapabilities;
+    error?: string;
+}
+interface LspStatus {
+    lspVersion: 1;
+    mode: "none" | "configured";
+    configPath: string | null;
+    source: LspConfigSource;
+    /** A repository config left unread because it was not trusted, and why. */
+    ignoredConfig?: {
+        path: string;
+        reason: string;
+    };
+    servers: LspServerStatus[];
+    /** Languages present in the repo that no configured server claims. */
+    unmappedLanguages: string[];
+}
+/**
+ * What the tier would do, without doing it.
+ *
+ * The default answer is cheap and spawns NOTHING: config, `have()`, and file
+ * counts. `probe` is the part that starts each server to read its real
+ * capabilities — the analogue of `probeEndpoint` in `embed status`, and like it,
+ * the only part that touches the outside world.
+ */
+declare function lspStatus(scan: RepoScan, repo: string, probe?: boolean, trust?: LspTrust): Promise<LspStatus>;
+/**
+ * `findReferences`, annotated by a language server when one can answer.
+ *
+ * The caller passes the static answer in, so this function CANNOT change it —
+ * a structural guarantee rather than a promise. The server is chosen by the
+ * language of the declarations that were found, which is why a repo with a
+ * TypeScript server configured still gets its Go references answered
+ * statically, silently and correctly.
+ */
+declare function referencesWithLsp(scan: RepoScan, repo: string, name: string, statik: SymbolReferences, options?: LspQueryOptions): Promise<LspReferences>;
+/** Incoming calls may exist even when the static caller index has no entry. */
+declare function callersWithLsp<T extends object>(scan: RepoScan, repo: string, name: string, statik: T, options?: LspQueryOptions): Promise<LspCallers<T>>;
+
+declare function spawnLspTransport(server: LspServerConfig, cwd: string): LspTransport | undefined;
+
+type RuleSeverity = "error" | "warn";
+interface ForbiddenEdgeRule {
+    name: string;
+    from: string | string[];
+    to: string | string[];
+    kind?: EdgeKind[];
+    severity?: RuleSeverity;
+    comment?: string;
+}
+interface BuiltinRule {
+    name: string;
+    builtin: "cycles" | "orphans" | "literals";
+    tiers?: LiteralDuplication["tier"][];
+    minFiles?: number;
+    minCount?: number;
+    includeTests?: boolean;
+    severity?: RuleSeverity;
+    comment?: string;
+}
+interface CheckRulesOptions {
+    scan?: RepoScan;
+}
+type ArchRule = ForbiddenEdgeRule | BuiltinRule;
+interface RuleViolation {
+    rule: string;
+    from: string;
+    to: string;
+    kind: EdgeKind | "cycle" | "orphan" | "literal" | "unmatched";
+    severity: RuleSeverity;
+    comment?: string;
+}
+declare function parseRules(input: unknown): ArchRule[];
+declare function checkRules(graph: Graph, rules: ArchRule[], opts?: CheckRulesOptions): RuleViolation[];
+
+interface ChangeCoupling {
+    a: string;
+    b: string;
+    together: number;
+    totalA: number;
+    totalB: number;
+    strength: number;
+    confidence: number;
+    linked?: boolean;
+}
+interface CouplingOptions {
+    since?: string;
+    maxCommitFiles?: number;
+    minTogether?: number;
+    maxPairs?: number;
+    graph?: Pick<Graph, "files" | "fileEdges">;
+    hidden?: boolean;
+}
+interface CouplingResult {
+    ok: boolean;
+    error?: string;
+    shallow?: boolean;
+    couplings: ChangeCoupling[];
+}
+declare function changeCoupling(dir: string, opts?: CouplingOptions): CouplingResult;
+interface Hotspot {
+    rel: string;
+    lines: number;
+    commits: number;
+    score: number;
+    test?: true;
+}
+declare function rankHotspots(scan: RepoScan, churn: Map<string, number>, top?: number): Hotspot[];
+
+interface RepoMapOptions {
+    budgetTokens?: number;
+    maxSymbolsPerFile?: number;
+    bare?: boolean;
+}
+declare function renderRepoMap(scan: RepoScan, graph: Graph, opts?: RepoMapOptions): string;
+
+interface DeadSymbol {
+    name: string;
+    file: string;
+    line: number;
+    kind: string;
+    tier: "unreferenced" | "uncalled";
+}
+interface DeadCodeOptions {
+    /** "callable" (default): functions, methods, classes, function-valued consts. "all": every exported kind. */
+    kinds?: "callable" | "all";
+    /** Also report symbols of tail files (examples, docs, fixtures, scripts). Test files stay roots. */
+    includeTail?: boolean;
+}
+declare function findDeadCode(scan: RepoScan, opts?: DeadCodeOptions): DeadSymbol[];
+
+interface LiteralFamily {
+    prefix: string;
+    members: LiteralDuplication[];
+    files: number;
+    count: number;
+}
+interface LiteralsReport {
+    duplications: LiteralDuplication[];
+    families: LiteralFamily[];
+}
+interface LiteralsOptions {
+    minFiles?: number;
+    minCount?: number;
+    includeTests?: boolean;
+    kinds?: ReadonlySet<CodeLiteral["kind"]>;
+}
+declare function findLiteralDuplications(scan: RepoScan, opts?: LiteralsOptions): LiteralsReport;
+
+/** Branch count + 1 over the code of `source`, its comments and strings aside. */
+declare function complexityOfSource(source: string, lang?: string): number;
+interface SymbolComplexity {
+    file: string;
+    name: string;
+    line: number;
+    endLine?: number;
+    complexity: number;
+}
+declare function symbolComplexity(scan: RepoScan, rel?: string, top?: number): SymbolComplexity[];
+interface RiskHotspot {
+    file: string;
+    complexity: number;
+    commits: number;
+    score: number;
+}
+declare function riskHotspots(scan: RepoScan, churn: Map<string, number>, top?: number): RiskHotspot[];
+
+interface MermaidOptions {
+    module?: string;
+    maxEdges?: number;
+}
+declare function renderMermaid(graph: Graph, opts?: MermaidOptions): string;
+interface ClusteredMermaidResult {
+    content: string;
+    shownModules: number;
+    totalModules: number;
+    shownEdges: number;
+    totalEdges: number;
+}
+interface ClusteredMermaidOptions {
+    maxModules?: number;
+    maxEdges?: number;
+    title?: string;
+}
+declare function renderMermaidClustered(graph: Graph, opts?: ClusteredMermaidOptions): ClusteredMermaidResult;
+
+declare function hubThreshold(degrees: number[]): number;
+interface ImpactedFile {
+    rel: string;
+    module: string;
+    depth: number;
+}
+interface ImpactResult {
+    target: string;
+    scope: "module" | "file";
+    seeds: string[];
+    files: ImpactedFile[];
+    modules: string[];
+    inferredDependents?: number;
+}
+interface ClosureOptions {
+    /** Leave out `call` edges inferred from a name alone (Edge.confidence "inferred"). */
+    skipInferred?: boolean;
+    /**
+     * Read a Go import as an import of the whole package. Go imports a
+     * directory, and the resolver lands it on ONE representative file of it, so
+     * without this the other files of a package have no importers at all: gin's
+     * render/render.go (the Render interface) showed no dependents while
+     * `render` had 61.
+     */
+    goPackages?: boolean;
+}
+declare function reverseClosure(edges: Edge[], seeds: string[], depth?: number, opts?: ClosureOptions): Map<string, number>;
+interface ImpactOptions {
+    /** Also follow `call` edges inferred from a name alone (default false: they are counted, not walked). */
+    includeInferred?: boolean;
+}
+declare function impactOf(graph: Graph, target: string, depth?: number, opts?: ImpactOptions): ImpactResult | undefined;
+interface NeighborLink {
+    node: string;
+    direction: "out" | "in";
+    kind: string;
+    weight: number;
+    depth: number;
+    confidence?: "extracted" | "inferred";
+}
+interface NeighborResult {
+    target: string;
+    scope: "module" | "file";
+    links: NeighborLink[];
+    members?: string[];
+}
+declare function neighborsOf(graph: Graph, target: string, depth?: number, kinds?: Set<string>): NeighborResult | undefined;
+
+interface DeltaOptions {
+    base?: string;
+    staged?: boolean;
+    depth?: number;
+    scan?: RepoScan;
+    indexDir?: string;
+}
+interface ChangedSymbol {
+    name: string;
+    kind: string;
+    exported: boolean;
+    line: number;
+    endLine?: number;
+    parent?: string;
+    approx?: boolean;
+}
+interface DeltaChange {
+    path: string;
+    status: DiffFile["status"];
+    oldPath?: string;
+    binary?: boolean;
+    linesAdded?: number;
+    linesDeleted?: number;
+    module?: string;
+    hunks: {
+        start: number;
+        end: number;
+    }[];
+    symbols: ChangedSymbol[];
+}
+interface DeltaModule$1 {
+    slug: string;
+    path: string;
+    score: number;
+    bucket: "HIGH" | "MEDIUM" | "LOW";
+    reasons: string[];
+    changedFiles: string[];
+    changedSymbols: {
+        total: number;
+        exported: number;
+    };
+    impact: {
+        directFiles: number;
+        transitiveFiles: number;
+        modules: string[];
+    };
+    tests: {
+        status: "covered" | "gap" | "n/a";
+        files: string[];
+    };
+    open: string[];
+}
+interface BrokenImport {
+    from: string;
+    spec: string;
+    kind: "import" | "doc-link";
+    target: string;
+    renamedTo?: string;
+}
+interface DeltaResult$1 {
+    base: {
+        ref: string;
+        mergeBase: string;
+        staged: boolean;
+    };
+    indexCommit?: string;
+    depth: number;
+    changes: DeltaChange[];
+    modules: DeltaModule$1[];
+    dangling: {
+        from: string;
+        spec: string;
+        reason: string;
+    }[];
+    broken: BrokenImport[];
+    deleted: string[];
+    unindexed: string[];
+    notes: string[];
+}
+type DeltaError$1 = {
+    error: string;
+};
+declare const RISK_WEIGHTS: {
+    readonly exportedChange: 25;
+    readonly hubHigh: 20;
+    readonly hubMed: 10;
+    readonly blastHigh: 20;
+    readonly blastMed: 10;
+    readonly testGap: 20;
+    readonly surprise: 10;
+    readonly dangling: 15;
+    readonly brokenImport: 40;
+};
+declare const DEFAULT_DELTA_DEPTH = 2;
+interface NamedDef {
+    name: string;
+    file: string;
+    line: number;
+    endLine?: number;
+    kind: string;
+    exported: boolean;
+    parent?: string;
+}
+declare function symbolsInHunks(defs: NamedDef[], hunks: Hunk[]): ChangedSymbol[];
+declare function brokenImports(scan: RepoScan, graph: Graph, removed: {
+    path: string;
+    renamedTo?: string;
+}[]): BrokenImport[];
+declare function computeDelta(graph: Graph, symbols: SymbolIndex | undefined, diff: {
+    files: DiffFile[];
+    hunks: Map<string, Hunk[]>;
+    base: DeltaResult$1["base"];
+    notes?: string[];
+    broken?: BrokenImport[];
+}, depth?: number): DeltaResult$1;
+interface DeltaDiff {
+    base: DeltaResult$1["base"];
+    files: DiffFile[];
+    hunks: Map<string, Hunk[]>;
+    notes: string[];
+}
+declare function readDeltaDiff(repo: string, opts?: DeltaOptions): DeltaDiff | DeltaError$1;
+declare function emptyDelta(diff: DeltaDiff, depth?: number): DeltaResult$1;
+declare function deltaOfDiff(diff: DeltaDiff, graph: Graph, symbols: SymbolIndex | undefined, opts?: DeltaOptions): DeltaResult$1;
+declare function deltaFor(repo: string, graph: Graph, symbols: SymbolIndex | undefined, opts?: DeltaOptions): DeltaResult$1 | DeltaError$1;
+declare function formatDeltaPanel(res: DeltaResult$1): string;
+
+interface McpServerOptions {
+    serverInfo?: {
+        name?: string;
+        version?: string;
+    };
+    defaultRepo?: string;
+    maxResponseBytes?: number;
+    profile?: string;
+    watch?: boolean;
+    trustLspConfig?: boolean;
+}
+declare function runMcpServer(opts?: McpServerOptions): Promise<void>;
+
+declare function rewriteCommand(cmd: string, bin?: string, cwd?: string): string | undefined;
+
+declare function sha1(s: string | Uint8Array): string;
+declare function shortHash(s: string, n?: number): string;
+
+declare function byStr(a: string, b: string): number;
+declare function byKey<T>(keyOf: (x: T) => string): (a: T, b: T) => number;
+
+declare function runCli(rawArgv: string[]): Promise<void>;
+
+type codeindexEngine_d_ArchRule = ArchRule;
+declare const codeindexEngine_d_BINARY_EXT: typeof BINARY_EXT;
+type codeindexEngine_d_BrokenImport = BrokenImport;
+type codeindexEngine_d_BuildIndexOptions = BuildIndexOptions;
+type codeindexEngine_d_BuiltinRule = BuiltinRule;
+declare const codeindexEngine_d_CORE_GRAMMARS: typeof CORE_GRAMMARS;
+type codeindexEngine_d_CallerEntry = CallerEntry;
+type codeindexEngine_d_CallerIndex = CallerIndex;
+type codeindexEngine_d_CallerIndexOptions = CallerIndexOptions;
+type codeindexEngine_d_CallerSite = CallerSite;
+type codeindexEngine_d_ChangeCoupling = ChangeCoupling;
+type codeindexEngine_d_ChangedSymbol = ChangedSymbol;
+type codeindexEngine_d_ClusteredMermaidOptions = ClusteredMermaidOptions;
+type codeindexEngine_d_ClusteredMermaidResult = ClusteredMermaidResult;
+type codeindexEngine_d_CodeInfo = CodeInfo;
+type codeindexEngine_d_CodeLiteral = CodeLiteral;
+type codeindexEngine_d_CodeSymbol = CodeSymbol;
+type codeindexEngine_d_CouplingOptions = CouplingOptions;
+declare const codeindexEngine_d_DEFAULT_DELTA_DEPTH: typeof DEFAULT_DELTA_DEPTH;
+declare const codeindexEngine_d_DEFAULT_GRAMMARS_URL: typeof DEFAULT_GRAMMARS_URL;
+declare const codeindexEngine_d_DEFAULT_MAX_FILES: typeof DEFAULT_MAX_FILES;
+type codeindexEngine_d_DeadCodeOptions = DeadCodeOptions;
+type codeindexEngine_d_DeadSymbol = DeadSymbol;
+type codeindexEngine_d_DeltaChange = DeltaChange;
+type codeindexEngine_d_DeltaDiff = DeltaDiff;
+type codeindexEngine_d_DeltaOptions = DeltaOptions;
+type codeindexEngine_d_DiffFile = DiffFile;
+type codeindexEngine_d_DiffSpec = DiffSpec;
+type codeindexEngine_d_Direction = Direction;
+declare const codeindexEngine_d_EMBED_VERSION: typeof EMBED_VERSION;
+declare const codeindexEngine_d_ENGINE_VERSION: typeof ENGINE_VERSION;
+declare const codeindexEngine_d_EXTENDED_GRAMMARS: typeof EXTENDED_GRAMMARS;
+declare const codeindexEngine_d_EXTRACTOR_VERSION: typeof EXTRACTOR_VERSION;
+declare const codeindexEngine_d_EXT_GRAMMAR: typeof EXT_GRAMMAR;
+type codeindexEngine_d_Edge = Edge;
+type codeindexEngine_d_EdgeKind = EdgeKind;
+type codeindexEngine_d_EditResult = EditResult;
+type codeindexEngine_d_EmbedEndpointOptions = EmbedEndpointOptions;
+type codeindexEngine_d_EmbedPullTarget = EmbedPullTarget;
+type codeindexEngine_d_EmbeddingIndex = EmbeddingIndex;
+type codeindexEngine_d_EmbeddingRecord = EmbeddingRecord;
+type codeindexEngine_d_EmbeddingUnit = EmbeddingUnit;
+type codeindexEngine_d_Encoding = Encoding;
+type codeindexEngine_d_ExplainedSearch = ExplainedSearch;
+type codeindexEngine_d_ExplainedSemanticSearch = ExplainedSemanticSearch;
+type codeindexEngine_d_ExtractedRecord = ExtractedRecord;
+type codeindexEngine_d_FileCategory = FileCategory;
+type codeindexEngine_d_FileKind = FileKind;
+type codeindexEngine_d_FileNode = FileNode;
+type codeindexEngine_d_FileRecord = FileRecord;
+type codeindexEngine_d_FindSymbolOptions = FindSymbolOptions;
+type codeindexEngine_d_ForbiddenEdgeRule = ForbiddenEdgeRule;
+type codeindexEngine_d_GrammarsPullResult = GrammarsPullResult;
+type codeindexEngine_d_GrammarsPullTarget = GrammarsPullTarget;
+type codeindexEngine_d_GrammarsTier = GrammarsTier;
+type codeindexEngine_d_GrammarsTierName = GrammarsTierName;
+type codeindexEngine_d_Graph = Graph;
+type codeindexEngine_d_GrepOptions = GrepOptions;
+type codeindexEngine_d_GrepResult = GrepResult;
+type codeindexEngine_d_HierarchyRef = HierarchyRef;
+type codeindexEngine_d_Hotspot = Hotspot;
+type codeindexEngine_d_Hunk = Hunk;
+declare const codeindexEngine_d_IGNORE_DIRS: typeof IGNORE_DIRS;
+declare const codeindexEngine_d_INDEX_DIR: typeof INDEX_DIR;
+type codeindexEngine_d_IgnoreRule = IgnoreRule;
+type codeindexEngine_d_ImpactResult = ImpactResult;
+type codeindexEngine_d_ImpactedFile = ImpactedFile;
+type codeindexEngine_d_IndexArtifacts = IndexArtifacts;
+type codeindexEngine_d_IndexStaleness = IndexStaleness;
+type codeindexEngine_d_IndexStatus = IndexStatus;
+type codeindexEngine_d_IndexStatusOptions = IndexStatusOptions;
+declare const codeindexEngine_d_LOCKFILES: typeof LOCKFILES;
+type codeindexEngine_d_LiteralDuplication = LiteralDuplication;
+type codeindexEngine_d_LiteralFamily = LiteralFamily;
+type codeindexEngine_d_LiteralSite = LiteralSite;
+type codeindexEngine_d_LiteralsOptions = LiteralsOptions;
+type codeindexEngine_d_LiteralsReport = LiteralsReport;
+type codeindexEngine_d_LspAgreement = LspAgreement;
+type codeindexEngine_d_LspBlock = LspBlock;
+type codeindexEngine_d_LspCallers<T extends object> = LspCallers<T>;
+type codeindexEngine_d_LspCallersBlock = LspCallersBlock;
+type codeindexEngine_d_LspCapabilities = LspCapabilities;
+type codeindexEngine_d_LspConfig = LspConfig;
+type codeindexEngine_d_LspConfigSource = LspConfigSource;
+type codeindexEngine_d_LspIncomingCall = LspIncomingCall;
+type codeindexEngine_d_LspMessage = LspMessage;
+type codeindexEngine_d_LspQueryOptions = LspQueryOptions;
+type codeindexEngine_d_LspRef = LspRef;
+type codeindexEngine_d_LspReferences = LspReferences;
+type codeindexEngine_d_LspServerConfig = LspServerConfig;
+type codeindexEngine_d_LspServerStatus = LspServerStatus;
+type codeindexEngine_d_LspSession = LspSession;
+type codeindexEngine_d_LspSessionOptions = LspSessionOptions;
+type codeindexEngine_d_LspSessionPool = LspSessionPool;
+declare const codeindexEngine_d_LspSessionPool: typeof LspSessionPool;
+type codeindexEngine_d_LspStatus = LspStatus;
+type codeindexEngine_d_LspTimeout = LspTimeout;
+declare const codeindexEngine_d_LspTimeout: typeof LspTimeout;
+type codeindexEngine_d_LspTransport = LspTransport;
+declare const codeindexEngine_d_MARKDOWN_EXT: typeof MARKDOWN_EXT;
+declare const codeindexEngine_d_MAX_FRAME_BYTES: typeof MAX_FRAME_BYTES;
+type codeindexEngine_d_MarkdownInfo = MarkdownInfo;
+type codeindexEngine_d_McpServerOptions = McpServerOptions;
+type codeindexEngine_d_MermaidOptions = MermaidOptions;
+type codeindexEngine_d_ModuleInfo = ModuleInfo;
+type codeindexEngine_d_ModuleNode = ModuleNode;
+type codeindexEngine_d_NeighborLink = NeighborLink;
+type codeindexEngine_d_NeighborResult = NeighborResult;
+type codeindexEngine_d_Neighborhood = Neighborhood;
+type codeindexEngine_d_OffsetMap = OffsetMap;
+declare const codeindexEngine_d_OffsetMap: typeof OffsetMap;
+type codeindexEngine_d_OnboardBrief = OnboardBrief;
+type codeindexEngine_d_OnboardOptions = OnboardOptions;
+type codeindexEngine_d_PathVerdict = PathVerdict;
+type codeindexEngine_d_PathVerdictReason = PathVerdictReason;
+type codeindexEngine_d_PersistedCacheEntry = PersistedCacheEntry;
+type codeindexEngine_d_PersistedCacheMap = PersistedCacheMap;
+type codeindexEngine_d_PersistedMeta = PersistedMeta;
+type codeindexEngine_d_QueryExplanation = QueryExplanation;
+type codeindexEngine_d_QueryVerdict = QueryVerdict;
+declare const codeindexEngine_d_RISK_WEIGHTS: typeof RISK_WEIGHTS;
+type codeindexEngine_d_RawCallerIndex = RawCallerIndex;
+type codeindexEngine_d_RawCallerSite = RawCallerSite;
+type codeindexEngine_d_RawRef = RawRef;
+type codeindexEngine_d_RawRelation = RawRelation;
+type codeindexEngine_d_RenderScipOptions = RenderScipOptions;
+type codeindexEngine_d_RepoMapOptions = RepoMapOptions;
+type codeindexEngine_d_RepoScan = RepoScan;
+type codeindexEngine_d_Resolution = Resolution;
+type codeindexEngine_d_ResolveContext = ResolveContext;
+type codeindexEngine_d_ResolvedRelation = ResolvedRelation;
+type codeindexEngine_d_RiskHotspot = RiskHotspot;
+type codeindexEngine_d_RuleSeverity = RuleSeverity;
+type codeindexEngine_d_RuleViolation = RuleViolation;
+type codeindexEngine_d_ScanOptions = ScanOptions;
+type codeindexEngine_d_ScanSkip = ScanSkip;
+type codeindexEngine_d_ScanSummary = ScanSummary;
+type codeindexEngine_d_SearchHit = SearchHit;
+type codeindexEngine_d_SearchOptions = SearchOptions;
+type codeindexEngine_d_SearchResult = SearchResult;
+type codeindexEngine_d_SemanticQueryExplanation = SemanticQueryExplanation;
+type codeindexEngine_d_SemanticSearchOptions = SemanticSearchOptions;
+type codeindexEngine_d_SemanticSearchResult = SemanticSearchResult;
+type codeindexEngine_d_ShResult = ShResult;
+type codeindexEngine_d_StaticEmbedModel = StaticEmbedModel;
+type codeindexEngine_d_SurpriseEdge = SurpriseEdge;
+type codeindexEngine_d_SymbolComplexity = SymbolComplexity;
+type codeindexEngine_d_SymbolEdge = SymbolEdge;
+type codeindexEngine_d_SymbolEdgeKind = SymbolEdgeKind;
+type codeindexEngine_d_SymbolGraph = SymbolGraph;
+type codeindexEngine_d_SymbolIndex = SymbolIndex;
+type codeindexEngine_d_SymbolMatch = SymbolMatch;
+type codeindexEngine_d_SymbolNode = SymbolNode;
+type codeindexEngine_d_SymbolReferences = SymbolReferences;
+type codeindexEngine_d_TagDefinition = TagDefinition;
+type codeindexEngine_d_TagsQueryStatus = TagsQueryStatus;
+type codeindexEngine_d_TermDiagnostic = TermDiagnostic;
+type codeindexEngine_d_TestMap = TestMap;
+type codeindexEngine_d_TextRead = TextRead;
+type codeindexEngine_d_Tier = Tier;
+type codeindexEngine_d_TypeHierarchyEntry = TypeHierarchyEntry;
+declare const codeindexEngine_d_UNNAMED_RECEIVER: typeof UNNAMED_RECEIVER;
+type codeindexEngine_d_UnusableIndex = UnusableIndex;
+type codeindexEngine_d_WalkEntry = WalkEntry;
+type codeindexEngine_d_WalkOptions = WalkOptions;
+type codeindexEngine_d_WalkResult = WalkResult;
+type codeindexEngine_d_WalkSkip = WalkSkip;
+type codeindexEngine_d_WalkedFile = WalkedFile;
+type codeindexEngine_d_WarmGrammarsOptions = WarmGrammarsOptions;
+type codeindexEngine_d_WarmGrammarsResult = WarmGrammarsResult;
+type codeindexEngine_d_WorkspaceInfo = WorkspaceInfo;
+type codeindexEngine_d_WorkspaceKind = WorkspaceKind;
+type codeindexEngine_d_WorkspacePackage = WorkspacePackage;
+declare const codeindexEngine_d_agreementOf: typeof agreementOf;
+declare const codeindexEngine_d_allGrammarKeys: typeof allGrammarKeys;
+declare const codeindexEngine_d_applyCentrality: typeof applyCentrality;
+declare const codeindexEngine_d_basicTokenize: typeof basicTokenize;
+declare const codeindexEngine_d_betweennessOf: typeof betweennessOf;
+declare const codeindexEngine_d_brokenImports: typeof brokenImports;
+declare const codeindexEngine_d_buildArtifactsFromScan: typeof buildArtifactsFromScan;
+declare const codeindexEngine_d_buildCallerIndex: typeof buildCallerIndex;
+declare const codeindexEngine_d_buildCodeRecord: typeof buildCodeRecord;
+declare const codeindexEngine_d_buildEmbeddingIndex: typeof buildEmbeddingIndex;
+declare const codeindexEngine_d_buildEndpointIndex: typeof buildEndpointIndex;
+declare const codeindexEngine_d_buildGraph: typeof buildGraph;
+declare const codeindexEngine_d_buildIndexArtifacts: typeof buildIndexArtifacts;
+declare const codeindexEngine_d_buildModules: typeof buildModules;
+declare const codeindexEngine_d_buildRawCallerIndex: typeof buildRawCallerIndex;
+declare const codeindexEngine_d_buildResolveContext: typeof buildResolveContext;
+declare const codeindexEngine_d_buildSymbolGraph: typeof buildSymbolGraph;
+declare const codeindexEngine_d_buildSymbolIndex: typeof buildSymbolIndex;
+declare const codeindexEngine_d_buildTypeHierarchy: typeof buildTypeHierarchy;
+declare const codeindexEngine_d_byKey: typeof byKey;
+declare const codeindexEngine_d_byStr: typeof byStr;
+declare const codeindexEngine_d_callersWithLsp: typeof callersWithLsp;
+declare const codeindexEngine_d_categorize: typeof categorize;
+declare const codeindexEngine_d_changeCoupling: typeof changeCoupling;
+declare const codeindexEngine_d_changedSince: typeof changedSince;
+declare const codeindexEngine_d_checkRules: typeof checkRules;
+declare const codeindexEngine_d_classify: typeof classify;
+declare const codeindexEngine_d_clip: typeof clip;
+declare const codeindexEngine_d_clipInline: typeof clipInline;
+declare const codeindexEngine_d_columnOfSymbol: typeof columnOfSymbol;
+declare const codeindexEngine_d_communityOf: typeof communityOf;
+declare const codeindexEngine_d_compileGlobs: typeof compileGlobs;
+declare const codeindexEngine_d_complexityOfSource: typeof complexityOfSource;
+declare const codeindexEngine_d_computeDelta: typeof computeDelta;
+declare const codeindexEngine_d_computeImportPairs: typeof computeImportPairs;
+declare const codeindexEngine_d_computeSurprises: typeof computeSurprises;
+declare const codeindexEngine_d_computeSymbolRefs: typeof computeSymbolRefs;
+declare const codeindexEngine_d_computeTestMap: typeof computeTestMap;
+declare const codeindexEngine_d_createFramer: typeof createFramer;
+declare const codeindexEngine_d_decidingRule: typeof decidingRule;
+declare const codeindexEngine_d_deleteMemory: typeof deleteMemory;
+declare const codeindexEngine_d_deltaFor: typeof deltaFor;
+declare const codeindexEngine_d_deltaOfDiff: typeof deltaOfDiff;
+declare const codeindexEngine_d_deserializeEmbeddings: typeof deserializeEmbeddings;
+declare const codeindexEngine_d_detectCommunities: typeof detectCommunities;
+declare const codeindexEngine_d_detectWorkspaces: typeof detectWorkspaces;
+declare const codeindexEngine_d_diffFiles: typeof diffFiles;
+declare const codeindexEngine_d_diffHunks: typeof diffHunks;
+declare const codeindexEngine_d_embedEndpointUrl: typeof embedEndpointUrl;
+declare const codeindexEngine_d_embedViaEndpoint: typeof embedViaEndpoint;
+declare const codeindexEngine_d_embeddingUnits: typeof embeddingUnits;
+declare const codeindexEngine_d_emptyDelta: typeof emptyDelta;
+declare const codeindexEngine_d_enclosingSymbol: typeof enclosingSymbol;
+declare const codeindexEngine_d_encode: typeof encode;
+declare const codeindexEngine_d_encodeMessage: typeof encodeMessage;
+declare const codeindexEngine_d_encodeQueryViaEndpoint: typeof encodeQueryViaEndpoint;
+declare const codeindexEngine_d_endpointModelId: typeof endpointModelId;
+declare const codeindexEngine_d_ensureGrammars: typeof ensureGrammars;
+declare const codeindexEngine_d_escapeRegExp: typeof escapeRegExp;
+declare const codeindexEngine_d_explainQuery: typeof explainQuery;
+declare const codeindexEngine_d_explainSemantic: typeof explainSemantic;
+declare const codeindexEngine_d_extToLang: typeof extToLang;
+declare const codeindexEngine_d_extractAst: typeof extractAst;
+declare const codeindexEngine_d_extractCode: typeof extractCode;
+declare const codeindexEngine_d_extractGrammarsTarball: typeof extractGrammarsTarball;
+declare const codeindexEngine_d_extractInParallel: typeof extractInParallel;
+declare const codeindexEngine_d_extractMarkdown: typeof extractMarkdown;
+declare const codeindexEngine_d_extractRst: typeof extractRst;
+declare const codeindexEngine_d_extractSymbols: typeof extractSymbols;
+declare const codeindexEngine_d_extractTags: typeof extractTags;
+declare const codeindexEngine_d_extractTarInto: typeof extractTarInto;
+declare const codeindexEngine_d_fetchExpectedSha256: typeof fetchExpectedSha256;
+declare const codeindexEngine_d_fetchGrammarsTarball: typeof fetchGrammarsTarball;
+declare const codeindexEngine_d_fileUri: typeof fileUri;
+declare const codeindexEngine_d_findDeadCode: typeof findDeadCode;
+declare const codeindexEngine_d_findLiteralDuplications: typeof findLiteralDuplications;
+declare const codeindexEngine_d_findReferences: typeof findReferences;
+declare const codeindexEngine_d_findSymbol: typeof findSymbol;
+declare const codeindexEngine_d_foldText: typeof foldText;
+declare const codeindexEngine_d_formatDeltaPanel: typeof formatDeltaPanel;
+declare const codeindexEngine_d_gitChurn: typeof gitChurn;
+declare const codeindexEngine_d_grammarKeyForExt: typeof grammarKeyForExt;
+declare const codeindexEngine_d_grammarKeysForExts: typeof grammarKeysForExts;
+declare const codeindexEngine_d_grammarReady: typeof grammarReady;
+declare const codeindexEngine_d_grepRepo: typeof grepRepo;
+declare const codeindexEngine_d_grepRepoEx: typeof grepRepoEx;
+declare const codeindexEngine_d_hasEmbedModel: typeof hasEmbedModel;
+declare const codeindexEngine_d_have: typeof have;
+declare const codeindexEngine_d_headCommit: typeof headCommit;
+declare const codeindexEngine_d_healthzUrl: typeof healthzUrl;
+declare const codeindexEngine_d_hubThreshold: typeof hubThreshold;
+declare const codeindexEngine_d_impactOf: typeof impactOf;
+declare const codeindexEngine_d_implementationsOf: typeof implementationsOf;
+declare const codeindexEngine_d_indexStatus: typeof indexStatus;
+declare const codeindexEngine_d_insertAfterSymbol: typeof insertAfterSymbol;
+declare const codeindexEngine_d_insertBeforeSymbol: typeof insertBeforeSymbol;
+declare const codeindexEngine_d_intDot: typeof intDot;
+declare const codeindexEngine_d_isCode: typeof isCode;
+declare const codeindexEngine_d_isDoc: typeof isDoc;
+declare const codeindexEngine_d_isGitWorktree: typeof isGitWorktree;
+declare const codeindexEngine_d_isIgnored: typeof isIgnored;
+declare const codeindexEngine_d_isSurprising: typeof isSurprising;
+declare const codeindexEngine_d_isTestFile: typeof isTestFile;
+declare const codeindexEngine_d_isTestPath: typeof isTestPath;
+declare const codeindexEngine_d_keptCodeFiles: typeof keptCodeFiles;
+declare const codeindexEngine_d_keywords: typeof keywords;
+declare const codeindexEngine_d_languageOf: typeof languageOf;
+declare const codeindexEngine_d_listMemories: typeof listMemories;
+declare const codeindexEngine_d_loadEmbedModel: typeof loadEmbedModel;
+declare const codeindexEngine_d_loadLspConfig: typeof loadLspConfig;
+declare const codeindexEngine_d_locationsToRefs: typeof locationsToRefs;
+declare const codeindexEngine_d_lspStatus: typeof lspStatus;
+declare const codeindexEngine_d_lspUnavailable: typeof lspUnavailable;
+declare const codeindexEngine_d_memoryRefusal: typeof memoryRefusal;
+declare const codeindexEngine_d_neighborhood: typeof neighborhood;
+declare const codeindexEngine_d_neighborsOf: typeof neighborsOf;
+declare const codeindexEngine_d_onboardBrief: typeof onboardBrief;
+declare const codeindexEngine_d_openLspSession: typeof openLspSession;
+declare const codeindexEngine_d_pagerankOf: typeof pagerankOf;
+declare const codeindexEngine_d_parseGitignore: typeof parseGitignore;
+declare const codeindexEngine_d_parseLspConfig: typeof parseLspConfig;
+declare const codeindexEngine_d_parseRules: typeof parseRules;
+declare const codeindexEngine_d_preloadArtifacts: typeof preloadArtifacts;
+declare const codeindexEngine_d_preloadSession: typeof preloadSession;
+declare const codeindexEngine_d_probeEndpoint: typeof probeEndpoint;
+declare const codeindexEngine_d_pullGrammars: typeof pullGrammars;
+declare const codeindexEngine_d_quantize: typeof quantize;
+declare const codeindexEngine_d_rankHotspots: typeof rankHotspots;
+declare const codeindexEngine_d_rankedKeywords: typeof rankedKeywords;
+declare const codeindexEngine_d_readDeltaDiff: typeof readDeltaDiff;
+declare const codeindexEngine_d_readMemory: typeof readMemory;
+declare const codeindexEngine_d_readPersistedIndex: typeof readPersistedIndex;
+declare const codeindexEngine_d_readText: typeof readText;
+declare const codeindexEngine_d_readTextEx: typeof readTextEx;
+declare const codeindexEngine_d_referencesWithLsp: typeof referencesWithLsp;
+declare const codeindexEngine_d_relFromUri: typeof relFromUri;
+declare const codeindexEngine_d_renderGraphJson: typeof renderGraphJson;
+declare const codeindexEngine_d_renderMermaid: typeof renderMermaid;
+declare const codeindexEngine_d_renderMermaidClustered: typeof renderMermaidClustered;
+declare const codeindexEngine_d_renderRepoMap: typeof renderRepoMap;
+declare const codeindexEngine_d_renderScip: typeof renderScip;
+declare const codeindexEngine_d_renderSymbolsJson: typeof renderSymbolsJson;
+declare const codeindexEngine_d_replaceSymbolBody: typeof replaceSymbolBody;
+declare const codeindexEngine_d_resolveBaseRef: typeof resolveBaseRef;
+declare const codeindexEngine_d_resolveCallEdges: typeof resolveCallEdges;
+declare const codeindexEngine_d_resolveDocLink: typeof resolveDocLink;
+declare const codeindexEngine_d_resolveEmbedEndpoint: typeof resolveEmbedEndpoint;
+declare const codeindexEngine_d_resolveEmbedModelDir: typeof resolveEmbedModelDir;
+declare const codeindexEngine_d_resolveEmbedPullUrl: typeof resolveEmbedPullUrl;
+declare const codeindexEngine_d_resolveGrammarsDir: typeof resolveGrammarsDir;
+declare const codeindexEngine_d_resolveGrammarsPullTarget: typeof resolveGrammarsPullTarget;
+declare const codeindexEngine_d_resolveGrammarsTier: typeof resolveGrammarsTier;
+declare const codeindexEngine_d_resolveImport: typeof resolveImport;
+declare const codeindexEngine_d_resolveLspConfigPath: typeof resolveLspConfigPath;
+declare const codeindexEngine_d_resolveRelationEdges: typeof resolveRelationEdges;
+declare const codeindexEngine_d_resolveRelations: typeof resolveRelations;
+declare const codeindexEngine_d_resolveUniqueSymbol: typeof resolveUniqueSymbol;
+declare const codeindexEngine_d_reverseClosure: typeof reverseClosure;
+declare const codeindexEngine_d_rewriteCommand: typeof rewriteCommand;
+declare const codeindexEngine_d_riskHotspots: typeof riskHotspots;
+declare const codeindexEngine_d_roundHalfToEven: typeof roundHalfToEven;
+declare const codeindexEngine_d_rrf: typeof rrf;
+declare const codeindexEngine_d_runCli: typeof runCli;
+declare const codeindexEngine_d_runExtractWorker: typeof runExtractWorker;
+declare const codeindexEngine_d_runMcpServer: typeof runMcpServer;
+declare const codeindexEngine_d_scanRepo: typeof scanRepo;
+declare const codeindexEngine_d_scanRepoParallel: typeof scanRepoParallel;
+declare const codeindexEngine_d_scanSkips: typeof scanSkips;
+declare const codeindexEngine_d_scanSummary: typeof scanSummary;
+declare const codeindexEngine_d_searchIndex: typeof searchIndex;
+declare const codeindexEngine_d_searchSemantic: typeof searchSemantic;
+declare const codeindexEngine_d_serializeEmbeddings: typeof serializeEmbeddings;
+declare const codeindexEngine_d_serverForLang: typeof serverForLang;
+declare const codeindexEngine_d_sh: typeof sh;
+declare const codeindexEngine_d_sha1: typeof sha1;
+declare const codeindexEngine_d_sharedGrammarsCacheDir: typeof sharedGrammarsCacheDir;
+declare const codeindexEngine_d_shortHash: typeof shortHash;
+declare const codeindexEngine_d_skipHistogram: typeof skipHistogram;
+declare const codeindexEngine_d_slugify: typeof slugify;
+declare const codeindexEngine_d_spawnLspTransport: typeof spawnLspTransport;
+declare const codeindexEngine_d_subtokens: typeof subtokens;
+declare const codeindexEngine_d_symbolComplexity: typeof symbolComplexity;
+declare const codeindexEngine_d_symbolId: typeof symbolId;
+declare const codeindexEngine_d_symbolsInHunks: typeof symbolsInHunks;
+declare const codeindexEngine_d_symbolsOverview: typeof symbolsOverview;
+declare const codeindexEngine_d_tagsQueryStatus: typeof tagsQueryStatus;
+declare const codeindexEngine_d_testsForModule: typeof testsForModule;
+declare const codeindexEngine_d_tierForPath: typeof tierForPath;
+declare const codeindexEngine_d_toCacheMap: typeof toCacheMap;
+declare const codeindexEngine_d_tokenize: typeof tokenize;
+declare const codeindexEngine_d_typeEntry: typeof typeEntry;
+declare const codeindexEngine_d_uniqueSymbolDefs: typeof uniqueSymbolDefs;
+declare const codeindexEngine_d_unitHash: typeof unitHash;
+declare const codeindexEngine_d_untestedModules: typeof untestedModules;
+declare const codeindexEngine_d_untrackedFiles: typeof untrackedFiles;
+declare const codeindexEngine_d_walk: typeof walk;
+declare const codeindexEngine_d_warmGrammars: typeof warmGrammars;
+declare const codeindexEngine_d_whyPath: typeof whyPath;
+declare const codeindexEngine_d_wordpiece: typeof wordpiece;
+declare const codeindexEngine_d_workerCount: typeof workerCount;
+declare const codeindexEngine_d_writeMemory: typeof writeMemory;
+declare namespace codeindexEngine_d {
+  export { type codeindexEngine_d_ArchRule as ArchRule, codeindexEngine_d_BINARY_EXT as BINARY_EXT, type codeindexEngine_d_BrokenImport as BrokenImport, type codeindexEngine_d_BuildIndexOptions as BuildIndexOptions, type codeindexEngine_d_BuiltinRule as BuiltinRule, codeindexEngine_d_CORE_GRAMMARS as CORE_GRAMMARS, type codeindexEngine_d_CallerEntry as CallerEntry, type codeindexEngine_d_CallerIndex as CallerIndex, type codeindexEngine_d_CallerIndexOptions as CallerIndexOptions, type codeindexEngine_d_CallerSite as CallerSite, type codeindexEngine_d_ChangeCoupling as ChangeCoupling, type codeindexEngine_d_ChangedSymbol as ChangedSymbol, type codeindexEngine_d_ClusteredMermaidOptions as ClusteredMermaidOptions, type codeindexEngine_d_ClusteredMermaidResult as ClusteredMermaidResult, type codeindexEngine_d_CodeInfo as CodeInfo, type codeindexEngine_d_CodeLiteral as CodeLiteral, type codeindexEngine_d_CodeSymbol as CodeSymbol, type codeindexEngine_d_CouplingOptions as CouplingOptions, codeindexEngine_d_DEFAULT_DELTA_DEPTH as DEFAULT_DELTA_DEPTH, codeindexEngine_d_DEFAULT_GRAMMARS_URL as DEFAULT_GRAMMARS_URL, codeindexEngine_d_DEFAULT_MAX_FILES as DEFAULT_MAX_FILES, type codeindexEngine_d_DeadCodeOptions as DeadCodeOptions, type codeindexEngine_d_DeadSymbol as DeadSymbol, type codeindexEngine_d_DeltaChange as DeltaChange, type codeindexEngine_d_DeltaDiff as DeltaDiff, type DeltaError$1 as DeltaError, type DeltaModule$1 as DeltaModule, type codeindexEngine_d_DeltaOptions as DeltaOptions, type DeltaResult$1 as DeltaResult, type codeindexEngine_d_DiffFile as DiffFile, type codeindexEngine_d_DiffSpec as DiffSpec, type codeindexEngine_d_Direction as Direction, codeindexEngine_d_EMBED_VERSION as EMBED_VERSION, codeindexEngine_d_ENGINE_VERSION as ENGINE_VERSION, codeindexEngine_d_EXTENDED_GRAMMARS as EXTENDED_GRAMMARS, codeindexEngine_d_EXTRACTOR_VERSION as EXTRACTOR_VERSION, codeindexEngine_d_EXT_GRAMMAR as EXT_GRAMMAR, type codeindexEngine_d_Edge as Edge, type codeindexEngine_d_EdgeKind as EdgeKind, type codeindexEngine_d_EditResult as EditResult, type codeindexEngine_d_EmbedEndpointOptions as EmbedEndpointOptions, type codeindexEngine_d_EmbedPullTarget as EmbedPullTarget, type codeindexEngine_d_EmbeddingIndex as EmbeddingIndex, type codeindexEngine_d_EmbeddingRecord as EmbeddingRecord, type codeindexEngine_d_EmbeddingUnit as EmbeddingUnit, type codeindexEngine_d_Encoding as Encoding, type codeindexEngine_d_ExplainedSearch as ExplainedSearch, type codeindexEngine_d_ExplainedSemanticSearch as ExplainedSemanticSearch, type codeindexEngine_d_ExtractedRecord as ExtractedRecord, type codeindexEngine_d_FileCategory as FileCategory, type codeindexEngine_d_FileKind as FileKind, type codeindexEngine_d_FileNode as FileNode, type codeindexEngine_d_FileRecord as FileRecord, type codeindexEngine_d_FindSymbolOptions as FindSymbolOptions, type codeindexEngine_d_ForbiddenEdgeRule as ForbiddenEdgeRule, type codeindexEngine_d_GrammarsPullResult as GrammarsPullResult, type codeindexEngine_d_GrammarsPullTarget as GrammarsPullTarget, type codeindexEngine_d_GrammarsTier as GrammarsTier, type codeindexEngine_d_GrammarsTierName as GrammarsTierName, type codeindexEngine_d_Graph as Graph, type codeindexEngine_d_GrepOptions as GrepOptions, type codeindexEngine_d_GrepResult as GrepResult, type codeindexEngine_d_HierarchyRef as HierarchyRef, type codeindexEngine_d_Hotspot as Hotspot, type codeindexEngine_d_Hunk as Hunk, codeindexEngine_d_IGNORE_DIRS as IGNORE_DIRS, codeindexEngine_d_INDEX_DIR as INDEX_DIR, type codeindexEngine_d_IgnoreRule as IgnoreRule, type codeindexEngine_d_ImpactResult as ImpactResult, type codeindexEngine_d_ImpactedFile as ImpactedFile, type codeindexEngine_d_IndexArtifacts as IndexArtifacts, type codeindexEngine_d_IndexStaleness as IndexStaleness, type codeindexEngine_d_IndexStatus as IndexStatus, type codeindexEngine_d_IndexStatusOptions as IndexStatusOptions, codeindexEngine_d_LOCKFILES as LOCKFILES, type codeindexEngine_d_LiteralDuplication as LiteralDuplication, type codeindexEngine_d_LiteralFamily as LiteralFamily, type codeindexEngine_d_LiteralSite as LiteralSite, type codeindexEngine_d_LiteralsOptions as LiteralsOptions, type codeindexEngine_d_LiteralsReport as LiteralsReport, type codeindexEngine_d_LspAgreement as LspAgreement, type codeindexEngine_d_LspBlock as LspBlock, type codeindexEngine_d_LspCallers as LspCallers, type codeindexEngine_d_LspCallersBlock as LspCallersBlock, type codeindexEngine_d_LspCapabilities as LspCapabilities, type codeindexEngine_d_LspConfig as LspConfig, type codeindexEngine_d_LspConfigSource as LspConfigSource, type codeindexEngine_d_LspIncomingCall as LspIncomingCall, type codeindexEngine_d_LspMessage as LspMessage, type codeindexEngine_d_LspQueryOptions as LspQueryOptions, type codeindexEngine_d_LspRef as LspRef, type codeindexEngine_d_LspReferences as LspReferences, type codeindexEngine_d_LspServerConfig as LspServerConfig, type codeindexEngine_d_LspServerStatus as LspServerStatus, type codeindexEngine_d_LspSession as LspSession, type codeindexEngine_d_LspSessionOptions as LspSessionOptions, codeindexEngine_d_LspSessionPool as LspSessionPool, type codeindexEngine_d_LspStatus as LspStatus, codeindexEngine_d_LspTimeout as LspTimeout, type codeindexEngine_d_LspTransport as LspTransport, codeindexEngine_d_MARKDOWN_EXT as MARKDOWN_EXT, codeindexEngine_d_MAX_FRAME_BYTES as MAX_FRAME_BYTES, type codeindexEngine_d_MarkdownInfo as MarkdownInfo, type codeindexEngine_d_McpServerOptions as McpServerOptions, type codeindexEngine_d_MermaidOptions as MermaidOptions, type codeindexEngine_d_ModuleInfo as ModuleInfo, type codeindexEngine_d_ModuleNode as ModuleNode, type codeindexEngine_d_NeighborLink as NeighborLink, type codeindexEngine_d_NeighborResult as NeighborResult, type codeindexEngine_d_Neighborhood as Neighborhood, codeindexEngine_d_OffsetMap as OffsetMap, type codeindexEngine_d_OnboardBrief as OnboardBrief, type codeindexEngine_d_OnboardOptions as OnboardOptions, type codeindexEngine_d_PathVerdict as PathVerdict, type codeindexEngine_d_PathVerdictReason as PathVerdictReason, type codeindexEngine_d_PersistedCacheEntry as PersistedCacheEntry, type codeindexEngine_d_PersistedCacheMap as PersistedCacheMap, type codeindexEngine_d_PersistedMeta as PersistedMeta, type codeindexEngine_d_QueryExplanation as QueryExplanation, type codeindexEngine_d_QueryVerdict as QueryVerdict, codeindexEngine_d_RISK_WEIGHTS as RISK_WEIGHTS, type codeindexEngine_d_RawCallerIndex as RawCallerIndex, type codeindexEngine_d_RawCallerSite as RawCallerSite, type codeindexEngine_d_RawRef as RawRef, type codeindexEngine_d_RawRelation as RawRelation, type codeindexEngine_d_RenderScipOptions as RenderScipOptions, type codeindexEngine_d_RepoMapOptions as RepoMapOptions, type codeindexEngine_d_RepoScan as RepoScan, type codeindexEngine_d_Resolution as Resolution, type codeindexEngine_d_ResolveContext as ResolveContext, type codeindexEngine_d_ResolvedRelation as ResolvedRelation, type codeindexEngine_d_RiskHotspot as RiskHotspot, type codeindexEngine_d_RuleSeverity as RuleSeverity, type codeindexEngine_d_RuleViolation as RuleViolation, SCHEMA_VERSION$1 as SCHEMA_VERSION, type codeindexEngine_d_ScanOptions as ScanOptions, type codeindexEngine_d_ScanSkip as ScanSkip, type codeindexEngine_d_ScanSummary as ScanSummary, type codeindexEngine_d_SearchHit as SearchHit, type codeindexEngine_d_SearchOptions as SearchOptions, type codeindexEngine_d_SearchResult as SearchResult, type codeindexEngine_d_SemanticQueryExplanation as SemanticQueryExplanation, type codeindexEngine_d_SemanticSearchOptions as SemanticSearchOptions, type codeindexEngine_d_SemanticSearchResult as SemanticSearchResult, type codeindexEngine_d_ShResult as ShResult, type codeindexEngine_d_StaticEmbedModel as StaticEmbedModel, type codeindexEngine_d_SurpriseEdge as SurpriseEdge, type codeindexEngine_d_SymbolComplexity as SymbolComplexity, type codeindexEngine_d_SymbolEdge as SymbolEdge, type codeindexEngine_d_SymbolEdgeKind as SymbolEdgeKind, type codeindexEngine_d_SymbolGraph as SymbolGraph, type codeindexEngine_d_SymbolIndex as SymbolIndex, type codeindexEngine_d_SymbolMatch as SymbolMatch, type codeindexEngine_d_SymbolNode as SymbolNode, type codeindexEngine_d_SymbolReferences as SymbolReferences, type codeindexEngine_d_TagDefinition as TagDefinition, type codeindexEngine_d_TagsQueryStatus as TagsQueryStatus, type codeindexEngine_d_TermDiagnostic as TermDiagnostic, type codeindexEngine_d_TestMap as TestMap, type codeindexEngine_d_TextRead as TextRead, type codeindexEngine_d_Tier as Tier, type codeindexEngine_d_TypeHierarchyEntry as TypeHierarchyEntry, codeindexEngine_d_UNNAMED_RECEIVER as UNNAMED_RECEIVER, type codeindexEngine_d_UnusableIndex as UnusableIndex, type codeindexEngine_d_WalkEntry as WalkEntry, type codeindexEngine_d_WalkOptions as WalkOptions, type codeindexEngine_d_WalkResult as WalkResult, type codeindexEngine_d_WalkSkip as WalkSkip, type codeindexEngine_d_WalkedFile as WalkedFile, type codeindexEngine_d_WarmGrammarsOptions as WarmGrammarsOptions, type codeindexEngine_d_WarmGrammarsResult as WarmGrammarsResult, type codeindexEngine_d_WorkspaceInfo as WorkspaceInfo, type codeindexEngine_d_WorkspaceKind as WorkspaceKind, type codeindexEngine_d_WorkspacePackage as WorkspacePackage, codeindexEngine_d_agreementOf as agreementOf, codeindexEngine_d_allGrammarKeys as allGrammarKeys, codeindexEngine_d_applyCentrality as applyCentrality, codeindexEngine_d_basicTokenize as basicTokenize, codeindexEngine_d_betweennessOf as betweennessOf, codeindexEngine_d_brokenImports as brokenImports, codeindexEngine_d_buildArtifactsFromScan as buildArtifactsFromScan, codeindexEngine_d_buildCallerIndex as buildCallerIndex, codeindexEngine_d_buildCodeRecord as buildCodeRecord, codeindexEngine_d_buildEmbeddingIndex as buildEmbeddingIndex, codeindexEngine_d_buildEndpointIndex as buildEndpointIndex, codeindexEngine_d_buildGraph as buildGraph, codeindexEngine_d_buildIndexArtifacts as buildIndexArtifacts, codeindexEngine_d_buildModules as buildModules, codeindexEngine_d_buildRawCallerIndex as buildRawCallerIndex, codeindexEngine_d_buildResolveContext as buildResolveContext, codeindexEngine_d_buildSymbolGraph as buildSymbolGraph, codeindexEngine_d_buildSymbolIndex as buildSymbolIndex, codeindexEngine_d_buildTypeHierarchy as buildTypeHierarchy, codeindexEngine_d_byKey as byKey, codeindexEngine_d_byStr as byStr, codeindexEngine_d_callersWithLsp as callersWithLsp, codeindexEngine_d_categorize as categorize, codeindexEngine_d_changeCoupling as changeCoupling, codeindexEngine_d_changedSince as changedSince, codeindexEngine_d_checkRules as checkRules, codeindexEngine_d_classify as classify, codeindexEngine_d_clip as clip, codeindexEngine_d_clipInline as clipInline, codeindexEngine_d_columnOfSymbol as columnOfSymbol, codeindexEngine_d_communityOf as communityOf, codeindexEngine_d_compileGlobs as compileGlobs, codeindexEngine_d_complexityOfSource as complexityOfSource, codeindexEngine_d_computeDelta as computeDelta, codeindexEngine_d_computeImportPairs as computeImportPairs, codeindexEngine_d_computeSurprises as computeSurprises, codeindexEngine_d_computeSymbolRefs as computeSymbolRefs, codeindexEngine_d_computeTestMap as computeTestMap, codeindexEngine_d_createFramer as createFramer, codeindexEngine_d_decidingRule as decidingRule, codeindexEngine_d_deleteMemory as deleteMemory, codeindexEngine_d_deltaFor as deltaFor, codeindexEngine_d_deltaOfDiff as deltaOfDiff, codeindexEngine_d_deserializeEmbeddings as deserializeEmbeddings, codeindexEngine_d_detectCommunities as detectCommunities, codeindexEngine_d_detectWorkspaces as detectWorkspaces, codeindexEngine_d_diffFiles as diffFiles, codeindexEngine_d_diffHunks as diffHunks, codeindexEngine_d_embedEndpointUrl as embedEndpointUrl, codeindexEngine_d_embedViaEndpoint as embedViaEndpoint, codeindexEngine_d_embeddingUnits as embeddingUnits, codeindexEngine_d_emptyDelta as emptyDelta, codeindexEngine_d_enclosingSymbol as enclosingSymbol, codeindexEngine_d_encode as encode, codeindexEngine_d_encodeMessage as encodeMessage, codeindexEngine_d_encodeQueryViaEndpoint as encodeQueryViaEndpoint, codeindexEngine_d_endpointModelId as endpointModelId, codeindexEngine_d_ensureGrammars as ensureGrammars, codeindexEngine_d_escapeRegExp as escapeRegExp, codeindexEngine_d_explainQuery as explainQuery, codeindexEngine_d_explainSemantic as explainSemantic, codeindexEngine_d_extToLang as extToLang, codeindexEngine_d_extractAst as extractAst, codeindexEngine_d_extractCode as extractCode, codeindexEngine_d_extractGrammarsTarball as extractGrammarsTarball, codeindexEngine_d_extractInParallel as extractInParallel, codeindexEngine_d_extractMarkdown as extractMarkdown, codeindexEngine_d_extractRst as extractRst, codeindexEngine_d_extractSymbols as extractSymbols, codeindexEngine_d_extractTags as extractTags, codeindexEngine_d_extractTarInto as extractTarInto, codeindexEngine_d_fetchExpectedSha256 as fetchExpectedSha256, codeindexEngine_d_fetchGrammarsTarball as fetchGrammarsTarball, codeindexEngine_d_fileUri as fileUri, codeindexEngine_d_findDeadCode as findDeadCode, codeindexEngine_d_findLiteralDuplications as findLiteralDuplications, codeindexEngine_d_findReferences as findReferences, codeindexEngine_d_findSymbol as findSymbol, codeindexEngine_d_foldText as foldText, codeindexEngine_d_formatDeltaPanel as formatDeltaPanel, codeindexEngine_d_gitChurn as gitChurn, codeindexEngine_d_grammarKeyForExt as grammarKeyForExt, codeindexEngine_d_grammarKeysForExts as grammarKeysForExts, codeindexEngine_d_grammarReady as grammarReady, codeindexEngine_d_grepRepo as grepRepo, codeindexEngine_d_grepRepoEx as grepRepoEx, codeindexEngine_d_hasEmbedModel as hasEmbedModel, codeindexEngine_d_have as have, codeindexEngine_d_headCommit as headCommit, codeindexEngine_d_healthzUrl as healthzUrl, codeindexEngine_d_hubThreshold as hubThreshold, codeindexEngine_d_impactOf as impactOf, codeindexEngine_d_implementationsOf as implementationsOf, codeindexEngine_d_indexStatus as indexStatus, codeindexEngine_d_insertAfterSymbol as insertAfterSymbol, codeindexEngine_d_insertBeforeSymbol as insertBeforeSymbol, codeindexEngine_d_intDot as intDot, codeindexEngine_d_isCode as isCode, codeindexEngine_d_isDoc as isDoc, codeindexEngine_d_isGitWorktree as isGitWorktree, codeindexEngine_d_isIgnored as isIgnored, codeindexEngine_d_isSurprising as isSurprising, codeindexEngine_d_isTestFile as isTestFile, codeindexEngine_d_isTestPath as isTestPath, codeindexEngine_d_keptCodeFiles as keptCodeFiles, codeindexEngine_d_keywords as keywords, codeindexEngine_d_languageOf as languageOf, codeindexEngine_d_listMemories as listMemories, codeindexEngine_d_loadEmbedModel as loadEmbedModel, codeindexEngine_d_loadLspConfig as loadLspConfig, codeindexEngine_d_locationsToRefs as locationsToRefs, codeindexEngine_d_lspStatus as lspStatus, codeindexEngine_d_lspUnavailable as lspUnavailable, codeindexEngine_d_memoryRefusal as memoryRefusal, codeindexEngine_d_neighborhood as neighborhood, codeindexEngine_d_neighborsOf as neighborsOf, codeindexEngine_d_onboardBrief as onboardBrief, codeindexEngine_d_openLspSession as openLspSession, codeindexEngine_d_pagerankOf as pagerankOf, codeindexEngine_d_parseGitignore as parseGitignore, codeindexEngine_d_parseLspConfig as parseLspConfig, codeindexEngine_d_parseRules as parseRules, codeindexEngine_d_preloadArtifacts as preloadArtifacts, codeindexEngine_d_preloadSession as preloadSession, codeindexEngine_d_probeEndpoint as probeEndpoint, codeindexEngine_d_pullGrammars as pullGrammars, codeindexEngine_d_quantize as quantize, codeindexEngine_d_rankHotspots as rankHotspots, codeindexEngine_d_rankedKeywords as rankedKeywords, codeindexEngine_d_readDeltaDiff as readDeltaDiff, codeindexEngine_d_readMemory as readMemory, codeindexEngine_d_readPersistedIndex as readPersistedIndex, codeindexEngine_d_readText as readText, codeindexEngine_d_readTextEx as readTextEx, codeindexEngine_d_referencesWithLsp as referencesWithLsp, codeindexEngine_d_relFromUri as relFromUri, codeindexEngine_d_renderGraphJson as renderGraphJson, codeindexEngine_d_renderMermaid as renderMermaid, codeindexEngine_d_renderMermaidClustered as renderMermaidClustered, codeindexEngine_d_renderRepoMap as renderRepoMap, codeindexEngine_d_renderScip as renderScip, codeindexEngine_d_renderSymbolsJson as renderSymbolsJson, codeindexEngine_d_replaceSymbolBody as replaceSymbolBody, codeindexEngine_d_resolveBaseRef as resolveBaseRef, codeindexEngine_d_resolveCallEdges as resolveCallEdges, codeindexEngine_d_resolveDocLink as resolveDocLink, codeindexEngine_d_resolveEmbedEndpoint as resolveEmbedEndpoint, codeindexEngine_d_resolveEmbedModelDir as resolveEmbedModelDir, codeindexEngine_d_resolveEmbedPullUrl as resolveEmbedPullUrl, codeindexEngine_d_resolveGrammarsDir as resolveGrammarsDir, codeindexEngine_d_resolveGrammarsPullTarget as resolveGrammarsPullTarget, codeindexEngine_d_resolveGrammarsTier as resolveGrammarsTier, codeindexEngine_d_resolveImport as resolveImport, codeindexEngine_d_resolveLspConfigPath as resolveLspConfigPath, codeindexEngine_d_resolveRelationEdges as resolveRelationEdges, codeindexEngine_d_resolveRelations as resolveRelations, codeindexEngine_d_resolveUniqueSymbol as resolveUniqueSymbol, codeindexEngine_d_reverseClosure as reverseClosure, codeindexEngine_d_rewriteCommand as rewriteCommand, codeindexEngine_d_riskHotspots as riskHotspots, codeindexEngine_d_roundHalfToEven as roundHalfToEven, codeindexEngine_d_rrf as rrf, codeindexEngine_d_runCli as runCli, codeindexEngine_d_runExtractWorker as runExtractWorker, codeindexEngine_d_runMcpServer as runMcpServer, codeindexEngine_d_scanRepo as scanRepo, codeindexEngine_d_scanRepoParallel as scanRepoParallel, codeindexEngine_d_scanSkips as scanSkips, codeindexEngine_d_scanSummary as scanSummary, codeindexEngine_d_searchIndex as searchIndex, codeindexEngine_d_searchSemantic as searchSemantic, codeindexEngine_d_serializeEmbeddings as serializeEmbeddings, codeindexEngine_d_serverForLang as serverForLang, codeindexEngine_d_sh as sh, codeindexEngine_d_sha1 as sha1, codeindexEngine_d_sharedGrammarsCacheDir as sharedGrammarsCacheDir, codeindexEngine_d_shortHash as shortHash, codeindexEngine_d_skipHistogram as skipHistogram, codeindexEngine_d_slugify as slugify, codeindexEngine_d_spawnLspTransport as spawnLspTransport, codeindexEngine_d_subtokens as subtokens, codeindexEngine_d_symbolComplexity as symbolComplexity, codeindexEngine_d_symbolId as symbolId, codeindexEngine_d_symbolsInHunks as symbolsInHunks, codeindexEngine_d_symbolsOverview as symbolsOverview, codeindexEngine_d_tagsQueryStatus as tagsQueryStatus, codeindexEngine_d_testsForModule as testsForModule, codeindexEngine_d_tierForPath as tierForPath, codeindexEngine_d_toCacheMap as toCacheMap, codeindexEngine_d_tokenize as tokenize, codeindexEngine_d_typeEntry as typeEntry, codeindexEngine_d_uniqueSymbolDefs as uniqueSymbolDefs, codeindexEngine_d_unitHash as unitHash, codeindexEngine_d_untestedModules as untestedModules, codeindexEngine_d_untrackedFiles as untrackedFiles, codeindexEngine_d_walk as walk, codeindexEngine_d_warmGrammars as warmGrammars, codeindexEngine_d_whyPath as whyPath, codeindexEngine_d_wordpiece as wordpiece, codeindexEngine_d_workerCount as workerCount, codeindexEngine_d_writeMemory as writeMemory };
+}
+
+declare const VERSION = "7.13.15";
+declare const SCHEMA_VERSION = 5;
+
+interface ProseState {
+    digest: string;
+    source: string;
+    baselined?: true;
+}
+interface Manifest {
+    schemaVersion: number;
+    version: string;
+    commit?: string;
+    builtAt: string;
+    repo: string;
+    out: string;
+    fileHashes: Record<string, string>;
+    modules: Record<string, {
+        members: string[];
+        humanKeys: string[];
+        prose?: ProseState;
+    }>;
+    orphaned: string[];
+    notes: string[];
+    communities?: Record<string, string[]>;
+    scan?: {
+        include?: string[];
+        exclude?: string[];
+        maxBytes?: number;
+        maxFiles?: number;
+        gitignore?: boolean;
+    };
+}
+interface BuildOptions {
+    repo: string;
+    out: string;
+    include?: string[];
+    exclude?: string[];
+    maxBytes?: number;
+    maxFiles?: number;
+    noCache?: boolean;
+    fullHash?: boolean;
+    gitignore?: boolean;
+    mermaid: boolean;
+    json: boolean;
+}
+interface ExtractionCache {
+    schemaVersion: number;
+    extractorVersion: number;
+    files: Record<string, {
+        hash: string;
+        record: FileRecord;
+        size?: number;
+        mtimeMs?: number;
+    }>;
+}
+interface FindResult {
+    slug: string;
+    path: string;
+    title: string;
+    tier: Tier;
+    score: number;
+    matched: string[];
+    files: string[];
+    neighbors: string[];
+    enriched: boolean;
+    semanticRank?: number;
+    via?: "graph" | "term";
+}
+interface VectorStore {
+    schemaVersion: number;
+    modelId: string;
+    dim: number;
+    vectors: Record<string, {
+        hash: string;
+        v: string;
+    }>;
+}
+interface EmbedReport {
+    modelId: string;
+    dim: number;
+    total: number;
+    embedded: number;
+    reused: number;
+    removed: number;
+}
+type FileStatus = "unchanged" | "changed" | "added" | "removed";
+interface CheckResult {
+    ok: boolean;
+    stale: boolean;
+    changed: string[];
+    added: string[];
+    removed: string[];
+    errors: string[];
+    warnings: string[];
+    proseStale: string[];
+    proseUnknown: string[];
+}
+type VerdictKind = "supported" | "partial" | "refuted" | "unsupported";
+interface ClaimEvidencePair {
+    claimId: string;
+    claim: string;
+    citation: string;
+    path: string;
+    digest: string;
+}
+interface Verdict extends ClaimEvidencePair {
+    verdict: VerdictKind;
+    note: string;
+}
+interface VerifyResult {
+    ok: boolean;
+    pairs: number;
+    adjudicated: number;
+    supported: number;
+    partial: number;
+    refuted: number;
+    unsupported: number;
+    failures: {
+        claimId: string;
+        citation: string;
+        verdict: VerdictKind;
+        note: string;
+    }[];
+    unadjudicated: string[];
+    verdicts?: Verdict[];
+}
+
+interface BuildResult {
+    outDir: string;
+    graph: Graph;
+    manifest: Manifest;
+    capped: boolean;
+}
+declare function runBuild(opts: BuildOptions, builtAt: string): BuildResult;
+
+interface CheckOptions {
+    prose?: boolean;
+}
+declare function runCheck(outDir: string, repo: string, opts?: CheckOptions): CheckResult;
+interface AnswerCheck {
+    ok: boolean;
+    citations: number;
+    resolved: number;
+    errors: string[];
+    warnings?: string[];
+    semantic?: VerifyResult;
+    coverage?: {
+        mode: "complete" | "sampled";
+        expected: number;
+        covered: number;
+    };
+}
+declare function checkAnswer(outDir: string, answerPath: string, opts?: {
+    semantic?: boolean;
+    complete?: boolean;
+    repo?: string;
+    answerText?: string;
+}): AnswerCheck;
+
+interface Region {
+    type: "gen" | "human";
+    key: string;
+    body: string;
+}
+
+declare function proseDigest(regions: Region[]): string;
+declare function proseSourceHash(members: string[], hashes: Record<string, string>): string;
+type ProseFreshness = "none" | "unknown" | "fresh" | "stale";
+declare function proseFreshness(rec: {
+    digest: string;
+    source: string;
+    baselined?: true;
+} | undefined, liveDigest: string, members: string[], hashes: Record<string, string>): ProseFreshness;
+
+interface ModuleStatus {
+    slug: string;
+    path: string;
+    tier: Tier;
+    degree: number;
+    enriched: boolean;
+    tested: boolean;
+    regions: {
+        enriched: number;
+        total: number;
+    };
+    prose: ProseFreshness;
+}
+interface StatusResult {
+    enriched: number;
+    total: number;
+    untested: number;
+    proseStale: number;
+    suggestedNext: string[];
+    modules: ModuleStatus[];
+}
+declare function runStatus(outDir: string): StatusResult | undefined;
+
+interface Citation {
+    raw: string;
+    path: string;
+    start?: number;
+    end?: number;
+}
+declare function parseCitations(text: string): Citation[];
+interface CitationCheck {
+    ok: boolean;
+    resolved: Citation[];
+    unresolved: {
+        citation: Citation;
+        reason: string;
+    }[];
+}
+declare function checkCitations(text: string, fileLines: Map<string, number>): CitationCheck;
+declare function fileLineTable(graph: Graph): Map<string, number>;
+
+declare const VERIFY_MAX = 40;
+interface VerifyWorklist {
+    answer: string;
+    pairs: ClaimEvidencePair[];
+    coverage?: {
+        mode: "complete" | "sampled";
+        total: number;
+        selected: number;
+    };
+    batches?: string[];
+}
+declare function buildClaimPairs(answerText: string, repo: string, opts?: {
+    complete?: boolean;
+}): ClaimEvidencePair[];
+declare function unreadableClaimCitations(answerText: string, repo: string): string[];
+declare function citationlessClaims(text: string): string[];
+declare function verdictRowProblem(row: unknown): string | undefined;
+declare function revalidateVerdicts(verdicts: Verdict[], repo: string): {
+    claimId: string;
+    citation: string;
+    reason: string;
+}[];
+declare function reduceVerdicts(verdicts: Verdict[]): VerifyResult;
+declare function loadVerify(dir: string): VerifyResult | undefined;
+
+declare function loadEnrichedProse(outDir: string, graph: Graph): Map<string, string>;
+declare function findModules(graph: Graph, query: string, k?: number, prose?: Map<string, string>, symbolNames?: Map<string, string[]>): FindResult[];
+declare function runFind(outDir: string, query: string, k?: number): FindResult[] | undefined;
+interface HybridFind {
+    results: FindResult[];
+    semantic: boolean;
+    warning?: string;
+}
+declare function runFindHybrid(outDir: string, query: string, k?: number, repo?: string): Promise<HybridFind | undefined>;
+
+declare function runNeighbors(outDir: string, target: string, depth?: number, kinds?: Set<string>): NeighborResult | undefined;
+
+declare function runImpact(outDir: string, target: string, depth?: number): ImpactResult | undefined;
+
+interface DeltaModule extends DeltaModule$1 {
+    entry: string;
+}
+interface DeltaResult extends Omit<DeltaResult$1, "modules"> {
+    modules: DeltaModule[];
+}
+type DeltaError = {
+    error: string;
+    stale?: string[];
+};
+declare function withEntries(res: DeltaResult$1): DeltaResult;
+declare function runDelta(outDir: string, repo: string, opts: {
+    base?: string;
+    staged?: boolean;
+    depth?: number;
+}): DeltaResult | DeltaError;
+
+interface SymbolSite {
+    file: string;
+    line: number;
+    kind: string;
+    exported: boolean;
+    lang: string;
+    parent?: string;
+    module: string;
+}
+interface SymbolHit {
+    name: string;
+    defs: SymbolSite[];
+    refs: string[];
+}
+interface SymbolResult {
+    query: string;
+    hits: SymbolHit[];
+}
+declare function lookupSymbols(index: SymbolIndex, graph: Graph, query: string): SymbolResult;
+declare function runSymbols(outDir: string, query: string): SymbolResult | undefined;
+
+interface EvidenceFile {
+    rel: string;
+    lines: number;
+    exported: {
+        kind: string;
+        name: string;
+        line: number;
+        signature?: string;
+    }[];
+    head: string;
+    headTo: number;
+}
+declare function gatherEvidence(repo: string, rels: string[], headLines?: number): EvidenceFile[];
+declare function renderModuleDossier(repo: string, graph: Graph, module: ModuleNode, budget?: number): string;
+declare function renderAskDossier(repo: string, graph: Graph, question: string, modules: {
+    slug: string;
+    files: string[];
+}[], budget?: number): string;
+
+declare function runDossier(outDir: string, repo: string, slug: string, budget?: number): string | undefined;
+declare function runAsk(outDir: string, repo: string, question: string, k?: number, budget?: number): Promise<{
+    content: string;
+    modules: string[];
+    warning?: string;
+} | undefined>;
+
+declare function indexPaths(outDir: string): {
+    index: string;
+    graph: string;
+    manifest: string;
+    mermaid: string;
+    encyclopedia: string;
+    vectors: string;
+    symbols: string;
+    cache: string;
+};
+declare function indexExists(outDir: string): boolean;
+declare function loadGraph(outDir: string): Graph | undefined;
+declare function loadManifest(outDir: string): Manifest | undefined;
+declare function loadSymbols(outDir: string): SymbolIndex | undefined;
+declare function loadCache(outDir: string): Map<string, ExtractionCache["files"][string]> | undefined;
+
+declare function prepareGrammars(opts?: WarmGrammarsOptions): Promise<WarmGrammarsResult>;
+
+export { type AnswerCheck, type BuildOptions, type BuildResult, type ChangedSymbol, type CheckOptions, type CheckResult, type Citation, type CitationCheck, type ClaimEvidencePair, type CodeSymbol, type DeltaChange, type DeltaError, type DeltaModule, type DeltaOptions, type DeltaResult, EXTRACTOR_VERSION, type Edge, type EdgeKind, type EmbedReport, type EvidenceFile, type ExtractionCache, type FileKind, type FileNode, type FileRecord, type FileStatus, type FindResult, type Graph, type HybridFind, type ImpactResult, type Manifest, type ModuleNode, type ModuleStatus, type NeighborLink, type NeighborResult, type ProseFreshness, type ProseState, type RawRef, SCHEMA_VERSION, type StatusResult, type SurpriseEdge, type SymbolHit, type SymbolIndex, type SymbolResult, type SymbolSite, type Tier, VERIFY_MAX, VERSION, type VectorStore, type Verdict, type VerdictKind, type VerifyResult, type VerifyWorklist, type WarmGrammarsOptions, type WarmGrammarsResult, buildClaimPairs, checkAnswer, checkCitations, citationlessClaims, codeindexEngine_d as codeindex, fileLineTable, findModules, gatherEvidence, indexExists, indexPaths, loadCache, loadEnrichedProse, loadGraph, loadManifest, loadSymbols, loadVerify, lookupSymbols, parseCitations, prepareGrammars, proseDigest, proseFreshness, proseSourceHash, reduceVerdicts, renderAskDossier, renderModuleDossier, revalidateVerdicts, runAsk, runBuild, runCheck, runDelta, runDossier, runExtractWorker, runFind, runFindHybrid, runImpact, runNeighbors, runStatus, runSymbols, unreadableClaimCitations, verdictRowProblem, withEntries };

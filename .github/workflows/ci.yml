@@ -31,7 +31,7 @@ jobs:
         run: pnpm run typecheck
 
       - name: Build is reproducible (committed bundle up to date)
-        run: pnpm run check:build # tsup && copy-bundle && git diff --exit-code over both bundles
+        run: pnpm run check:build # tsup && copy-bundle && git diff --exit-code over the CLI and library bundles
 
       - name: Test
         run: pnpm test
