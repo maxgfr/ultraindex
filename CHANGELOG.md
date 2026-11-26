@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [7.14.1](https://github.com/maxgfr/ultraindex/compare/v7.14.0...v7.14.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **mcp:** pull tree-sitter grammars on first build ([f65fe4c](https://github.com/maxgfr/ultraindex/commit/f65fe4c4d32d82770a543c92062f04b387777dd4)), closes [#19](https://github.com/maxgfr/ultraindex/issues/19)
+
 # [7.14.0](https://github.com/maxgfr/ultraindex/compare/v7.13.15...v7.14.0) (2026-11-26)
 
 
