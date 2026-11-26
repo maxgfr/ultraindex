@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [7.16.2](https://github.com/maxgfr/ultraindex/compare/v7.16.1...v7.16.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **build:** gitignore the index's regenerable artifacts ([51870a5](https://github.com/maxgfr/ultraindex/commit/51870a5844d0180cffd32b5f6e5ecdf356725598)), closes [#24](https://github.com/maxgfr/ultraindex/issues/24)
+
 ## [7.16.1](https://github.com/maxgfr/ultraindex/compare/v7.16.0...v7.16.1) (2026-11-26)
 
 
