@@ -56,9 +56,10 @@ whose prose regions the model owns and the tooling refuses to let it fake.
   callers.jsonl         # symbol → bound call sites + enclosing caller (`symbols` cmd; regenerable)
   graph.mmd             # a Mermaid module diagram
   manifest.json         # per-file hashes (staleness) + merge bookkeeping
-  cache.json            # incremental-build extraction cache (regenerable; gitignore for committed indexes)
-  search.jsonl          # body-search corpus for find/ask (regenerable; gitignore for committed indexes)
-  vectors.json          # optional per-module embeddings (`embed`, keyless)
+  cache.json            # incremental-build extraction cache (regenerable)
+  search.jsonl          # body-search corpus for find/ask (regenerable)
+  vectors.json          # optional per-module embeddings (`embed`, keyless; regenerable)
+  .gitignore            # written by `build`: keeps the regenerable files out of a committed index
   orchestration/        # optional multi-agent fan-out (`orchestrate`): workflows, contracts, RUNBOOK
 ```
 
@@ -366,6 +367,28 @@ ultraindex mcp     [--transport stdio|http] [--repo <dir>] [--allow-write] [--ma
 Default output is `<repo>/.ultraindex` (gitignored). Use `--out docs/ultraindex`
 to commit a PR-reviewable index — deterministic, byte-stable rebuilds keep diffs small.
 
+A committed index holds only what a reviewer reads and what the read commands
+answer from on a fresh clone. `build` writes `<out>/.gitignore` so the rest
+never gets committed; there is nothing to set up by hand:
+
+| Committed (reviewable) | Ignored (regenerable) |
+| --- | --- |
+| `INDEX.md`, `encyclopedia/`, `graph.json`, `graph.mmd`, `manifest.json`, `symbols.json`, `.gitignore` | `cache.json`, `search.jsonl`, `callers.jsonl` (rewritten by every `build`), `vectors.json` (rewritten by `embed`), `*.tmp` (left by an interrupted write) |
+
+On a large repo the ignored files run to hundreds of MB. A fresh clone without
+them still works: `build` re-creates them; until then `find` ranks on metadata
+alone, `symbols` says to rebuild instead of listing call sites, and `find` is
+lexical-only without `vectors.json`.
+
+The ignore rules sit in a managed block between `# BEGIN ultraindex` and
+`# END ultraindex`. Each `build` rewrites that block in place and leaves every
+other line of the file as you wrote it. A new block goes at the top of the file,
+so your lines below it can override it: add `!vectors.json` there to commit the
+semantic layer for the whole team. The file is deterministic, so it is covered by the
+byte-identical rebuild guarantee. It is written for the default `.ultraindex`
+too: the file does nothing while the repo ignores that directory, and it keeps a
+copied index, or a repo that does not ignore it, from committing the regenerable files.
+
 ## How it works
 
 The **vendored codeindex engine** (no model, no keys) does all the mechanical
@@ -445,8 +468,8 @@ each file the engine indexes, plus a term → files list), so a query never
 re-scans the repo. On a large repo a query indexes only the files carrying its
 rarest terms, within a fixed budget (~4 MiB of records, about a thousand
 files); a term too common to fit is left to the metadata ranking. Without
-`search.jsonl` (an index built before it existed, or a committed index that
-ignores it), `find` ranks on metadata alone.
+`search.jsonl` (an index built before it existed, or a fresh clone of a
+committed index, which ignores it), `find` ranks on metadata alone.
 
 ### Questions in any language
 

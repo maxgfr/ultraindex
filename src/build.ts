@@ -31,6 +31,7 @@ import { loadManifest, loadCache, indexPaths } from "./store.js";
 import { writeFileIfChanged, removeFile, ensureDir } from "./output.js";
 import { renderSearchCache } from "./search.js";
 import { renderCallersCache } from "./callers.js";
+import { writeIndexGitignore } from "./index-gitignore.js";
 
 export interface BuildResult {
 	outDir: string;
@@ -151,6 +152,10 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
 		paths.index,
 		renderIndex(graph, { repoName: basename(opts.repo) || "repo", mermaid }),
 	);
+	// Keep the regenerable artifacts above (search.jsonl, callers.jsonl, the
+	// cache below, embed's vectors.json) out of a committed index. Only the
+	// managed block is rewritten; the user's own lines are kept as written.
+	writeIndexGitignore(opts.out);
 
 	const cappedNote = scan.capped
 		? [

@@ -15,6 +15,7 @@ export function indexPaths(outDir: string): {
   cache: string;
   search: string;
   callers: string;
+  gitignore: string;
 } {
   return {
     index: join(outDir, "INDEX.md"),
@@ -27,6 +28,7 @@ export function indexPaths(outDir: string): {
     cache: join(outDir, "cache.json"),
     search: join(outDir, "search.jsonl"),
     callers: join(outDir, "callers.jsonl"),
+    gitignore: join(outDir, ".gitignore"),
   };
 }
 

@@ -2785,6 +2785,7 @@ declare function indexPaths(outDir: string): {
     cache: string;
     search: string;
     callers: string;
+    gitignore: string;
 };
 declare function indexExists(outDir: string): boolean;
 declare function loadGraph(outDir: string): Graph | undefined;

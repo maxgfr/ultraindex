@@ -124,6 +124,7 @@ describe("runBuild", () => {
 			"graph.mmd",
 			"encyclopedia/src.md",
 			"encyclopedia/root.md",
+			".gitignore",
 		]) {
 			expect(readFileSync(join(a, f), "utf8")).toBe(
 				readFileSync(join(b, f), "utf8"),

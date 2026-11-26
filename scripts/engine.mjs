@@ -29525,7 +29525,7 @@ var VERSION = "7.16.1";
 var SCHEMA_VERSION2 = 5;
 
 // src/build.ts
-import { basename as basename7, relative as relative11, isAbsolute as isAbsolute11 } from "path";
+import { basename as basename8, relative as relative11, isAbsolute as isAbsolute11 } from "path";
 
 // src/merge.ts
 var ENRICH_MARKER = "<!-- ui:enrich -->";
@@ -30154,7 +30154,8 @@ function indexPaths(outDir) {
     symbols: join33(outDir, "symbols.json"),
     cache: join33(outDir, "cache.json"),
     search: join33(outDir, "search.jsonl"),
-    callers: join33(outDir, "callers.jsonl")
+    callers: join33(outDir, "callers.jsonl"),
+    gitignore: join33(outDir, ".gitignore")
   };
 }
 function indexExists(outDir) {
@@ -30490,6 +30491,43 @@ function loadCallSites(outDir, names) {
   }
 }
 
+// src/index-gitignore.ts
+import { basename as basename7 } from "path";
+var REGENERABLE_KEYS = ["cache", "callers", "search", "vectors"];
+function regenerableArtifacts() {
+  const paths = indexPaths("");
+  return REGENERABLE_KEYS.map((k) => basename7(paths[k])).sort();
+}
+var TRANSIENT_PATTERNS = ["*.tmp"];
+var GITIGNORE_BEGIN = "# BEGIN ultraindex (managed by `ultraindex build`; edits inside this block are overwritten)";
+var GITIGNORE_END = "# END ultraindex";
+function renderManagedBlock() {
+  return [
+    GITIGNORE_BEGIN,
+    "# Regenerable: `ultraindex build` / `ultraindex embed` re-derive these. Lines below the",
+    "# block win, so `!vectors.json` there commits the semantic layer.",
+    ...regenerableArtifacts(),
+    ...TRANSIENT_PATTERNS,
+    GITIGNORE_END
+  ].join("\n") + "\n";
+}
+function mergeGitignore(existing) {
+  const block = renderManagedBlock();
+  if (existing === void 0 || existing === "") return block;
+  const lines = existing.split(/(?<=\n)/);
+  const strip = (l) => l.replace(/\r?\n$/, "");
+  const begin = lines.findIndex((l) => strip(l) === GITIGNORE_BEGIN);
+  const end = begin < 0 ? -1 : lines.findIndex((l, i2) => i2 > begin && strip(l) === GITIGNORE_END);
+  if (begin < 0 || end < 0) return block + existing;
+  const before = lines.slice(0, begin).join("");
+  const after = lines.slice(end + 1).join("");
+  return before + block + after;
+}
+function writeIndexGitignore(outDir) {
+  const path = indexPaths(outDir).gitignore;
+  writeFileIfChanged(path, mergeGitignore(readIfExists(path)));
+}
+
 // src/build.ts
 function runBuild(opts, builtAt) {
   const cache = opts.noCache ? void 0 : loadCache(opts.out);
@@ -30511,7 +30549,7 @@ function runBuild(opts, builtAt) {
   for (const module2 of modules) {
     const members = module2.members.map((rel2) => records.get(rel2));
     const readme = members.find(
-      (f) => /^(readme|index)\.(md|mdx)$/i.test(basename7(f.rel))
+      (f) => /^(readme|index)\.(md|mdx)$/i.test(basename8(f.rel))
     );
     if (readme?.summary || readme?.title) continue;
     const source = members.find(
@@ -30566,8 +30604,9 @@ function runBuild(opts, builtAt) {
   else removeFile(paths.mermaid);
   writeFileIfChanged(
     paths.index,
-    renderIndex(graph, { repoName: basename7(opts.repo) || "repo", mermaid })
+    renderIndex(graph, { repoName: basename8(opts.repo) || "repo", mermaid })
   );
+  writeIndexGitignore(opts.out);
   const cappedNote = scan2.capped ? [
     `file scan hit the --max-files cap (${opts.maxFiles ?? DEFAULT_MAX_FILES}); the index is PARTIAL \u2014 raise --max-files to index the whole repo`
   ] : [];
@@ -30971,7 +31010,7 @@ function moduleEmbedText(m, files, prose) {
 }
 
 // src/find.ts
-import { join as join36, basename as basename8, extname as extname5 } from "path";
+import { join as join36, basename as basename9, extname as extname5 } from "path";
 
 // src/lex.ts
 var NON_ASCII2 = /[^\x00-\x7F]/;
@@ -31402,7 +31441,7 @@ function scoreModules(graph, query, prose, symbolNames, extraTerms, body2) {
     const labels = [
       splitIdentifier(m.slug).join(" "),
       splitIdentifier(m.path).join(" "),
-      ...members.map((f) => splitIdentifier(basename8(f.rel, extname5(f.rel))).join(" ")),
+      ...members.map((f) => splitIdentifier(basename9(f.rel, extname5(f.rel))).join(" ")),
       // An exported symbol name whose token form IS the whole query is as strong
       // a label as a matching basename — a query naming a function should lift its
       // module the same way its filename would.

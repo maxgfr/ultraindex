@@ -9,6 +9,9 @@ node scripts/ultraindex.mjs build --repo <path-to-repo> --json
 ```
 
 Add `--out docs/ultraindex` if the team wants it committed and reviewed in PRs.
+`build` writes `<out>/.gitignore` that keeps the regenerable files (`cache.json`,
+`search.jsonl`, `callers.jsonl`, `vectors.json`) out of the commit. Leave its
+managed block alone; add your own lines below it.
 
 The **first** build on a machine downloads the tree-sitter grammars (~17 MiB)
 into a shared cache and reuses them forever, so AST-exact symbols are on by
