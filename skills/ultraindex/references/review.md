@@ -63,7 +63,7 @@ the risky changes, decide whether they are correct, and write grounded findings.
 
 | Reason | It means | Follow up with |
 |---|---|---|
-| `exported symbol X changed` | Public API touched — consumers may break | `symbols "X"` for every reference site |
+| `exported symbol X changed` | Public API touched — consumers may break | `symbols "X"`: its `called` sites are what breaks; `mentioned by name` files are name matches only |
 | `pagerank pNN hub` | The module is structurally load-bearing | `dossier <slug>`, review with extra care |
 | `N dependent files across M modules` | The blast radius itself | `impact <file> --json`, raise `--depth` |
 | `no test covers this module` | Nothing catches a regression here | ask for a test, or verify behavior by hand |

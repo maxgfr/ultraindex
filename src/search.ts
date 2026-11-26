@@ -154,7 +154,8 @@ interface Loaded {
 // a file that runs to tens of MB on a large repo.
 let memo: Loaded | undefined;
 
-function readAt(fd: number, start: number, end: number): string {
+// Exported for callers.jsonl (src/callers.ts), which shares this layout.
+export function readAt(fd: number, start: number, end: number): string {
   const buf = Buffer.allocUnsafe(end - start);
   let read = 0;
   while (read < buf.length) {
@@ -166,7 +167,7 @@ function readAt(fd: number, start: number, end: number): string {
 }
 
 // The header line, read in growing chunks until its newline.
-function readHeader(fd: number, size: number): { text: string; base: number } | undefined {
+export function readHeader(fd: number, size: number): { text: string; base: number } | undefined {
   const chunks: Buffer[] = [];
   let pos = 0;
   while (pos < size) {
@@ -208,7 +209,7 @@ function load(fd: number, path: string): Loaded | undefined {
 
 // Index of a term in the header's sorted list (byStr is code-unit order, the
 // order of `<` on strings), or -1.
-function termId(terms: string[], t: string): number {
+export function termId(terms: string[], t: string): number {
   let lo = 0;
   let hi = terms.length - 1;
   while (lo <= hi) {

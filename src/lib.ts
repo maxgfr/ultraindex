@@ -113,6 +113,7 @@ export {
   type SymbolResult,
   type SymbolHit,
   type SymbolSite,
+  type CallSite,
 } from "./symbols.js";
 
 // ---- evidence ----------------------------------------------------------------
@@ -133,6 +134,7 @@ export {
   loadSymbols,
   loadCache,
 } from "./store.js";
+export { loadCallSites } from "./callers.js";
 
 // ---- grammars ----------------------------------------------------------------
 export type { WarmGrammarsOptions, WarmGrammarsResult };

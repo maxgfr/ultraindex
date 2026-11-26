@@ -52,7 +52,8 @@ whose prose regions the model owns and the tooling refuses to let it fake.
     <module>.md         # per-module entry: business view + code view + links + sources
     _orphaned/<m>.md    # prose of a module that disappeared — kept, never deleted
   graph.json            # the full typed link-graph (file + module level)
-  symbols.json          # symbol → definition sites + referencing files (`symbols` cmd)
+  symbols.json          # symbol → definition sites + files that name it (`symbols` cmd)
+  callers.jsonl         # symbol → bound call sites + enclosing caller (`symbols` cmd; regenerable)
   graph.mmd             # a Mermaid module diagram
   manifest.json         # per-file hashes (staleness) + merge bookkeeping
   cache.json            # incremental-build extraction cache (regenerable; gitignore for committed indexes)
@@ -202,7 +203,7 @@ Twelve read tools. `ultraindex_map` is the one to reach for first:
 | `ultraindex_find` | Rank modules for a task → the exact files to open |
 | `ultraindex_ask` | Ranked modules **plus their real source**, as one grounding packet |
 | `ultraindex_dossier` | One module's source + neighbours, for writing its analysis |
-| `ultraindex_symbols` | Where a symbol is declared, and which files reference it |
+| `ultraindex_symbols` | Where a symbol is declared, its bound call sites, and the files that only mention its name |
 | `ultraindex_neighbors` | Typed graph edges in and out of a file or module |
 | `ultraindex_impact` | Reverse-dependency closure — what breaks if this changes |
 | `ultraindex_delta` | Risk-scored review panel for a diff |
@@ -284,21 +285,24 @@ the pure `verify` steps, the index loaders and the persisted types.
 ## CLI
 
 ```
-ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid] [--no-gitignore]
-ultraindex find    "<query>" [--terms "<keywords>"] [--out <dir>] [--k <n>]
-ultraindex embed   [--out <dir>] [--force]
-ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>] [--kind <k>]
-ultraindex symbols "<name>" [--out <dir>] [--json]
-ultraindex impact  <file|module-slug> [--out <dir>] [--depth <n>] [--json]
+ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid] [--no-gitignore] [--json]
+ultraindex find    "<query>" [--terms "<keywords>"] [--out <dir>] [--repo <dir>] [--k <n>] [--json]
+ultraindex embed   [--out <dir>] [--repo <dir>] [--force] [--json]
+ultraindex neighbors <file|module-slug> [--out <dir>] [--repo <dir>] [--depth <n>] [--kind <k>] [--json]
+ultraindex symbols "<name>" [--out <dir>] [--repo <dir>] [--json]
+ultraindex impact  <file|module-slug> [--out <dir>] [--repo <dir>] [--depth <n>] [--json]
 ultraindex delta   [--base <ref>] [--staged] [--out <dir>] [--repo <dir>] [--depth <n>] [--json]
-ultraindex map     [--out <dir>] [--module <slug>] [--json]
-ultraindex status  [--out <dir>]
+ultraindex map     [--out <dir>] [--repo <dir>] [--module <slug>] [--json]
+ultraindex status  [--out <dir>] [--repo <dir>] [--json]
 ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
-ultraindex ask     "<question>" [--terms "<keywords>"] [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
-ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic] [--quiet]
-ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
+ultraindex ask     "<question>"|--question "<question>" [--terms "<keywords>"] [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>] [--json]
+ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file> [--semantic] [--complete]] [--prose] [--json] [--quiet]
+ultraindex verify  --answer <file> [--out <dir>] [--repo <dir>] [--max-verify <n>] [--complete [--batch-size <n>]] [--json]
+ultraindex verify  --answer <file> --apply <verdicts.json>[,<more.json>…] [--complete] [--out <dir>] [--repo <dir>] [--json] [--quiet]
 ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
-ultraindex grammars [status|pull]
+ultraindex grammars [status|pull] [--out <dir>]
+ultraindex engine  <engine-command> [engine flags…]
+ultraindex mcp     [--transport stdio|http] [--repo <dir>] [--allow-write] [--max-response-bytes <n>] [--port <n>] [--bind <addr>] [--allow-remote] [--allow-origin <list>]
 ```
 
 - **build** — scan + (re)write the index. Idempotent: regenerates the code view
@@ -313,9 +317,15 @@ ultraindex grammars [status|pull]
   engine's BM25F search, over file contents; hybrid lexical + semantic when
   `vectors.json` exists (below). `--terms "<keywords>"` merges extra search keywords with the
   question — the bridge for a question in any language (below).
-- **symbols** — where a symbol is defined (file:line, kind, owning module) and
-  which files reference it, from `symbols.json` — exact then identifier-sub-token
-  match, no repo re-scan.
+- **symbols** — where a symbol is defined (file:line, kind, owning module), then
+  its **bound call sites** (`called file:line (in <caller>)`, the calls the
+  engine binds to that definition: the blast radius), then the files that only
+  **mention** the name (unbound name matches — a method `MkdirAll` next to every
+  `os.MkdirAll` — not uses). Exact then identifier-sub-token match, read from
+  `symbols.json` and `callers.jsonl` with no repo re-scan. `--json` gives each
+  hit `callSites` and `mentions` apart; `refs` is kept for compatibility and
+  lists every file naming the symbol, both kinds. An index built before
+  `callers.jsonl` existed says so (rebuild) instead of reporting zero callers.
 - **impact** — the reverse dependency closure over import/use edges: everything
   that transitively depends on a file or module ("what breaks if I change this").
 - **delta** — map the git diff (merge-base of `--base` vs the worktree, or

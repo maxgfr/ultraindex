@@ -66,8 +66,10 @@ workflow's job.
    "nearby, worth a glance", not as direct matches.
 
    **When you already know the symbol, skip `find`:** `symbols "<name>"` points
-   straight at every definition site (file:line, kind, owning module) and the
-   files that reference it — no ranking, no guessing. Before you change a file
+   straight at every definition site (file:line, kind, owning module), its call
+   sites and the files that mention it — no ranking, no guessing. Call sites
+   are the blast radius (calls bound to that definition); mentions are only
+   name matches (a same-named function elsewhere, a comment), not uses. Before you change a file
    or symbol, run `impact <file|module>` to see its reverse dependency closure
    (everything that imports, uses, or calls it) so you know the blast radius.
    To review a whole diff (branch, PR, staged changes) instead of one target,

@@ -2716,6 +2716,14 @@ declare function runDelta(outDir: string, repo: string, opts: {
     depth?: number;
 }): DeltaResult | DeltaError;
 
+interface CallSite {
+    file: string;
+    line: number;
+    caller?: string;
+    def?: string;
+}
+declare function loadCallSites(outDir: string, names: string[]): Map<string, CallSite[]> | undefined;
+
 interface SymbolSite {
     file: string;
     line: number;
@@ -2728,13 +2736,16 @@ interface SymbolSite {
 interface SymbolHit {
     name: string;
     defs: SymbolSite[];
+    callSites: CallSite[];
+    mentions: string[];
     refs: string[];
 }
 interface SymbolResult {
     query: string;
     hits: SymbolHit[];
+    note?: string;
 }
-declare function lookupSymbols(index: SymbolIndex, graph: Graph, query: string): SymbolResult;
+declare function lookupSymbols(index: SymbolIndex, graph: Graph, query: string, loadSites?: (names: string[]) => Map<string, CallSite[]> | undefined): SymbolResult;
 declare function runSymbols(outDir: string, query: string): SymbolResult | undefined;
 
 interface EvidenceFile {
@@ -2773,6 +2784,7 @@ declare function indexPaths(outDir: string): {
     symbols: string;
     cache: string;
     search: string;
+    callers: string;
 };
 declare function indexExists(outDir: string): boolean;
 declare function loadGraph(outDir: string): Graph | undefined;
@@ -2782,4 +2794,4 @@ declare function loadCache(outDir: string): Map<string, ExtractionCache["files"]
 
 declare function prepareGrammars(opts?: WarmGrammarsOptions): Promise<WarmGrammarsResult>;
 
-export { type AnswerCheck, type BuildOptions, type BuildResult, type ChangedSymbol, type CheckOptions, type CheckResult, type Citation, type CitationCheck, type ClaimEvidencePair, type CodeSymbol, type DeltaChange, type DeltaError, type DeltaModule, type DeltaOptions, type DeltaResult, VERSION as ENGINE_VERSION, EXTRACTOR_VERSION, type Edge, type EdgeKind, type EmbedReport, type EvidenceFile, type ExtractionCache, type FileKind, type FileNode, type FileRecord, type FileStatus, type FindResult, type Graph, type HybridFind, type ImpactResult, type Manifest, type ModuleNode, type ModuleStatus, type NeighborLink, type NeighborResult, type ProseFreshness, type ProseState, type RawRef, SCHEMA_VERSION, type StatusResult, type SurpriseEdge, type SymbolHit, type SymbolIndex, type SymbolResult, type SymbolSite, type Tier, VERIFY_MAX, VERSION, type VectorStore, type Verdict, type VerdictKind, type VerifyResult, type VerifyWorklist, type WarmGrammarsOptions, type WarmGrammarsResult, buildClaimPairs, checkAnswer, checkCitations, citationlessClaims, codeindexEngine_d as codeindex, fileLineTable, findModules, gatherEvidence, indexExists, indexPaths, loadCache, loadEnrichedProse, loadGraph, loadManifest, loadSymbols, loadVerify, lookupSymbols, parseCitations, prepareGrammars, proseDigest, proseFreshness, proseSourceHash, reduceVerdicts, renderAskDossier, renderModuleDossier, revalidateVerdicts, runAsk, runBuild, runCheck, runDelta, runDossier, runExtractWorker, runFind, runFindHybrid, runImpact, runNeighbors, runStatus, runSymbols, unreadableClaimCitations, verdictRowProblem, withEntries };
+export { type AnswerCheck, type BuildOptions, type BuildResult, type CallSite, type ChangedSymbol, type CheckOptions, type CheckResult, type Citation, type CitationCheck, type ClaimEvidencePair, type CodeSymbol, type DeltaChange, type DeltaError, type DeltaModule, type DeltaOptions, type DeltaResult, VERSION as ENGINE_VERSION, EXTRACTOR_VERSION, type Edge, type EdgeKind, type EmbedReport, type EvidenceFile, type ExtractionCache, type FileKind, type FileNode, type FileRecord, type FileStatus, type FindResult, type Graph, type HybridFind, type ImpactResult, type Manifest, type ModuleNode, type ModuleStatus, type NeighborLink, type NeighborResult, type ProseFreshness, type ProseState, type RawRef, SCHEMA_VERSION, type StatusResult, type SurpriseEdge, type SymbolHit, type SymbolIndex, type SymbolResult, type SymbolSite, type Tier, VERIFY_MAX, VERSION, type VectorStore, type Verdict, type VerdictKind, type VerifyResult, type VerifyWorklist, type WarmGrammarsOptions, type WarmGrammarsResult, buildClaimPairs, checkAnswer, checkCitations, citationlessClaims, codeindexEngine_d as codeindex, fileLineTable, findModules, gatherEvidence, indexExists, indexPaths, loadCache, loadCallSites, loadEnrichedProse, loadGraph, loadManifest, loadSymbols, loadVerify, lookupSymbols, parseCitations, prepareGrammars, proseDigest, proseFreshness, proseSourceHash, reduceVerdicts, renderAskDossier, renderModuleDossier, revalidateVerdicts, runAsk, runBuild, runCheck, runDelta, runDossier, runExtractWorker, runFind, runFindHybrid, runImpact, runNeighbors, runStatus, runSymbols, unreadableClaimCitations, verdictRowProblem, withEntries };

@@ -30,6 +30,7 @@ import { syncEntries, type EntryInput } from "./entries.js";
 import { loadManifest, loadCache, indexPaths } from "./store.js";
 import { writeFileIfChanged, removeFile, ensureDir } from "./output.js";
 import { renderSearchCache } from "./search.js";
+import { renderCallersCache } from "./callers.js";
 
 export interface BuildResult {
 	outDir: string;
@@ -141,6 +142,9 @@ export function runBuild(opts: BuildOptions, builtAt: string): BuildResult {
 	// src/search.ts). Written on every build, --no-cache included: it is derived
 	// from this scan alone, deterministically, so it never reuses stale state.
 	writeFileIfChanged(paths.search, renderSearchCache(scan.files));
+	// Bound call sites per callee name, for `symbols` (see src/callers.ts). The
+	// same contract as search.jsonl: derived from this scan alone, deterministic.
+	writeFileIfChanged(paths.callers, renderCallersCache(scan));
 	if (mermaid) writeFileIfChanged(paths.mermaid, mermaid.content);
 	else removeFile(paths.mermaid); // keep the dir consistent with --no-mermaid
 	writeFileIfChanged(

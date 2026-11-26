@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { parseArgs } from "../src/cli.js";
+import { parseArgs, HELP, VALUE_FLAGS, BOOL_FLAGS } from "../src/cli.js";
 
 // parseArgs calls process.exit on help/version/errors; trap it so tests can
 // assert without killing the runner.
@@ -77,5 +77,33 @@ describe("parseArgs", () => {
     expect(p.command).toBe("embed");
     expect(p.values.out).toBe("x");
     expect(p.bools.has("force")).toBe(true);
+  });
+});
+
+describe("--help", () => {
+  const usage = (cmd: string): string[] => HELP.split("\n").filter((l) => l.startsWith(`  ultraindex ${cmd} `));
+
+  it("lists map --json in the usage line and the flag docs", () => {
+    expect(usage("map").some((l) => l.includes("[--json]"))).toBe(true);
+    const json = HELP.slice(HELP.indexOf("  --json "), HELP.indexOf("  --prose "));
+    expect(json).toMatch(/\bmap\b/);
+  });
+
+  it("puts --json on the usage line of every command that accepts it", () => {
+    for (const cmd of ["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "ask", "check", "verify"]) {
+      expect(usage(cmd).some((l) => l.includes("--json")), cmd).toBe(true);
+    }
+  });
+
+  it("documents every flag the parser accepts", () => {
+    for (const flag of [...VALUE_FLAGS, ...BOOL_FLAGS]) {
+      expect(HELP, `--${flag} is accepted but not in --help`).toMatch(new RegExp(`--${flag}(?![\\w-])`));
+    }
+  });
+
+  it("describes symbols call sites and mentions apart", () => {
+    expect(HELP).toContain("callSites");
+    expect(HELP).toContain("mentions");
+    expect(HELP).toMatch(/unbound\s+name matches/);
   });
 });

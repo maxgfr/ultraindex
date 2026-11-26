@@ -2,6 +2,9 @@ import type { Graph, SymbolIndex } from "./types.js";
 import { loadGraph, loadSymbols } from "./store.js";
 import { splitIdentifier } from "./lex.js";
 import { keywords, foldText, byStr } from "./engine.js";
+import { loadCallSites, type CallSite } from "./callers.js";
+
+export type { CallSite } from "./callers.js";
 
 export interface SymbolSite {
   file: string;
@@ -16,13 +19,30 @@ export interface SymbolSite {
 export interface SymbolHit {
   name: string;
   defs: SymbolSite[];
-  refs: string[]; // files that reference the name
+  // Calls the engine BINDS to this definition (callers.jsonl): the blast
+  // radius of a change. Sorted by file, then line.
+  callSites: CallSite[];
+  // Files that contain the name without a bound call site: unbound name
+  // matches (a same-named function of another package, a comment, a doc), NOT
+  // uses. `refs` minus the files in `callSites`.
+  mentions: string[];
+  // Kept for compatibility: every file other than the declaring one whose text
+  // names the symbol, bound call sites and mentions alike. Like `mentions`,
+  // tracked only for an exported, distinctive name declared in one file.
+  refs: string[];
 }
 
 export interface SymbolResult {
   query: string;
   hits: SymbolHit[];
+  // Set when the index carries no bound call-site data (built before
+  // callers.jsonl existed): every `callSites` is then empty because it is
+  // unknown, not because nothing calls the symbol.
+  note?: string;
 }
+
+export const NO_CALL_SITES_NOTE =
+  "this index has no bound call-site data (callers.jsonl is missing or from another version) — re-run `ultraindex build`; until then `callSites` is empty and `mentions` also counts files that call the symbol";
 
 const MAX_HITS = 20;
 
@@ -63,8 +83,15 @@ const EXACT = 1000, PREFIX = 100, SUBSTRING = 1, SOURCE = 0.5;
 // Look up a symbol by name. An exact key hit short-circuits to that one symbol;
 // otherwise rank every def name by the tiered scorer above so the closest names
 // surface first. Answers "where is X defined, and what references it" from
-// symbols.json, so it costs no repo re-scan.
-export function lookupSymbols(index: SymbolIndex, graph: Graph, query: string): SymbolResult {
+// symbols.json, and the bound call sites of each hit from `loadSites` (in
+// practice callers.jsonl), so it costs no repo re-scan. Without call-site data
+// the result carries `note` and every `callSites` is empty.
+export function lookupSymbols(
+  index: SymbolIndex,
+  graph: Graph,
+  query: string,
+  loadSites?: (names: string[]) => Map<string, CallSite[]> | undefined,
+): SymbolResult {
   const moduleOf = new Map(graph.files.map((f) => [f.rel, f.module]));
   const names = Object.keys(index.defs);
 
@@ -130,17 +157,25 @@ export function lookupSymbols(index: SymbolIndex, graph: Graph, query: string): 
       .map((x) => x.name);
   }
 
-  const hits: SymbolHit[] = matches.map((name) => ({
-    name,
-    defs: (index.defs[name] ?? []).map((d) => ({ ...d, module: moduleOf.get(d.file) ?? "root" })),
-    refs: index.refs[name] ?? [],
-  }));
-  return { query, hits };
+  const sites = matches.length ? loadSites?.(matches) : new Map<string, CallSite[]>();
+  const hits: SymbolHit[] = matches.map((name) => {
+    const refs = index.refs[name] ?? [];
+    const callSites = sites?.get(name) ?? [];
+    const calling = new Set(callSites.map((c) => c.file));
+    return {
+      name,
+      defs: (index.defs[name] ?? []).map((d) => ({ ...d, module: moduleOf.get(d.file) ?? "root" })),
+      callSites,
+      mentions: refs.filter((f) => !calling.has(f)),
+      refs,
+    };
+  });
+  return sites ? { query, hits } : { query, hits, note: NO_CALL_SITES_NOTE };
 }
 
 export function runSymbols(outDir: string, query: string): SymbolResult | undefined {
   const graph = loadGraph(outDir);
   const index = loadSymbols(outDir);
   if (!graph || !index) return undefined;
-  return lookupSymbols(index, graph, query);
+  return lookupSymbols(index, graph, query, (names) => loadCallSites(outDir, names));
 }

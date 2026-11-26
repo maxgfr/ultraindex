@@ -110,8 +110,10 @@ export const TOOLS: ToolDecl[] = [
     name: "ultraindex_symbols",
     title: "Resolve a symbol",
     description:
-      "Find where a symbol is DECLARED — file:line, kind, owning module — and which files reference it, straight from the symbol index with no repo " +
-      "re-scan. The tool for 'where is X defined', 'who uses X', 'is X dead code'. " +
+      "Find where a symbol is DECLARED — file:line, kind, owning module — and who calls it, straight from the index with no repo re-scan. " +
+      "Each hit carries `callSites` (calls bound to this definition, with file:line and the enclosing caller: the blast radius) and `mentions` " +
+      "(files that only contain the name — unbound name matches such as a same-named function of another package, NOT uses); `refs` is kept " +
+      "for compatibility and lists both kinds. The tool for 'where is X defined', 'who calls X', 'is X dead code'. " +
       INDEX_NOTE,
     inputSchema: {
       type: "object",

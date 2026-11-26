@@ -23,29 +23,30 @@ import { runStdioServer } from "./mcp/stdio.js";
 import { startHttpServer } from "./mcp/http.js";
 import { ensureGrammars, allGrammarKeys, runCli, resolveGrammarsTier } from "./engine.js";
 
-const HELP = `ultraindex v${VERSION}
+export const HELP = `ultraindex v${VERSION}
 Deterministically index a whole repo (code + docs) into a navigable encyclopedia
 — a small map, per-module entries, and a typed link-graph — so an AI can work in
 huge codebases without filling its context window. Zero deps, no keys.
 
 Usage:
-  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid] [--no-gitignore]
-  ultraindex find    "<query>" [--terms "<keywords>"] [--out <dir>] [--k <n>]
-  ultraindex embed   [--out <dir>] [--force]
-  ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>] [--kind <k>]
-  ultraindex symbols "<name>" [--out <dir>] [--json]
-  ultraindex impact  <file|module-slug> [--out <dir>] [--depth <n>] [--json]
+  ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid] [--no-gitignore] [--json]
+  ultraindex find    "<query>" [--terms "<keywords>"] [--out <dir>] [--repo <dir>] [--k <n>] [--json]
+  ultraindex embed   [--out <dir>] [--repo <dir>] [--force] [--json]
+  ultraindex neighbors <file|module-slug> [--out <dir>] [--repo <dir>] [--depth <n>] [--kind <k>] [--json]
+  ultraindex symbols "<name>" [--out <dir>] [--repo <dir>] [--json]
+  ultraindex impact  <file|module-slug> [--out <dir>] [--repo <dir>] [--depth <n>] [--json]
   ultraindex delta   [--base <ref>] [--staged] [--out <dir>] [--repo <dir>] [--depth <n>] [--json]
-  ultraindex map     [--out <dir>] [--module <slug>]
-  ultraindex status  [--out <dir>]
+  ultraindex map     [--out <dir>] [--repo <dir>] [--module <slug>] [--json]
+  ultraindex status  [--out <dir>] [--repo <dir>] [--json]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
-  ultraindex ask     "<question>" [--terms "<keywords>"] [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
-  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic] [--prose]
-  ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
+  ultraindex ask     "<question>"|--question "<question>" [--terms "<keywords>"] [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>] [--json]
+  ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file> [--semantic] [--complete]] [--prose] [--json] [--quiet]
+  ultraindex verify  --answer <file> [--out <dir>] [--repo <dir>] [--max-verify <n>] [--complete [--batch-size <n>]] [--json]
+  ultraindex verify  --answer <file> --apply <verdicts.json>[,<more.json>…] [--complete] [--out <dir>] [--repo <dir>] [--json] [--quiet]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
-  ultraindex grammars [status|pull]
+  ultraindex grammars [status|pull] [--out <dir>]
   ultraindex engine  <engine-command> [engine flags…]
-  ultraindex mcp     [--transport stdio|http] [--repo <dir>] [--allow-write] [--port <n>] [--bind <addr>] [--allow-remote]
+  ultraindex mcp     [--transport stdio|http] [--repo <dir>] [--allow-write] [--max-response-bytes <n>] [--port <n>] [--bind <addr>] [--allow-remote] [--allow-origin <list>]
 
 Commands:
   build      Scan the repo and (re)write the layered index to --out (default
@@ -57,8 +58,10 @@ Commands:
              keyless embedding tier, pulling the model on first use (see Semantic
              below). Incremental — unchanged modules keep their vectors.
   neighbors  Show graph neighbours of a file or module (what links to/from it).
-  symbols    Find where a symbol is defined (file:line, kind, owning module) and
-             which files reference it — from symbols.json, no repo re-scan.
+  symbols    Find where a symbol is defined (file:line, kind, owning module),
+             its bound call sites (\`called file:line (in <caller>)\` — the
+             blast radius), then the files that only mention the name (unbound
+             name matches, not uses) — from the index, no repo re-scan.
   impact     Reverse dependency closure: every file that transitively imports or
              uses the target, grouped by module — "what breaks if I change this".
   delta      Map the git diff (merge-base of --base vs the worktree, or --staged)
@@ -100,7 +103,8 @@ Commands:
              \`ultraindex engine --help\` lists what the engine offers.
 
 Options:
-  --repo <dir>      Repo to index / check / read source from  (default: .)
+  --repo <dir>      Repo to index / check / read source from  (default: .); on
+                    read commands also where the default --out is looked up
   --out <dir>       Index output dir   (default: <repo>/.ultraindex, else docs/ultraindex if present)
   --include <glob>  Only index paths matching (comma-separated globs)
   --exclude <glob>  Skip paths matching (comma-separated globs)
@@ -122,7 +126,9 @@ Options:
   --staged          delta: review the staged changeset against HEAD instead
   --kind <k>        neighbors: only these edge kinds (comma list: import,call,use,doc-link,mention)
   --budget <n>      ask/dossier: cap the source evidence at ~n tokens
+  --question <q>    ask: the question as a flag instead of a positional (alias: --q)
   --module <slug>   map: print this module's entry instead of INDEX.md
+                    (--json is the map view only: the module table as JSON)
   --answer <file>   check/verify: the answer file whose citations to validate
   --apply <file>    verify: reduce a filled verdicts file to a pass/fail gate
   --max-verify <n>  verify: cap the claim↔citation worklist           (default: 40)
@@ -134,10 +140,24 @@ Options:
                     low-token sequential path)
   --list            orchestrate: print the phases + readiness as JSON, emit nothing
   --force           embed: re-embed every module even if unchanged
-  --json            Machine-readable output
+  --json            Machine-readable output (build, find, embed, neighbors,
+                    symbols, impact, delta, map, status, ask, check, verify).
+                    symbols --json: \`callSites\` are bound calls, \`mentions\`
+                    are files that only contain the name, \`refs\` (kept for
+                    compatibility) is every file naming it, both kinds
   --prose           check: also FAIL when an entry's prose was written against
                     source that has since changed (reported either way)
-  --quiet           check: print nothing, use the exit code only
+  --quiet           check/verify --apply: print nothing, use the exit code only
+  --semantic        check --answer: also fail on a claim its cited excerpt
+                    doesn't support
+  --transport <t>   mcp: stdio (default) or http
+  --allow-write     mcp: enable the tools that write the index (build, embed)
+  --max-response-bytes <n>  mcp: withhold a tool result larger than n bytes
+                    (default: 1000000)
+  --port <n>        mcp http: port to listen on               (default: 7338)
+  --bind <addr>     mcp http: address to bind                 (default: 127.0.0.1)
+  --allow-remote    mcp http: allow binding a non-loopback address
+  --allow-origin <list>  mcp http: extra browser origins allowed (comma list)
   -h, --help        Show this help
   -v, --version     Show version
 
@@ -156,7 +176,7 @@ Grounding:
 `;
 
 const COMMANDS = new Set(["build", "find", "embed", "neighbors", "symbols", "impact", "delta", "map", "status", "dossier", "ask", "check", "verify", "orchestrate", "grammars", "engine", "mcp"]);
-const VALUE_FLAGS = new Set([
+export const VALUE_FLAGS = new Set([
   "repo",
   "out",
   "include",
@@ -185,7 +205,7 @@ const VALUE_FLAGS = new Set([
   "allow-origin",
   "max-response-bytes",
 ]);
-const BOOL_FLAGS = new Set([
+export const BOOL_FLAGS = new Set([
   "json",
   "no-mermaid",
   "no-cache",
@@ -577,6 +597,11 @@ function cmdSymbols(p: Parsed): void {
     process.stderr.write(`ultraindex: no symbol matching "${query}" (try \`ultraindex find\`)\n`);
     process.exit(1);
   }
+  if (res.note) process.stderr.write(`ultraindex: warning: ${res.note}\n`);
+  // Bound call sites are the blast radius, so they come first and one per line;
+  // a fuzzy query (several hits) shows fewer per hit. Name mentions follow,
+  // labelled as what they are: files that contain the name, not uses.
+  const siteCap = res.hits.length === 1 ? 10 : 3;
   const lines: string[] = [];
   for (const h of res.hits) {
     lines.push(`${h.name}`);
@@ -584,7 +609,18 @@ function cmdSymbols(p: Parsed): void {
       const where = d.parent ? ` in ${d.parent}` : "";
       lines.push(`  def  ${d.file}:${d.line}  (${d.kind}${where}, ${d.exported ? "exported" : "local"}, module ${d.module})`);
     }
-    if (h.refs.length) lines.push(`  used ${h.refs.length} file(s): ${h.refs.slice(0, 8).join("  ")}${h.refs.length > 8 ? "  …" : ""}`);
+    for (const c of h.callSites.slice(0, siteCap)) {
+      const ctx = [c.caller ? `in ${c.caller}` : "", c.def ? `binds ${c.def}` : ""].filter(Boolean).join(", ");
+      lines.push(`  called  ${c.file}:${c.line}${ctx ? `  (${ctx})` : ""}`);
+    }
+    if (h.callSites.length > siteCap) lines.push(`  …and ${h.callSites.length - siteCap} more call site(s) (--json lists all)`);
+    if (!h.callSites.length && !res.note) lines.push(`  called  (no bound call site in the index)`);
+    if (h.mentions.length) {
+      lines.push(
+        `  mentioned by name in ${h.mentions.length} file(s) (unbound name matches, not call sites): ` +
+          `${h.mentions.slice(0, 8).join("  ")}${h.mentions.length > 8 ? "  …" : ""}`,
+      );
+    }
   }
   process.stdout.write(lines.join("\n") + "\n");
 }

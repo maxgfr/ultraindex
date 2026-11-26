@@ -13138,10 +13138,10 @@ var init_status = __esm({
   }
 });
 function filesInDir(ctx, dir, ext) {
-  const memo2 = ctx.dirFilesMemo ??= /* @__PURE__ */ new Map();
+  const memo3 = ctx.dirFilesMemo ??= /* @__PURE__ */ new Map();
   const key = ext + "\0" + dir;
-  let list = memo2.get(key);
-  if (!list) memo2.set(key, list = (ctx.filesByDir.get(dir) ?? []).filter((f) => f.endsWith(ext)).sort());
+  let list = memo3.get(key);
+  if (!list) memo3.set(key, list = (ctx.filesByDir.get(dir) ?? []).filter((f) => f.endsWith(ext)).sort());
   return list;
 }
 function distToSrcCandidates(target) {
@@ -13996,8 +13996,8 @@ function resolveC(fromRel, spec, ctx) {
   const fromDir = fromRel.includes("/") ? posix2.dirname(fromRel) : "";
   let hit = firstExisting(ctx, [posix2.join(fromDir, spec)]);
   if (!hit) {
-    const memo2 = ctx.cRootMemo ??= /* @__PURE__ */ new Map();
-    let viaRoot = memo2.get(spec);
+    const memo3 = ctx.cRootMemo ??= /* @__PURE__ */ new Map();
+    let viaRoot = memo3.get(spec);
     if (viaRoot === void 0) {
       viaRoot = null;
       for (const root of ctx.cIncludeRoots) {
@@ -14007,7 +14007,7 @@ function resolveC(fromRel, spec, ctx) {
           break;
         }
       }
-      memo2.set(spec, viaRoot);
+      memo3.set(spec, viaRoot);
     }
     hit = viaRoot ?? void 0;
   }
@@ -14022,8 +14022,8 @@ function resolveRuby(fromRel, spec, ctx) {
     const hit = firstExisting(ctx, [base + ".rb", posix2.join(base, "index.rb")]);
     return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
   }
-  const memo2 = ctx.rubyRootMemo ??= /* @__PURE__ */ new Map();
-  let target = memo2.get(spec);
+  const memo3 = ctx.rubyRootMemo ??= /* @__PURE__ */ new Map();
+  let target = memo3.get(spec);
   if (target === void 0) {
     target = null;
     for (const root of ctx.rubyLibRoots) {
@@ -14033,7 +14033,7 @@ function resolveRuby(fromRel, spec, ctx) {
         break;
       }
     }
-    memo2.set(spec, target);
+    memo3.set(spec, target);
   }
   return target ? { kind: "resolved", target } : { kind: "external" };
 }
@@ -14045,8 +14045,8 @@ function resolvePhp(fromRel, spec, ctx) {
     return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
   }
   const ns = spec.replace(/^\\+/, "");
-  const memo2 = ctx.phpPsr4Memo ??= /* @__PURE__ */ new Map();
-  let target = memo2.get(ns);
+  const memo3 = ctx.phpPsr4Memo ??= /* @__PURE__ */ new Map();
+  let target = memo3.get(ns);
   if (target === void 0) {
     target = null;
     for (const { prefix, dir } of ctx.phpPsr4) {
@@ -14058,7 +14058,7 @@ function resolvePhp(fromRel, spec, ctx) {
         break;
       }
     }
-    memo2.set(ns, target);
+    memo3.set(ns, target);
   }
   return target ? { kind: "resolved", target } : { kind: "external" };
 }
@@ -14126,17 +14126,17 @@ function resolveImport(fromRel, ext, spec, ctx) {
     }
     const dir = fromRel.includes("/") ? posix2.dirname(fromRel) : "";
     const key = dir + "\0" + spec;
-    const memo2 = ctx.jsMemo ??= /* @__PURE__ */ new Map();
-    let r = memo2.get(key);
-    if (!r) memo2.set(key, r = resolveJs(fromRel, spec, ctx));
+    const memo3 = ctx.jsMemo ??= /* @__PURE__ */ new Map();
+    let r = memo3.get(key);
+    if (!r) memo3.set(key, r = resolveJs(fromRel, spec, ctx));
     return { ...r };
   }
   if (PY2.has(ext)) {
     const dir = fromRel.includes("/") ? posix2.dirname(fromRel) : "";
     const key = dir + "\0" + spec;
-    const memo2 = ctx.pyMemo ??= /* @__PURE__ */ new Map();
-    let r = memo2.get(key);
-    if (!r) memo2.set(key, r = resolvePython(fromRel, spec, ctx));
+    const memo3 = ctx.pyMemo ??= /* @__PURE__ */ new Map();
+    let r = memo3.get(key);
+    if (!r) memo3.set(key, r = resolvePython(fromRel, spec, ctx));
     return { ...r };
   }
   if (ext === ".go") return resolveGo(fromRel, spec, ctx);
@@ -14681,8 +14681,8 @@ function goImplementations(scan2) {
   const isInterface = (s) => !!s.signature?.startsWith(s.name) && /^(\[[^\]]*\])?\s+interface\b/.test(s.signature.slice(s.name.length));
   const setMemo = /* @__PURE__ */ new Map();
   const methodSet = (key, iface, seen) => {
-    const memo2 = setMemo.get(key);
-    if (memo2 !== void 0) return memo2 ?? void 0;
+    const memo3 = setMemo.get(key);
+    if (memo3 !== void 0) return memo3 ?? void 0;
     if (seen.has(key)) return void 0;
     seen.add(key);
     const own = new Map(methods.get(key) ?? []);
@@ -15579,14 +15579,14 @@ function splitCompoundPaths(docs) {
   for (const d of docs) {
     for (const t of d.fields.name.tf.keys()) if (t.length >= PIECE_MIN && /^[a-z]+$/.test(t)) vocab.add(t);
   }
-  const memo2 = /* @__PURE__ */ new Map();
+  const memo3 = /* @__PURE__ */ new Map();
   for (const d of docs) {
     if (d.isTest || d.isFixture) continue;
     const path = d.fields.path;
     for (const t of [...path.tf.keys()]) {
       if (t.length < COMPOUND_MIN || t.length > COMPOUND_MAX || !/^[a-z]+$/.test(t)) continue;
-      let pieces = memo2.get(t);
-      if (!memo2.has(t)) memo2.set(t, pieces = wordBreak(t, vocab));
+      let pieces = memo3.get(t);
+      if (!memo3.has(t)) memo3.set(t, pieces = wordBreak(t, vocab));
       if (!pieces) continue;
       const tf = path.tf.get(t);
       for (const p of pieces) {
@@ -16754,11 +16754,11 @@ function createBindScope(scan2, pairs, ctxIn) {
     return out2;
   };
   let ctx = ctxIn;
-  let memo2 = aliasMemo.get(scan2);
+  let memo3 = aliasMemo.get(scan2);
   const aliasFiles = () => {
     ctx ??= resolveContextFor(scan2);
-    if (memo2?.ctx !== ctx) aliasMemo.set(scan2, memo2 = { ctx, files: /* @__PURE__ */ new Map() });
-    return memo2.files;
+    if (memo3?.ctx !== ctx) aliasMemo.set(scan2, memo3 = { ctx, files: /* @__PURE__ */ new Map() });
+    return memo3.files;
   };
   const defaultOf = (rel2) => {
     const t = fileOf(rel2);
@@ -20214,10 +20214,10 @@ function loadEmbedModel(dir) {
   }
   return parseEmbedModel(raw, path);
 }
-function tryLoadEmbedModel(dir, load2 = loadEmbedModel) {
+function tryLoadEmbedModel(dir, load3 = loadEmbedModel) {
   if (!dir) return {};
   try {
-    const model = load2(dir);
+    const model = load3(dir);
     return model ? { model } : {};
   } catch (e) {
     return { error: errMessage(e) };
@@ -22613,9 +22613,9 @@ function dispatchLiveness(scan2, relations, live) {
     for (const r of f.relations ?? []) declared.set(r.from, (declared.get(r.from) ?? 0) + 1);
     for (const [from, n] of declared) if (n > (resolvedCount.get(`${from}${SEP4}${f.rel}`) ?? 0)) external.add(`${from}${SEP4}${f.rel}`);
   }
-  const memo2 = /* @__PURE__ */ new Map();
+  const memo3 = /* @__PURE__ */ new Map();
   const check = (s, seen) => {
-    const known = memo2.get(s);
+    const known = memo3.get(s);
     if (known !== void 0) return known;
     const sups = overridden.get(s);
     let result;
@@ -22624,7 +22624,7 @@ function dispatchLiveness(scan2, relations, live) {
       seen.add(s);
       result = sups.some((u) => live(u) || !seen.has(u) && check(u, seen));
     }
-    memo2.set(s, result);
+    memo3.set(s, result);
     return result;
   };
   return (s) => !!s.parent && check(s, /* @__PURE__ */ new Set());
@@ -23569,9 +23569,9 @@ var init_patharg = __esm({
 });
 function oversizedNaming(scan2, name2) {
   if (!scan2.oversized?.length || !/^[A-Za-z_$][\w$]*$/.test(name2)) return [];
-  let memo2 = wordMemo.get(scan2);
-  if (!memo2) wordMemo.set(scan2, memo2 = /* @__PURE__ */ new Map());
-  const known = memo2.get(name2);
+  let memo3 = wordMemo.get(scan2);
+  if (!memo3) wordMemo.set(scan2, memo3 = /* @__PURE__ */ new Map());
+  const known = memo3.get(name2);
   if (known) return known;
   const word = new RegExp(`(?<![\\w$])${name2.replace(/\$/g, "\\$")}(?![\\w$])`);
   const out2 = [];
@@ -23585,7 +23585,7 @@ function oversizedNaming(scan2, name2) {
     }
     if (word.test(text)) out2.push({ file: o.rel, size: o.size });
   }
-  memo2.set(name2, out2);
+  memo3.set(name2, out2);
   return out2;
 }
 function coverageFor(scan2, name2, opts) {
@@ -30153,7 +30153,8 @@ function indexPaths(outDir) {
     vectors: join33(outDir, "vectors.json"),
     symbols: join33(outDir, "symbols.json"),
     cache: join33(outDir, "cache.json"),
-    search: join33(outDir, "search.jsonl")
+    search: join33(outDir, "search.jsonl"),
+    callers: join33(outDir, "callers.jsonl")
   };
 }
 function indexExists(outDir) {
@@ -30399,6 +30400,96 @@ function rank(fd, c2, text, budget) {
   }));
 }
 
+// src/callers.ts
+import { closeSync as closeSync2, fstatSync as fstatSync2, openSync as openSync2 } from "fs";
+var CALLERS_VERSION = 1;
+var FORMAT2 = "ultraindex-callers";
+function renderCallersCache(scan2) {
+  const byRel = new Map(scan2.files.map((f) => [f.rel, f]));
+  const byName = /* @__PURE__ */ new Map();
+  for (const { def, callers } of buildCallerIndex(scan2).values()) {
+    let entry2 = byName.get(def.name);
+    if (!entry2) byName.set(def.name, entry2 = { defFiles: /* @__PURE__ */ new Set(), sites: [] });
+    entry2.defFiles.add(def.file);
+    for (const c2 of callers) entry2.sites.push({ def: def.file, file: c2.file, line: c2.line });
+  }
+  const names = [...byName.keys()].sort(byStr);
+  const lines = [];
+  const offsets = [];
+  let offset = 0;
+  for (const name2 of names) {
+    const { defFiles, sites } = byName.get(name2);
+    sites.sort((a, b) => byStr(a.file, b.file) || a.line - b.line || byStr(a.def, b.def));
+    const out2 = sites.map((s) => {
+      const rec = byRel.get(s.file);
+      const enc = rec ? enclosingSymbol({ ...scan2, files: [rec] }, s.file, s.line) : void 0;
+      return {
+        file: s.file,
+        line: s.line,
+        ...enc ? { caller: enc.parent ? `${enc.parent}/${enc.name}` : enc.name } : {},
+        ...defFiles.size > 1 ? { def: s.def } : {}
+      };
+    });
+    const line2 = JSON.stringify({ name: name2, sites: out2 });
+    offsets.push(offset);
+    lines.push(line2);
+    offset += Buffer.byteLength(line2) + 1;
+  }
+  offsets.push(offset);
+  const header = {
+    format: FORMAT2,
+    version: CALLERS_VERSION,
+    schemaVersion: SCHEMA_VERSION2,
+    extractorVersion: EXTRACTOR_VERSION,
+    names,
+    offsets
+  };
+  return JSON.stringify(header) + "\n" + lines.join("\n") + (lines.length ? "\n" : "");
+}
+var memo2;
+function load2(fd, path) {
+  const st = fstatSync2(fd);
+  const key = `${path}\0${st.size}\0${st.mtimeMs}`;
+  if (memo2?.key === key) return memo2;
+  const head = readHeader(fd, st.size);
+  if (!head) return void 0;
+  const header = JSON.parse(head.text);
+  if (header.format !== FORMAT2 || header.version !== CALLERS_VERSION || header.schemaVersion !== SCHEMA_VERSION2 || header.extractorVersion !== EXTRACTOR_VERSION || !Array.isArray(header.names) || !Array.isArray(header.offsets) || header.offsets.length !== header.names.length + 1 || head.base + header.offsets[header.names.length] !== st.size) {
+    return void 0;
+  }
+  memo2 = { key, header, base: head.base };
+  return memo2;
+}
+function loadCallSites(outDir, names) {
+  const path = indexPaths(outDir).callers;
+  let fd;
+  try {
+    fd = openSync2(path, "r");
+  } catch {
+    return void 0;
+  }
+  try {
+    const c2 = load2(fd, path);
+    if (!c2) return void 0;
+    const { names: known, offsets } = c2.header;
+    const out2 = /* @__PURE__ */ new Map();
+    for (const name2 of names) {
+      const id = termId(known, name2);
+      if (id < 0) {
+        out2.set(name2, []);
+        continue;
+      }
+      const line2 = readAt(fd, c2.base + offsets[id], c2.base + offsets[id + 1] - 1);
+      out2.set(name2, JSON.parse(line2).sites);
+    }
+    return out2;
+  } catch {
+    return void 0;
+  } finally {
+    closeSync2(fd);
+  }
+}
+
 // src/build.ts
 function runBuild(opts, builtAt) {
   const cache = opts.noCache ? void 0 : loadCache(opts.out);
@@ -30470,6 +30561,7 @@ function runBuild(opts, builtAt) {
     renderSymbolsJson(buildSymbolIndex(scan2, computeSymbolRefs(scan2)))
   );
   writeFileIfChanged(paths.search, renderSearchCache(scan2.files));
+  writeFileIfChanged(paths.callers, renderCallersCache(scan2));
   if (mermaid) writeFileIfChanged(paths.mermaid, mermaid.content);
   else removeFile(paths.mermaid);
   writeFileIfChanged(
@@ -31112,6 +31204,7 @@ function scoreHaystack(hay, terms, saturate = false, idf) {
 }
 
 // src/symbols.ts
+var NO_CALL_SITES_NOTE = "this index has no bound call-site data (callers.jsonl is missing or from another version) \u2014 re-run `ultraindex build`; until then `callSites` is empty and `mentions` also counts files that call the symbol";
 var MAX_HITS = 20;
 var MAX_NAMES_PER_FILE = 60;
 function exportedNamesByFile(index) {
@@ -31137,7 +31230,7 @@ var EXACT = 1e3;
 var PREFIX = 100;
 var SUBSTRING = 1;
 var SOURCE = 0.5;
-function lookupSymbols(index, graph, query) {
+function lookupSymbols(index, graph, query, loadSites) {
   const moduleOf = new Map(graph.files.map((f) => [f.rel, f.module]));
   const names = Object.keys(index.defs);
   let matches;
@@ -31186,18 +31279,26 @@ function lookupSymbols(index, graph, query) {
     }
     matches = scored.sort((a, b) => b.score - a.score || a.name.length - b.name.length || byStr(a.name, b.name)).slice(0, MAX_HITS).map((x) => x.name);
   }
-  const hits = matches.map((name2) => ({
-    name: name2,
-    defs: (index.defs[name2] ?? []).map((d) => ({ ...d, module: moduleOf.get(d.file) ?? "root" })),
-    refs: index.refs[name2] ?? []
-  }));
-  return { query, hits };
+  const sites = matches.length ? loadSites?.(matches) : /* @__PURE__ */ new Map();
+  const hits = matches.map((name2) => {
+    const refs = index.refs[name2] ?? [];
+    const callSites = sites?.get(name2) ?? [];
+    const calling = new Set(callSites.map((c2) => c2.file));
+    return {
+      name: name2,
+      defs: (index.defs[name2] ?? []).map((d) => ({ ...d, module: moduleOf.get(d.file) ?? "root" })),
+      callSites,
+      mentions: refs.filter((f) => !calling.has(f)),
+      refs
+    };
+  });
+  return sites ? { query, hits } : { query, hits, note: NO_CALL_SITES_NOTE };
 }
 function runSymbols(outDir, query) {
   const graph = loadGraph(outDir);
   const index = loadSymbols(outDir);
   if (!graph || !index) return void 0;
-  return lookupSymbols(index, graph, query);
+  return lookupSymbols(index, graph, query, (names) => loadCallSites(outDir, names));
 }
 
 // src/find.ts
@@ -32154,6 +32255,7 @@ export {
   indexExists,
   indexPaths,
   loadCache,
+  loadCallSites,
   loadEnrichedProse,
   loadGraph,
   loadManifest,
