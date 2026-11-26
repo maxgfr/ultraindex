@@ -17,6 +17,11 @@ import { warmGrammars, type WarmGrammarsOptions, type WarmGrammarsResult } from 
 
 // ---- version and schema ----------------------------------------------------
 export { VERSION, SCHEMA_VERSION, EXTRACTOR_VERSION } from "./types.js";
+// The vendoring convention's public version constant: a downstream skill pins
+// this bundle by it. ultraindex's own version (an alias of VERSION, so nothing
+// can drift); the embedded engine's stays at `codeindex.ENGINE_VERSION`. A
+// re-export alias, not a declaration, so it shadows no engine export.
+export { VERSION as ENGINE_VERSION } from "./types.js";
 
 // ---- persisted shapes and option types --------------------------------------
 export type {

@@ -10,6 +10,11 @@ import { VERSION as SRC_VERSION, SCHEMA_VERSION as SRC_SCHEMA_VERSION } from "..
 
 const REPO = fileURLToPath(new URL("./fixtures/mini-repo", import.meta.url));
 const DTS = fileURLToPath(new URL("../scripts/engine.d.mts", import.meta.url));
+const BUNDLE = fileURLToPath(new URL("../scripts/engine.mjs", import.meta.url));
+const ENGINE_META = fileURLToPath(new URL("../src/vendor/engine.meta.json", import.meta.url));
+// Verbatim from `webindex skill vendor|check` (maxgfr/webindex
+// src/skillkit/vendor.ts): a vendored bundle's version is the FIRST match.
+const VENDOR_ENGINE_VERSION = /(?:^|\n)\s*(?:(?:var|const|let)\s+)?ENGINE_VERSION\s*=\s*"([^"]+)"/;
 const FIXED_TIME = "2026-01-01T00:00:00.000Z";
 
 // Every write the library could make to the terminal, or to the process's exit
@@ -57,6 +62,18 @@ describe("library entry (scripts/engine.mjs)", () => {
   it("reports the same version and schema as the source tree", () => {
     expect(lib.VERSION).toBe(SRC_VERSION);
     expect(lib.SCHEMA_VERSION).toBe(SRC_SCHEMA_VERSION);
+  });
+
+  it("announces ultraindex's own ENGINE_VERSION first, for vendoring tools", () => {
+    // The skill kit reads the first ENGINE_VERSION statement of the vendored
+    // file; it must be ultraindex's, not the embedded codeindex engine's.
+    const text = readFileSync(BUNDLE, "utf8");
+    expect(VENDOR_ENGINE_VERSION.exec(text)?.[1]).toBe(SRC_VERSION);
+    expect(lib.ENGINE_VERSION).toBe(SRC_VERSION);
+    // The embedded engine keeps its own version under the namespace.
+    const meta = JSON.parse(readFileSync(ENGINE_META, "utf8")) as { engineVersion: string };
+    expect(lib.codeindex.ENGINE_VERSION).toBe(meta.engineVersion);
+    expect(lib.codeindex.ENGINE_VERSION).not.toBe(SRC_VERSION);
   });
 
   it("warms the grammars without printing, so the build takes the AST path", async () => {

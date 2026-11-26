@@ -1,3 +1,9 @@
+/*
+  ENGINE_VERSION = "7.14.1"
+  ultraindex's own version, announced first so vendoring tools that read the
+  first ENGINE_VERSION statement get ultraindex's, not the embedded codeindex
+  engine's (that one stays exported as codeindex.ENGINE_VERSION).
+*/
 var __defProp = Object.defineProperty;
 var __export = (target, all) => {
   for (var name2 in all)
@@ -31549,6 +31555,7 @@ function prepareGrammars(opts = {}) {
   }) });
 }
 export {
+  VERSION as ENGINE_VERSION,
   EXTRACTOR_VERSION,
   SCHEMA_VERSION2 as SCHEMA_VERSION,
   VERIFY_MAX,
