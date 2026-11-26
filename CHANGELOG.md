@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [7.16.0](https://github.com/maxgfr/ultraindex/compare/v7.15.0...v7.16.0) (2026-11-26)
+
+
+### Features
+
+* **find:** rank with the engine's body search too ([7ef85c6](https://github.com/maxgfr/ultraindex/commit/7ef85c63f4ca71166d3ba808dfe25106d639f38f)), closes [#22](https://github.com/maxgfr/ultraindex/issues/22)
+
 # [7.15.0](https://github.com/maxgfr/ultraindex/compare/v7.14.2...v7.15.0) (2026-11-26)
 
 
