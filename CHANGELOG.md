@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [7.14.2](https://github.com/maxgfr/ultraindex/compare/v7.14.1...v7.14.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **lib:** announce ultraindex's own ENGINE_VERSION in engine.mjs ([2741d5f](https://github.com/maxgfr/ultraindex/commit/2741d5ffac7a8eca3122c8d0a525f7830ff44eab)), closes [#20](https://github.com/maxgfr/ultraindex/issues/20)
+
 ## [7.14.1](https://github.com/maxgfr/ultraindex/compare/v7.14.0...v7.14.1) (2026-11-26)
 
 
