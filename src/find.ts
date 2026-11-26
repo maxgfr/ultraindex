@@ -3,10 +3,12 @@ import type { FileNode, FindResult, Graph, ModuleNode } from "./types.js";
 import { loadGraph, loadSymbols, indexPaths } from "./store.js";
 import { readIfExists } from "./output.js";
 import { humanBodies, isEnrichedBody } from "./merge.js";
-import { buildHaystack, queryTerms, scoreHaystack, splitIdentifier } from "./lex.js";
+import { buildHaystack, queryTerms, scoreHaystack, splitIdentifier, stem } from "./lex.js";
 import type { QueryTerm } from "./lex.js";
 import { exportedNamesByFile } from "./symbols.js";
-import { rrf, byStr, hubThreshold } from "./engine.js";
+import { rrf, byStr, hubThreshold, subtokens } from "./engine.js";
+import { searchBodies } from "./search.js";
+import type { BodyHit } from "./search.js";
 import { loadVectors, decodeVector } from "./vectors.js";
 import { resolveEmbedTier, encodeQuery, similarity, tierModelId } from "./semantic.js";
 
@@ -36,6 +38,19 @@ function textOf(parts: (string | undefined)[]): string {
 // in the index — weight it above the structural summary, below nothing.
 const PROSE_WEIGHT = 1.5;
 
+// The engine's body search (src/search.ts) lifts a file by at most this much:
+// the query's top hit gets BODY_WEIGHT, every other hit its BM25F score
+// relative to that one. 1 is a single raw-substring metadata hit at neutral
+// IDF, the weakest metadata tier (an exact token is 3, and a file hit adds the
+// 0.5 breadth bonus on top). A module's lift is its best file's, added to its
+// keyword score and scaled like the rest of it, by the coverage of METADATA
+// terms only: a module only a body matched keeps the 0.4 coverage floor, which
+// puts it no higher than the weakest metadata match with the same penalties
+// and degree. So a body hit breaks near-ties among metadata matches, ranks a
+// body-only module after them, and is enough on its own when no metadata
+// matches at all.
+export const BODY_WEIGHT = 1;
+
 // Load each module's enriched prose (stub regions excluded) for query-time
 // scoring. Citations and other bracketed tokens are stripped so `[file:line]`
 // references don't pollute keyword matching. Read at query time — prose written
@@ -61,15 +76,36 @@ export function loadEnrichedProse(outDir: string, graph: Graph): Map<string, str
 // title/summary/path mentions it. Absent ⇒ identical to symbol-free scoring.
 // `extraTerms` are the caller's `--terms`: search keywords merged with the
 // question's own (see queryTerms for the weighting). Absent ⇒ the question alone.
+// `body` are the engine's lexical hits over file contents (searchBodies), best
+// first. Absent or empty ⇒ metadata-only scoring, exactly as before.
 export function scoreModules(
   graph: Graph,
   query: string,
   prose?: Map<string, string>,
   symbolNames?: Map<string, string[]>,
   extraTerms?: string,
+  body?: BodyHit[],
 ): { r: FindResult; degree: number }[] {
   const terms = queryTerms(query, extraTerms);
   if (terms.length === 0) return [];
+
+  // Body lift per file: BODY_WEIGHT × the hit's score relative to the top hit,
+  // and the query terms it carries. The engine reports its own terms (folded
+  // subtokens); a query term counts as matched when one of its subtokens did.
+  const topBody = body?.[0]?.score ?? 0;
+  const bodyOf = new Map<string, { lift: number; matched: string[] }>();
+  if (body && topBody > 0) {
+    // A query term's match forms, plus its engine subtokens: an engine term
+    // matches the query term when it, or its stem, is one of them — so
+    // "orders" in a body counts for the merged term "order".
+    const formsOf = terms.map((t) => new Set([t.exact, t.needle, stem(t.needle), ...t.forms, ...subtokens(t.raw)]));
+    for (const h of body) {
+      const matched = terms
+        .filter((_, i) => h.terms.some((e) => formsOf[i]!.has(e) || formsOf[i]!.has(stem(e))))
+        .map((t) => t.raw);
+      bodyOf.set(h.rel, { lift: (BODY_WEIGHT * h.score) / topBody, matched });
+    }
+  }
 
   // Exported symbol names declared in a file, folded into its haystack.
   const namesOf = (rel: string): string => (symbolNames?.get(rel) ?? []).join(" ");
@@ -147,19 +183,27 @@ export function scoreModules(
       .map((f) => {
         const hay = textOf([f.rel, f.title, f.summary, namesOf(f.rel)]);
         const s = scoreHaystack(buildHaystack(hay), terms, false, idf);
-        return { f, score: s.score, matched: s.matched, degree: f.degIn + f.degOut };
+        const b = bodyOf.get(f.rel);
+        return { f, score: s.score, lift: b?.lift ?? 0, matched: s.matched, bodyMatched: b?.matched ?? [], degree: f.degIn + f.degOut };
       })
-      .sort((a, b) => b.score - a.score || b.degree - a.degree || byStr(a.f.rel, b.f.rel));
+      // Metadata score plus body lift orders the files to open; the module score
+      // below keeps the two apart.
+      .sort((a, b) => b.score + b.lift - (a.score + a.lift) || b.degree - a.degree || byStr(a.f.rel, b.f.rel));
 
     // Use the best-matching file plus a small breadth bonus — NOT the raw sum —
     // so a 50-file __tests__ dir can't outrank the real implementation just by
     // having many keyword-bearing filenames.
-    const bestFile = scoredFiles[0]?.score ?? 0;
+    const bestFile = scoredFiles.reduce((best, x) => Math.max(best, x.score), 0);
     const matchCount = scoredFiles.filter((x) => x.score > 0).length;
+    // The best body hit among the members, not a sum: like bestFile, breadth
+    // must not let a module of many mentions outrank the one that implements.
+    const bodyLift = scoredFiles.reduce((best, x) => Math.max(best, x.lift), 0);
     // Require an actual keyword hit — a module with no match shouldn't surface
     // just because it's well-connected. Degree only breaks ties among matches.
-    if (mod.score === 0 && bestFile === 0 && pro.score === 0) continue;
+    if (mod.score === 0 && bestFile === 0 && pro.score === 0 && bodyLift === 0) continue;
 
+    // Coverage counts metadata matches only, so a body hit never rescales the
+    // metadata score; `matched` reports both.
     const matchedTerms = new Set([...mod.matched, ...pro.matched, ...scoredFiles.flatMap((x) => x.matched)]);
     // Coverage: reward matching MORE of the distinct query terms (by weight).
     // Squared so a 1-of-5 collision on a single term can't ride a high tier past
@@ -200,13 +244,14 @@ export function scoreModules(
     // keywordScore rather than added after the penalties, so the tier/path/
     // generic and coverage factors below still apply — ultraindex wants a
     // test-dir module demoted even when its name is an exact query hit.
-    const keywordScore = mod.score * 2 + pro.score * PROSE_WEIGHT + bestFile + Math.min(matchCount, 5) * 0.5 + fullQuery;
+    const keywordScore = mod.score * 2 + pro.score * PROSE_WEIGHT + bestFile + Math.min(matchCount, 5) * 0.5 + fullQuery + bodyLift;
     const total = keywordScore * tierWeight * pathPenalty * genericPenalty * coverageWeight + Math.min(m.degIn + m.degOut, 5) * 0.25;
 
-    const matched = [...matchedTerms].sort(byStr);
-    // Files to open: prefer those that matched; fall back to the module's
-    // highest-degree members so a module match still yields concrete files.
-    let files = scoredFiles.filter((x) => x.score > 0).map((x) => x.f.rel);
+    const matched = [...new Set([...matchedTerms, ...scoredFiles.flatMap((x) => x.bodyMatched)])].sort(byStr);
+    // Files to open: those that matched (metadata or body) lead; fall back to
+    // the module's highest-degree members so a module match still yields
+    // concrete files.
+    let files = scoredFiles.filter((x) => x.score > 0 || x.lift > 0).map((x) => x.f.rel);
     if (files.length === 0) {
       files = members
         .slice()
@@ -246,8 +291,9 @@ export function findModules(
   prose?: Map<string, string>,
   symbolNames?: Map<string, string[]>,
   extraTerms?: string,
+  body?: BodyHit[],
 ): FindResult[] {
-  return scoreModules(graph, query, prose, symbolNames, extraTerms).slice(0, k).map((x) => x.r);
+  return scoreModules(graph, query, prose, symbolNames, extraTerms, body).slice(0, k).map((x) => x.r);
 }
 
 // graphify's seed constants, verbatim: at most 3 seeds, and a seed must score at
@@ -414,7 +460,7 @@ export function runFind(outDir: string, query: string, k = DEFAULT_K, terms?: st
   const graph = loadGraph(outDir);
   if (!graph) return undefined;
   const prose = loadEnrichedProse(outDir, graph);
-  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir), terms);
+  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir), terms, searchBodies(outDir, query, terms));
   const top = full.slice(0, k).map((x) => x.r);
   return expandResults(graph, top, full, pickSeeds(full, queryTerms(query, terms)), k, new Set(prose.keys()));
 }
@@ -466,7 +512,7 @@ export async function runFindHybrid(
   if (!graph) return undefined;
   const prose = loadEnrichedProse(outDir, graph);
   const pool = Math.max(k * 3, 24);
-  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir), terms);
+  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir), terms, searchBodies(outDir, query, terms));
   const lexical = full.slice(0, pool).map((x) => x.r);
   // Seeds come from the LEXICAL scored list (rows with score > 0); expansion is
   // applied to whatever ranked list is ultimately returned — the fused list when

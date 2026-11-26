@@ -2339,7 +2339,7 @@ function extractReexports(rel2, content, localSymbols) {
   const out2 = [];
   const seen = /* @__PURE__ */ new Set();
   let lineStarts;
-  const lineAt = (idx) => {
+  const lineAt2 = (idx) => {
     if (!lineStarts) {
       lineStarts = [0];
       for (let i2 = 0; i2 < content.length; i2++) if (content.charCodeAt(i2) === 10) lineStarts.push(i2 + 1);
@@ -2376,7 +2376,7 @@ function extractReexports(rel2, content, localSymbols) {
         name: name2,
         kind: decl?.kind ?? "reexport",
         file: rel2,
-        line: decl ? decl.line : lineAt(partAt),
+        line: decl ? decl.line : lineAt2(partAt),
         ...decl?.endLine !== void 0 ? { endLine: decl.endLine } : {},
         signature: from ? `export { ${name2} } from "${from}"` : `export { ${name2} }`,
         exported: true,
@@ -2395,7 +2395,7 @@ function extractReexports(rel2, content, localSymbols) {
       name: ns ?? `* (${from})`,
       kind: ns ? "reexport" : "reexport-all",
       file: rel2,
-      line: lineAt(m.index),
+      line: lineAt2(m.index),
       signature: `export * ${ns ? `as ${ns} ` : ""}from "${from}"`,
       exported: true,
       lang
@@ -11974,7 +11974,7 @@ function countLines2(s) {
   return s.charCodeAt(s.length - 1) === 10 ? n : n + 1;
 }
 function buildCodeRecord(rel2, ext, size, content, hash, lang, opts = {}) {
-  const record2 = {
+  const record22 = {
     rel: rel2,
     ext,
     size,
@@ -11988,27 +11988,27 @@ function buildCodeRecord(rel2, ext, size, content, hash, lang, opts = {}) {
   };
   if (content) {
     const code = extractCode(rel2, ext, content, { maxCallsPerFile: opts.maxCallsPerFile });
-    record2.title = basename(rel2);
-    record2.summary = code.summary;
-    record2.symbols = code.symbols;
-    record2.refs = code.refs;
-    record2.pkg = code.pkg;
-    record2.idents = code.idents;
-    record2.calls = code.calls;
-    record2.importedNames = code.importedNames;
-    if (code.importAliases) record2.importAliases = code.importAliases;
-    record2.truncated = code.truncated;
-    if (code.callsCapped) record2.callsCapped = true;
-    if (code.astFallback) record2.astFallback = true;
-    if (code.extractFailed) record2.extractFailed = true;
-    record2.generated = code.generated;
-    record2.relations = code.relations;
-    record2.terms = code.terms;
-    record2.literals = code.literals;
+    record22.title = basename(rel2);
+    record22.summary = code.summary;
+    record22.symbols = code.symbols;
+    record22.refs = code.refs;
+    record22.pkg = code.pkg;
+    record22.idents = code.idents;
+    record22.calls = code.calls;
+    record22.importedNames = code.importedNames;
+    if (code.importAliases) record22.importAliases = code.importAliases;
+    record22.truncated = code.truncated;
+    if (code.callsCapped) record22.callsCapped = true;
+    if (code.astFallback) record22.astFallback = true;
+    if (code.extractFailed) record22.extractFailed = true;
+    record22.generated = code.generated;
+    record22.relations = code.relations;
+    record22.terms = code.terms;
+    record22.literals = code.literals;
   } else {
-    record2.title = basename(rel2);
+    record22.title = basename(rel2);
   }
-  return record2;
+  return record22;
 }
 function normalizeScope(root, scope) {
   let s = scope.replace(/\\/g, "/");
@@ -12159,7 +12159,7 @@ function scanRepo(root, opts = {}) {
       files.push(preUsable.record);
       continue;
     }
-    const record2 = kind === "code" ? buildCodeRecord(f.rel, f.ext, f.size, content, hash, lang, opts) : {
+    const record22 = kind === "code" ? buildCodeRecord(f.rel, f.ext, f.size, content, hash, lang, opts) : {
       rel: f.rel,
       ext: f.ext,
       size: f.size,
@@ -12174,21 +12174,21 @@ function scanRepo(root, opts = {}) {
     if (kind !== "code") {
       if (content && kind === "doc" && (MARKDOWN_EXT.has(f.ext) || f.ext === ".rst")) {
         const md = f.ext === ".rst" ? extractRst(f.rel, content) : extractMarkdown(content);
-        record2.title = md.title ?? basename(f.rel);
-        record2.summary = md.summary;
-        record2.headings = md.headings;
-        record2.refs = md.refs;
+        record22.title = md.title ?? basename(f.rel);
+        record22.summary = md.summary;
+        record22.headings = md.headings;
+        record22.refs = md.refs;
       } else if (content && kind === "doc") {
-        record2.title = basename(f.rel);
+        record22.title = basename(f.rel);
       } else if (content && kind === "config") {
-        record2.title = basename(f.rel);
-        record2.literals = extractConfigLiterals(content);
+        record22.title = basename(f.rel);
+        record22.literals = extractConfigLiterals(content);
       } else {
-        record2.title = basename(f.rel);
+        record22.title = basename(f.rel);
       }
     }
     if (kind === "doc" && content) docText.set(f.rel, content);
-    files.push(record2);
+    files.push(record22);
   }
   files.sort(byKey((f) => f.rel));
   if (cache !== void 0 && files.length !== cache.size) {
@@ -12478,10 +12478,10 @@ async function runExtractWorker(input, post) {
       records.push({ rel: job.rel, size, mtimeMs, hash });
       continue;
     }
-    const record2 = buildCodeRecord(job.rel, job.ext, size, content, hash, extToLang(job.ext), {
+    const record22 = buildCodeRecord(job.rel, job.ext, size, content, hash, extToLang(job.ext), {
       maxCallsPerFile: input.maxCallsPerFile
     });
-    records.push({ rel: job.rel, size, mtimeMs, hash, record: record2 });
+    records.push({ rel: job.rel, size, mtimeMs, hash, record: record22 });
   }
   post({ ready, records });
 }
@@ -12962,10 +12962,10 @@ var init_status = __esm({
   }
 });
 function filesInDir(ctx, dir, ext) {
-  const memo = ctx.dirFilesMemo ??= /* @__PURE__ */ new Map();
+  const memo2 = ctx.dirFilesMemo ??= /* @__PURE__ */ new Map();
   const key = ext + "\0" + dir;
-  let list = memo.get(key);
-  if (!list) memo.set(key, list = (ctx.filesByDir.get(dir) ?? []).filter((f) => f.endsWith(ext)).sort());
+  let list = memo2.get(key);
+  if (!list) memo2.set(key, list = (ctx.filesByDir.get(dir) ?? []).filter((f) => f.endsWith(ext)).sort());
   return list;
 }
 function distToSrcCandidates(target) {
@@ -13740,10 +13740,10 @@ function resolveRust(fromRel, spec, ctx) {
 }
 function* javaPackagesOf(dir, rootRank) {
   for (let d = dir; ; d = d.includes("/") ? posix2.dirname(d) : "") {
-    const rank = rootRank.get(d);
-    if (rank !== void 0) {
+    const rank2 = rootRank.get(d);
+    if (rank2 !== void 0) {
       const below = d ? dir.slice(d.length + 1) : dir;
-      if (!below.includes(".")) yield { rank, pkg: below.replace(/\//g, ".") };
+      if (!below.includes(".")) yield { rank: rank2, pkg: below.replace(/\//g, ".") };
     }
     if (!d) return;
   }
@@ -13776,20 +13776,20 @@ function addJavaToIndex(index, ctx) {
   const { types, packages } = index;
   const typeRank = /* @__PURE__ */ new Map();
   const pkgRank = /* @__PURE__ */ new Map();
-  const keep = (map, ranks, key, rank, file) => {
-    if (rank >= (ranks.get(key) ?? Infinity)) return;
-    ranks.set(key, rank);
+  const keep = (map, ranks, key, rank2, file) => {
+    if (rank2 >= (ranks.get(key) ?? Infinity)) return;
+    ranks.set(key, rank2);
     map.set(key, file);
   };
   for (const [dir, list] of ctx.filesByDir) {
     const java2 = list.filter((f) => f.endsWith(".java"));
     if (!java2.length) continue;
     const first = java2.reduce((a, b) => b < a ? b : a);
-    for (const { rank, pkg } of javaPackagesOf(dir, rootRank)) {
-      keep(packages, pkgRank, pkg, rank, first);
+    for (const { rank: rank2, pkg } of javaPackagesOf(dir, rootRank)) {
+      keep(packages, pkgRank, pkg, rank2, first);
       for (const f of java2) {
         const stem22 = f.slice(f.lastIndexOf("/") + 1, -".java".length);
-        if (!stem22.includes(".")) keep(types, typeRank, pkg ? pkg + "." + stem22 : stem22, rank, f);
+        if (!stem22.includes(".")) keep(types, typeRank, pkg ? pkg + "." + stem22 : stem22, rank2, f);
       }
     }
   }
@@ -13820,8 +13820,8 @@ function resolveC(fromRel, spec, ctx) {
   const fromDir = fromRel.includes("/") ? posix2.dirname(fromRel) : "";
   let hit = firstExisting(ctx, [posix2.join(fromDir, spec)]);
   if (!hit) {
-    const memo = ctx.cRootMemo ??= /* @__PURE__ */ new Map();
-    let viaRoot = memo.get(spec);
+    const memo2 = ctx.cRootMemo ??= /* @__PURE__ */ new Map();
+    let viaRoot = memo2.get(spec);
     if (viaRoot === void 0) {
       viaRoot = null;
       for (const root of ctx.cIncludeRoots) {
@@ -13831,7 +13831,7 @@ function resolveC(fromRel, spec, ctx) {
           break;
         }
       }
-      memo.set(spec, viaRoot);
+      memo2.set(spec, viaRoot);
     }
     hit = viaRoot ?? void 0;
   }
@@ -13846,8 +13846,8 @@ function resolveRuby(fromRel, spec, ctx) {
     const hit = firstExisting(ctx, [base + ".rb", posix2.join(base, "index.rb")]);
     return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
   }
-  const memo = ctx.rubyRootMemo ??= /* @__PURE__ */ new Map();
-  let target = memo.get(spec);
+  const memo2 = ctx.rubyRootMemo ??= /* @__PURE__ */ new Map();
+  let target = memo2.get(spec);
   if (target === void 0) {
     target = null;
     for (const root of ctx.rubyLibRoots) {
@@ -13857,7 +13857,7 @@ function resolveRuby(fromRel, spec, ctx) {
         break;
       }
     }
-    memo.set(spec, target);
+    memo2.set(spec, target);
   }
   return target ? { kind: "resolved", target } : { kind: "external" };
 }
@@ -13869,8 +13869,8 @@ function resolvePhp(fromRel, spec, ctx) {
     return hit ? { kind: "resolved", target: hit } : { kind: "dangling", reason: "missing-module" };
   }
   const ns = spec.replace(/^\\+/, "");
-  const memo = ctx.phpPsr4Memo ??= /* @__PURE__ */ new Map();
-  let target = memo.get(ns);
+  const memo2 = ctx.phpPsr4Memo ??= /* @__PURE__ */ new Map();
+  let target = memo2.get(ns);
   if (target === void 0) {
     target = null;
     for (const { prefix, dir } of ctx.phpPsr4) {
@@ -13882,7 +13882,7 @@ function resolvePhp(fromRel, spec, ctx) {
         break;
       }
     }
-    memo.set(ns, target);
+    memo2.set(ns, target);
   }
   return target ? { kind: "resolved", target } : { kind: "external" };
 }
@@ -13950,17 +13950,17 @@ function resolveImport(fromRel, ext, spec, ctx) {
     }
     const dir = fromRel.includes("/") ? posix2.dirname(fromRel) : "";
     const key = dir + "\0" + spec;
-    const memo = ctx.jsMemo ??= /* @__PURE__ */ new Map();
-    let r = memo.get(key);
-    if (!r) memo.set(key, r = resolveJs(fromRel, spec, ctx));
+    const memo2 = ctx.jsMemo ??= /* @__PURE__ */ new Map();
+    let r = memo2.get(key);
+    if (!r) memo2.set(key, r = resolveJs(fromRel, spec, ctx));
     return { ...r };
   }
   if (PY2.has(ext)) {
     const dir = fromRel.includes("/") ? posix2.dirname(fromRel) : "";
     const key = dir + "\0" + spec;
-    const memo = ctx.pyMemo ??= /* @__PURE__ */ new Map();
-    let r = memo.get(key);
-    if (!r) memo.set(key, r = resolvePython(fromRel, spec, ctx));
+    const memo2 = ctx.pyMemo ??= /* @__PURE__ */ new Map();
+    let r = memo2.get(key);
+    if (!r) memo2.set(key, r = resolvePython(fromRel, spec, ctx));
     return { ...r };
   }
   if (ext === ".go") return resolveGo(fromRel, spec, ctx);
@@ -14505,8 +14505,8 @@ function goImplementations(scan2) {
   const isInterface = (s) => !!s.signature?.startsWith(s.name) && /^(\[[^\]]*\])?\s+interface\b/.test(s.signature.slice(s.name.length));
   const setMemo = /* @__PURE__ */ new Map();
   const methodSet = (key, iface, seen) => {
-    const memo = setMemo.get(key);
-    if (memo !== void 0) return memo ?? void 0;
+    const memo2 = setMemo.get(key);
+    if (memo2 !== void 0) return memo2 ?? void 0;
     if (seen.has(key)) return void 0;
     seen.add(key);
     const own = new Map(methods.get(key) ?? []);
@@ -15169,8 +15169,8 @@ function dependencyPath(graph, from, to, opts = {}) {
       const list = out2.get(e.from) ?? out2.set(e.from, []).get(e.from);
       for (const t of targets) list.push([t, e.kind]);
     }
-    const rank = (k) => k === "import" ? 0 : k === "extends" || k === "implements" ? 1 : k === "use" ? 2 : 3;
-    for (const list of out2.values()) list.sort((a, b) => byStr(a[0], b[0]) || rank(a[1]) - rank(b[1]));
+    const rank2 = (k) => k === "import" ? 0 : k === "extends" || k === "implements" ? 1 : k === "use" ? 2 : 3;
+    for (const list of out2.values()) list.sort((a, b) => byStr(a[0], b[0]) || rank2(a[1]) - rank2(b[1]));
     return (node) => out2.get(node) ?? [];
   };
   const includeInferred = opts.includeInferred === true;
@@ -15403,14 +15403,14 @@ function splitCompoundPaths(docs) {
   for (const d of docs) {
     for (const t of d.fields.name.tf.keys()) if (t.length >= PIECE_MIN && /^[a-z]+$/.test(t)) vocab.add(t);
   }
-  const memo = /* @__PURE__ */ new Map();
+  const memo2 = /* @__PURE__ */ new Map();
   for (const d of docs) {
     if (d.isTest || d.isFixture) continue;
     const path = d.fields.path;
     for (const t of [...path.tf.keys()]) {
       if (t.length < COMPOUND_MIN || t.length > COMPOUND_MAX || !/^[a-z]+$/.test(t)) continue;
-      let pieces = memo.get(t);
-      if (!memo.has(t)) memo.set(t, pieces = wordBreak(t, vocab));
+      let pieces = memo2.get(t);
+      if (!memo2.has(t)) memo2.set(t, pieces = wordBreak(t, vocab));
       if (!pieces) continue;
       const tf = path.tf.get(t);
       for (const p of pieces) {
@@ -16578,11 +16578,11 @@ function createBindScope(scan2, pairs, ctxIn) {
     return out2;
   };
   let ctx = ctxIn;
-  let memo = aliasMemo.get(scan2);
+  let memo2 = aliasMemo.get(scan2);
   const aliasFiles = () => {
     ctx ??= resolveContextFor(scan2);
-    if (memo?.ctx !== ctx) aliasMemo.set(scan2, memo = { ctx, files: /* @__PURE__ */ new Map() });
-    return memo.files;
+    if (memo2?.ctx !== ctx) aliasMemo.set(scan2, memo2 = { ctx, files: /* @__PURE__ */ new Map() });
+    return memo2.files;
   };
   const defaultOf = (rel2) => {
     const t = fileOf(rel2);
@@ -18014,9 +18014,9 @@ function atomicWrite(abs, content, cleanup = rmSync2, root) {
     }
   }
 }
-function outlineOf(rel2, ext, text, record2) {
-  if (record2 && record2.hash === sha1(text) && record2.symbols.some((s) => s.endLine !== void 0) === astTier(ext)) {
-    return { symbols: record2.symbols, truncated: record2.truncated === true };
+function outlineOf(rel2, ext, text, record22) {
+  if (record22 && record22.hash === sha1(text) && record22.symbols.some((s) => s.endLine !== void 0) === astTier(ext)) {
+    return { symbols: record22.symbols, truncated: record22.truncated === true };
   }
   const info2 = extractCode(rel2, ext, text);
   return { symbols: info2.symbols, truncated: info2.truncated === true };
@@ -18107,9 +18107,9 @@ function applyEdit(scan2, namePath, body2, op, file, opts = {}) {
   const abs = join14(scan2.root, sym.file);
   const doc = readDocument(abs);
   const oldText = doc.text();
-  const record2 = fileByRelFor(scan2).get(sym.file);
-  const ext = record2?.ext ?? extname3(sym.file);
-  const before = outlineOf(sym.file, ext, oldText, record2);
+  const record22 = fileByRelFor(scan2).get(sym.file);
+  const ext = record22?.ext ?? extname3(sym.file);
+  const before = outlineOf(sym.file, ext, oldText, record22);
   const target = relocate(sym, before);
   const newLines = bodyLines(body2);
   let index;
@@ -20037,10 +20037,10 @@ function loadEmbedModel(dir) {
   }
   return parseEmbedModel(raw, path);
 }
-function tryLoadEmbedModel(dir, load = loadEmbedModel) {
+function tryLoadEmbedModel(dir, load2 = loadEmbedModel) {
   if (!dir) return {};
   try {
-    const model = load(dir);
+    const model = load2(dir);
     return model ? { model } : {};
   } catch (e) {
     return { error: errMessage(e) };
@@ -20603,8 +20603,8 @@ function productionRank(graph) {
 function renderRepoMap(scan2, graph, opts = {}) {
   const budgetChars = (opts.budgetTokens ?? 1024) * CHARS_PER_TOKEN;
   const maxSymbols = opts.maxSymbolsPerFile ?? 8;
-  const rank = productionRank(graph);
-  const ranked = graph.files.filter((f) => f.fileKind === "code" && !f.testFile).sort((a, b) => rank.get(b.rel) - rank.get(a.rel) || b.symbols - a.symbols || byStr(a.rel, b.rel));
+  const rank2 = productionRank(graph);
+  const ranked = graph.files.filter((f) => f.fileKind === "code" && !f.testFile).sort((a, b) => rank2.get(b.rel) - rank2.get(a.rel) || b.symbols - a.symbols || byStr(a.rel, b.rel));
   const records = new Map(scan2.files.map((f) => [f.rel, f]));
   let out2 = opts.bare ? "" : `# repo map \u2014 ${graph.fileCount} files
 `;
@@ -20678,7 +20678,7 @@ function changeCoupling(dir, opts = {}) {
   const rel2 = repoPaths(log);
   const names = rel2.filter((p) => p !== void 0 && (!indexed || indexed.has(p))).sort(byStr);
   const rankOf = new Map(names.map((name2, i2) => [name2, i2]));
-  const rank = rel2.map((p) => p === void 0 ? -1 : rankOf.get(p) ?? -1);
+  const rank2 = rel2.map((p) => p === void 0 ? -1 : rankOf.get(p) ?? -1);
   const m = names.length;
   const totals = new Int32Array(m);
   const pairs = /* @__PURE__ */ new Map();
@@ -20692,7 +20692,7 @@ function changeCoupling(dir, opts = {}) {
       if (seen[id] === c2) continue;
       seen[id] = c2;
       size++;
-      if (rank[id] >= 0) files.push(rank[id]);
+      if (rank2[id] >= 0) files.push(rank2[id]);
     }
     if (size === 0 || size > maxCommitFiles) continue;
     files.sort((x, y) => x - y);
@@ -22436,9 +22436,9 @@ function dispatchLiveness(scan2, relations, live) {
     for (const r of f.relations ?? []) declared.set(r.from, (declared.get(r.from) ?? 0) + 1);
     for (const [from, n] of declared) if (n > (resolvedCount.get(`${from}${SEP4}${f.rel}`) ?? 0)) external.add(`${from}${SEP4}${f.rel}`);
   }
-  const memo = /* @__PURE__ */ new Map();
+  const memo2 = /* @__PURE__ */ new Map();
   const check = (s, seen) => {
-    const known = memo.get(s);
+    const known = memo2.get(s);
     if (known !== void 0) return known;
     const sups = overridden.get(s);
     let result;
@@ -22447,7 +22447,7 @@ function dispatchLiveness(scan2, relations, live) {
       seen.add(s);
       result = sups.some((u) => live(u) || !seen.has(u) && check(u, seen));
     }
-    memo.set(s, result);
+    memo2.set(s, result);
     return result;
   };
   return (s) => !!s.parent && check(s, /* @__PURE__ */ new Set());
@@ -23392,9 +23392,9 @@ var init_patharg = __esm({
 });
 function oversizedNaming(scan2, name2) {
   if (!scan2.oversized?.length || !/^[A-Za-z_$][\w$]*$/.test(name2)) return [];
-  let memo = wordMemo.get(scan2);
-  if (!memo) wordMemo.set(scan2, memo = /* @__PURE__ */ new Map());
-  const known = memo.get(name2);
+  let memo2 = wordMemo.get(scan2);
+  if (!memo2) wordMemo.set(scan2, memo2 = /* @__PURE__ */ new Map());
+  const known = memo2.get(name2);
   if (known) return known;
   const word = new RegExp(`(?<![\\w$])${name2.replace(/\$/g, "\\$")}(?![\\w$])`);
   const out2 = [];
@@ -23408,7 +23408,7 @@ function oversizedNaming(scan2, name2) {
     }
     if (word.test(text)) out2.push({ file: o.rel, size: o.size });
   }
-  memo.set(name2, out2);
+  memo2.set(name2, out2);
   return out2;
 }
 function coverageFor(scan2, name2, opts) {
@@ -29975,7 +29975,8 @@ function indexPaths(outDir) {
     encyclopedia: join33(outDir, "encyclopedia"),
     vectors: join33(outDir, "vectors.json"),
     symbols: join33(outDir, "symbols.json"),
-    cache: join33(outDir, "cache.json")
+    cache: join33(outDir, "cache.json"),
+    search: join33(outDir, "search.jsonl")
   };
 }
 function indexExists(outDir) {
@@ -30021,6 +30022,204 @@ function loadCache(outDir) {
   } catch {
     return void 0;
   }
+}
+
+// src/search.ts
+import { closeSync, fstatSync, openSync, readSync } from "fs";
+var SEARCH_VERSION = 1;
+var FORMAT = "ultraindex-search";
+var BUDGET_BYTES = 4 * 1024 * 1024;
+var HIT_LIMIT = 40;
+var PLAIN_TERM2 = /^[a-z0-9]{2,}$/;
+function searchRecord(f) {
+  return {
+    rel: f.rel,
+    symbols: f.symbols.map((s) => ({ name: s.name, kind: s.kind, line: s.line, ...s.doc ? { doc: s.doc } : {} })),
+    headings: f.headings,
+    ...f.summary ? { summary: f.summary } : {},
+    ...f.terms?.length ? { terms: f.terms } : {}
+  };
+}
+function tokensOf(f) {
+  const out2 = /* @__PURE__ */ new Set();
+  const add = (text) => {
+    for (const t of subtokens(text)) out2.add(t);
+  };
+  for (const s of f.symbols) {
+    if (s.doc) add(s.doc);
+    add(s.name);
+  }
+  for (const seg of f.rel.split("/")) add(seg);
+  for (const h of f.headings) add(h);
+  if (f.summary) add(f.summary);
+  for (const t of f.terms ?? []) {
+    out2.add(t);
+    if (!PLAIN_TERM2.test(t)) add(t);
+  }
+  return out2;
+}
+function renderSearchCache(files) {
+  const postings = /* @__PURE__ */ new Map();
+  files.forEach((f, id) => {
+    for (const t of tokensOf(f)) {
+      let ids = postings.get(t);
+      if (!ids) postings.set(t, ids = []);
+      ids.push(id);
+    }
+  });
+  const terms = [...postings.keys()].sort(byStr);
+  const lines = [];
+  const termOffsets = [];
+  const fileOffsets = [];
+  let offset = 0;
+  const push = (line2, offsets) => {
+    offsets.push(offset);
+    lines.push(line2);
+    offset += Buffer.byteLength(line2) + 1;
+  };
+  for (const t of terms) push(JSON.stringify(postings.get(t)), termOffsets);
+  termOffsets.push(offset);
+  for (const f of files) push(JSON.stringify(searchRecord(f)), fileOffsets);
+  fileOffsets.push(offset);
+  const header = {
+    format: FORMAT,
+    version: SEARCH_VERSION,
+    schemaVersion: SCHEMA_VERSION2,
+    extractorVersion: EXTRACTOR_VERSION,
+    files: files.length,
+    terms,
+    termOffsets,
+    fileOffsets
+  };
+  return JSON.stringify(header) + "\n" + lines.join("\n") + (lines.length ? "\n" : "");
+}
+var memo;
+function readAt(fd, start2, end) {
+  const buf = Buffer.allocUnsafe(end - start2);
+  let read = 0;
+  while (read < buf.length) {
+    const n = readSync(fd, buf, read, buf.length - read, start2 + read);
+    if (n === 0) break;
+    read += n;
+  }
+  return buf.toString("utf8", 0, read);
+}
+function readHeader(fd, size) {
+  const chunks = [];
+  let pos = 0;
+  while (pos < size) {
+    const buf = Buffer.allocUnsafe(Math.min(1 << 20, size - pos));
+    const n = readSync(fd, buf, 0, buf.length, pos);
+    if (n === 0) break;
+    const nl = buf.subarray(0, n).indexOf(10);
+    if (nl >= 0) {
+      chunks.push(buf.subarray(0, nl));
+      return { text: Buffer.concat(chunks).toString("utf8"), base: pos + nl + 1 };
+    }
+    chunks.push(buf.subarray(0, n));
+    pos += n;
+  }
+  return void 0;
+}
+function load(fd, path) {
+  const st = fstatSync(fd);
+  const key = `${path}\0${st.size}\0${st.mtimeMs}`;
+  if (memo?.key === key) return memo;
+  const head = readHeader(fd, st.size);
+  if (!head) return void 0;
+  const header = JSON.parse(head.text);
+  if (header.format !== FORMAT || header.version !== SEARCH_VERSION || header.schemaVersion !== SCHEMA_VERSION2 || header.extractorVersion !== EXTRACTOR_VERSION || header.fileOffsets.length !== header.files + 1 || header.termOffsets.length !== header.terms.length + 1 || head.base + header.fileOffsets[header.files] !== st.size) {
+    return void 0;
+  }
+  memo = { key, header, base: head.base };
+  return memo;
+}
+function termId(terms, t) {
+  let lo = 0;
+  let hi = terms.length - 1;
+  while (lo <= hi) {
+    const mid = lo + hi >> 1;
+    const m = terms[mid];
+    if (m === t) return mid;
+    if (m < t) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return -1;
+}
+function lineAt(fd, c2, offsets, i2) {
+  return readAt(fd, c2.base + offsets[i2], c2.base + offsets[i2 + 1] - 1);
+}
+function record2(fd, c2, id) {
+  return JSON.parse(lineAt(fd, c2, c2.header.fileOffsets, id));
+}
+function scanOf(files) {
+  return {
+    root: "",
+    files,
+    languages: {},
+    docText: /* @__PURE__ */ new Map(),
+    mtimes: /* @__PURE__ */ new Map(),
+    capped: false,
+    excluded: 0,
+    contentUnchanged: true,
+    cacheDirty: false
+  };
+}
+function engineTerms(text) {
+  const out2 = [];
+  for (const kw of keywords(text)) for (const t of subtokens(kw)) if (!out2.includes(t)) out2.push(t);
+  return out2;
+}
+function searchBodies(outDir, query, extraTerms, budget = BUDGET_BYTES) {
+  const path = indexPaths(outDir).search;
+  let fd;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return void 0;
+  }
+  try {
+    const c2 = load(fd, path);
+    if (!c2) return void 0;
+    return rank(fd, c2, extraTerms?.trim() ? `${query} ${extraTerms.trim()}` : query, budget);
+  } catch {
+    return void 0;
+  } finally {
+    closeSync(fd);
+  }
+}
+function rank(fd, c2, text, budget) {
+  const { header } = c2;
+  const total = header.fileOffsets[header.files] - header.fileOffsets[0];
+  let scan2;
+  let engineQuery;
+  if (total <= budget) {
+    if (!c2.full) c2.full = scanOf(Array.from({ length: header.files }, (_, id) => record2(fd, c2, id)));
+    scan2 = c2.full;
+    engineQuery = text;
+  } else {
+    const fileBytes = (id) => header.fileOffsets[id + 1] - header.fileOffsets[id];
+    const postings = engineTerms(text).filter((t) => keywords(t).length > 0).map((t) => ({ t, id: termId(header.terms, t) })).filter((p) => p.id >= 0).map(({ t, id }) => ({ t, ids: JSON.parse(lineAt(fd, c2, header.termOffsets, id)) })).sort((a, b) => a.ids.length - b.ids.length || byStr(a.t, b.t));
+    const chosen = [];
+    const picked = /* @__PURE__ */ new Set();
+    let bytes = 0;
+    for (const p of postings) {
+      let extra = 0;
+      for (const id of p.ids) if (!picked.has(id)) extra += fileBytes(id);
+      if (bytes + extra > budget) continue;
+      for (const id of p.ids) picked.add(id);
+      bytes += extra;
+      chosen.push(p.t);
+    }
+    if (chosen.length === 0) return [];
+    scan2 = scanOf([...picked].sort((a, b) => a - b).map((id) => record2(fd, c2, id)));
+    engineQuery = chosen.join(" ");
+  }
+  return searchIndex(scan2, engineQuery, { limit: HIT_LIMIT, fuzzy: false }).map((r) => ({
+    rel: r.file,
+    score: r.score,
+    terms: r.matchedTerms
+  }));
 }
 
 // src/build.ts
@@ -30093,6 +30292,7 @@ function runBuild(opts, builtAt) {
     paths.symbols,
     renderSymbolsJson(buildSymbolIndex(scan2, computeSymbolRefs(scan2)))
   );
+  writeFileIfChanged(paths.search, renderSearchCache(scan2.files));
   if (mermaid) writeFileIfChanged(paths.mermaid, mermaid.content);
   else removeFile(paths.mermaid);
   writeFileIfChanged(
@@ -30838,6 +31038,7 @@ function textOf(parts2) {
   return parts2.filter(Boolean).join(" ").toLowerCase();
 }
 var PROSE_WEIGHT = 1.5;
+var BODY_WEIGHT = 1;
 function loadEnrichedProse(outDir, graph) {
   const enc = indexPaths(outDir).encyclopedia;
   const out2 = /* @__PURE__ */ new Map();
@@ -30850,9 +31051,18 @@ function loadEnrichedProse(outDir, graph) {
   }
   return out2;
 }
-function scoreModules(graph, query, prose, symbolNames, extraTerms) {
+function scoreModules(graph, query, prose, symbolNames, extraTerms, body2) {
   const terms = queryTerms(query, extraTerms);
   if (terms.length === 0) return [];
+  const topBody = body2?.[0]?.score ?? 0;
+  const bodyOf = /* @__PURE__ */ new Map();
+  if (body2 && topBody > 0) {
+    const formsOf = terms.map((t) => /* @__PURE__ */ new Set([t.exact, t.needle, stem2(t.needle), ...t.forms, ...subtokens(t.raw)]));
+    for (const h of body2) {
+      const matched = terms.filter((_, i2) => h.terms.some((e) => formsOf[i2].has(e) || formsOf[i2].has(stem2(e)))).map((t) => t.raw);
+      bodyOf.set(h.rel, { lift: BODY_WEIGHT * h.score / topBody, matched });
+    }
+  }
   const namesOf = (rel2) => (symbolNames?.get(rel2) ?? []).join(" ");
   const filesByModule = /* @__PURE__ */ new Map();
   for (const f of graph.files) {
@@ -30897,11 +31107,13 @@ function scoreModules(graph, query, prose, symbolNames, extraTerms) {
     const scoredFiles = members.map((f) => {
       const hay = textOf([f.rel, f.title, f.summary, namesOf(f.rel)]);
       const s = scoreHaystack(buildHaystack(hay), terms, false, idf);
-      return { f, score: s.score, matched: s.matched, degree: f.degIn + f.degOut };
-    }).sort((a, b) => b.score - a.score || b.degree - a.degree || byStr(a.f.rel, b.f.rel));
-    const bestFile = scoredFiles[0]?.score ?? 0;
+      const b = bodyOf.get(f.rel);
+      return { f, score: s.score, lift: b?.lift ?? 0, matched: s.matched, bodyMatched: b?.matched ?? [], degree: f.degIn + f.degOut };
+    }).sort((a, b) => b.score + b.lift - (a.score + a.lift) || b.degree - a.degree || byStr(a.f.rel, b.f.rel));
+    const bestFile = scoredFiles.reduce((best, x) => Math.max(best, x.score), 0);
     const matchCount = scoredFiles.filter((x) => x.score > 0).length;
-    if (mod.score === 0 && bestFile === 0 && pro.score === 0) continue;
+    const bodyLift = scoredFiles.reduce((best, x) => Math.max(best, x.lift), 0);
+    if (mod.score === 0 && bestFile === 0 && pro.score === 0 && bodyLift === 0) continue;
     const matchedTerms = /* @__PURE__ */ new Set([...mod.matched, ...pro.matched, ...scoredFiles.flatMap((x) => x.matched)]);
     const matchedWeight = countable.reduce((sum, t) => sum + (matchedTerms.has(t.raw) ? t.weight : 0), 0);
     const coverageWeight = 0.4 + 0.6 * (countableWeight > 0 ? matchedWeight / countableWeight : 0) ** 2;
@@ -30919,10 +31131,10 @@ function scoreModules(graph, query, prose, symbolNames, extraTerms) {
       ...members.flatMap((f) => (symbolNames?.get(f.rel) ?? []).map((n) => splitIdentifier(n).join(" ")))
     ];
     const fullQuery = labels.some((l) => l === joined) ? 10 * maxIdf : labels.some((l) => l.startsWith(joined)) ? 4 * maxIdf : 0;
-    const keywordScore = mod.score * 2 + pro.score * PROSE_WEIGHT + bestFile + Math.min(matchCount, 5) * 0.5 + fullQuery;
+    const keywordScore = mod.score * 2 + pro.score * PROSE_WEIGHT + bestFile + Math.min(matchCount, 5) * 0.5 + fullQuery + bodyLift;
     const total = keywordScore * tierWeight * pathPenalty * genericPenalty * coverageWeight + Math.min(m.degIn + m.degOut, 5) * 0.25;
-    const matched = [...matchedTerms].sort(byStr);
-    let files = scoredFiles.filter((x) => x.score > 0).map((x) => x.f.rel);
+    const matched = [.../* @__PURE__ */ new Set([...matchedTerms, ...scoredFiles.flatMap((x) => x.bodyMatched)])].sort(byStr);
+    let files = scoredFiles.filter((x) => x.score > 0 || x.lift > 0).map((x) => x.f.rel);
     if (files.length === 0) {
       files = members.slice().sort((a, b) => b.degIn + b.degOut - (a.degIn + a.degOut) || byStr(a.rel, b.rel)).map((f) => f.rel);
     }
@@ -30944,8 +31156,8 @@ function scoreModules(graph, query, prose, symbolNames, extraTerms) {
   scored.sort((a, b) => b.r.score - a.r.score || b.degree - a.degree || byStr(a.r.slug, b.r.slug));
   return scored;
 }
-function findModules(graph, query, k = DEFAULT_K, prose, symbolNames, extraTerms) {
-  return scoreModules(graph, query, prose, symbolNames, extraTerms).slice(0, k).map((x) => x.r);
+function findModules(graph, query, k = DEFAULT_K, prose, symbolNames, extraTerms, body2) {
+  return scoreModules(graph, query, prose, symbolNames, extraTerms, body2).slice(0, k).map((x) => x.r);
 }
 var MAX_SEEDS = 3;
 var SEED_GAP_RATIO = 0.2;
@@ -31056,7 +31268,7 @@ function runFind(outDir, query, k = DEFAULT_K, terms) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
   const prose = loadEnrichedProse(outDir, graph);
-  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir), terms);
+  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir), terms, searchBodies(outDir, query, terms));
   const top = full.slice(0, k).map((x) => x.r);
   return expandResults(graph, top, full, pickSeeds(full, queryTerms(query, terms)), k, new Set(prose.keys()));
 }
@@ -31079,7 +31291,7 @@ async function runFindHybrid(outDir, query, k = DEFAULT_K, repo, terms) {
   if (!graph) return void 0;
   const prose = loadEnrichedProse(outDir, graph);
   const pool = Math.max(k * 3, 24);
-  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir), terms);
+  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir), terms, searchBodies(outDir, query, terms));
   const lexical = full.slice(0, pool).map((x) => x.r);
   const seeds = pickSeeds(full, queryTerms(query, terms));
   const expand = (topRows) => expandResults(graph, topRows, full, seeds, k, new Set(prose.keys()));
@@ -31451,9 +31663,9 @@ function runStatus(outDir) {
   const untested = graph.modules.filter(
     (m) => m.tier <= 1 && m.symbols > 0 && nonTestCode.has(m.slug) && !m.testedBy?.length
   ).length;
-  const rank = (m) => m.prose === "stale" ? 0 : m.enriched ? 2 : 1;
+  const rank2 = (m) => m.prose === "stale" ? 0 : m.enriched ? 2 : 1;
   modules.sort(
-    (a, b) => rank(a) - rank(b) || // stale prose, then never-enriched, then done
+    (a, b) => rank2(a) - rank2(b) || // stale prose, then never-enriched, then done
     Number(a.tier === 2) - Number(b.tier === 2) || // tail enriches last
     b.degree - a.degree || // most-connected first
     byStr(a.slug, b.slug)

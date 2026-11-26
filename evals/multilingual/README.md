@@ -46,7 +46,7 @@ Exactly one file must declare each node, or the import fails.
 Each fixture is indexed by the shipped CLI (`scripts/ultraindex.mjs build`),
 then every question is ranked by `runFindHybrid` from the library bundle built
 from the same source — the exact call `find` makes (no `vectors.json`, so the
-ranking is lexical).
+ranking is lexical: the index's metadata plus the engine's body search).
 
 A question is a **hit** when one of its case's expected files is among the
 **first 8 files** `find` returns: the `open:` files of the matched rows, in
@@ -63,19 +63,19 @@ recall *without* terms minus 2 points. `run.mjs` exits 1 otherwise.
 <!-- results:start -->
 | language | questions | recall without --terms | recall with --terms |
 | --- | ---: | ---: | ---: |
-| en | 60 | 65.0% | 76.7% |
-| fr | 60 | 50.0% | 75.0% |
-| es | 60 | 51.7% | 73.3% |
-| de | 60 | 28.3% | 75.0% |
-| it | 60 | 38.3% | 75.0% |
-| pt | 60 | 46.7% | 75.0% |
-| nl | 60 | 48.3% | 76.7% |
-| ja | 60 | 18.3% | 78.3% |
-| zh | 60 | 18.3% | 76.7% |
-| ar | 60 | 18.3% | 73.3% |
-| ru | 60 | 11.7% | 75.0% |
+| en | 60 | 73.3% | 85.0% |
+| fr | 60 | 56.7% | 83.3% |
+| es | 60 | 56.7% | 81.7% |
+| de | 60 | 36.7% | 83.3% |
+| it | 60 | 43.3% | 80.0% |
+| pt | 60 | 53.3% | 83.3% |
+| nl | 60 | 58.3% | 85.0% |
+| ja | 60 | 23.3% | 85.0% |
+| zh | 60 | 23.3% | 85.0% |
+| ar | 60 | 20.0% | 81.7% |
+| ru | 60 | 16.7% | 83.3% |
 
-Gate floor: 63.0% (English without terms − 2 points).
+Gate floor: 71.3% (English without terms − 2 points).
 <!-- results:end -->
 
 Without terms, recall falls with the distance from English, and what is left
@@ -83,17 +83,24 @@ is not understanding: the Spanish, French or Italian hits come largely from
 short function words substring-matching inside longer words of paths and
 summaries (`de`, `el`, `la`), the Japanese, Chinese, Arabic and Russian ones
 from English words quoted inside the question (`API`, `ID`, `webhook`). With
-terms, every language lands within a few points of English with terms (73–78%
-against 76.7%): the question's language stops mattering.
+terms, every language lands within a few points of English with terms (80–85%
+against 85.0%): the question's language stops mattering.
+
+Body search lifted every row: `find` now also ranks on the engine's BM25F
+search over file contents, so the `/health` handler registered inline in
+`src/server.ts`, which no path, name or summary mentions, is found. Before it,
+with the same questions and terms, the table read 65.0% / 76.7% for English
+and 11.7–51.7% / 73.3–78.3% for the other languages; `shop-health` alone
+went from 55 misses with terms to 3 (Italian and Japanese terms that do not
+say "health").
 
 What this does not show: the fixtures are tiny (9 and 25 files), so a hit is
 easier than in a real repo, and the terms were written by one model in one
-pass. The misses with terms are concentrated in three cases, in every
-language, English included: `shop-health`, `shop-order-data` and
-`shop-products`, whose answers live inside a file the index describes only by
-its path — the `/health` handler in `src/server.ts`, the `Order` and `Product`
-models in `prisma/schema.prisma`. That is a limit of the lexical haystack, not
-of the question's language.
+pass. Most misses with terms now sit in two cases, in every language, English
+included: `shop-order-data` and `shop-products`, whose answers are the `Order`
+and `Product` models in `prisma/schema.prisma`. The engine extracts no words
+from a `.prisma` file, so neither the metadata nor the body search can see
+them. That is a limit of extraction, not of the question's language.
 
 ## Weighting, measured
 
@@ -101,7 +108,7 @@ With `--terms`, the question's own words (other than identifier-shaped ones)
 rank at half weight and without the raw-substring tier. On this corpus the
 weight itself barely matters — 0 (terms only), 0.5 and 1 give the same table —
 because untranslated words match nothing. The substring tier does: enabling it
-for the question's words lifts it (75.0% → 83.3%) and fr (75.0% → 80.0%)
-here, but the extra hits we traced come from short question words contained
+for the question's words lifts it (80.0% → 86.7%), fr (83.3% → 86.7%), es
+(81.7% → 83.3%) and nl (85.0% → 86.7%) here, but the extra hits we traced come from short question words contained
 in unrelated names (`che` in `schema`, `se` in `server`, `du` in `products`):
 luck on a 9-file fixture, noise at scale. It stays off.

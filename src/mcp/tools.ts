@@ -57,7 +57,8 @@ export const TOOLS: ToolDecl[] = [
     name: "ultraindex_find",
     title: "Find the modules a task touches",
     description:
-      "Rank the repo's modules against a task or question and return the exact files to open. This is the 'which files do I change for X' tool. Hybrid " +
+      "Rank the repo's modules against a task or question and return the exact files to open. This is the 'which files do I change for X' tool. It " +
+      "matches paths, symbol names, summaries and file contents (function bodies, comments, strings), so an answer that lives inside a function is found. Hybrid " +
       "lexical+semantic when vectors exist (see ultraindex_embed), pure lexical otherwise — which is never a failure, only a different ranking. " +
       INDEX_NOTE,
     inputSchema: {

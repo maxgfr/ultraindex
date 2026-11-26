@@ -13,6 +13,7 @@ export function indexPaths(outDir: string): {
   vectors: string;
   symbols: string;
   cache: string;
+  search: string;
 } {
   return {
     index: join(outDir, "INDEX.md"),
@@ -23,6 +24,7 @@ export function indexPaths(outDir: string): {
     vectors: join(outDir, "vectors.json"),
     symbols: join(outDir, "symbols.json"),
     cache: join(outDir, "cache.json"),
+    search: join(outDir, "search.jsonl"),
   };
 }
 

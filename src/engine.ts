@@ -93,6 +93,7 @@ export {
   resolveImport,
   rrf,
   runCli,
+  searchIndex,
   runExtractWorker,
   scanRepo,
   sh,

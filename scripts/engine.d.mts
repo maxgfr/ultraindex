@@ -2679,8 +2679,14 @@ declare function revalidateVerdicts(verdicts: Verdict[], repo: string): {
 declare function reduceVerdicts(verdicts: Verdict[]): VerifyResult;
 declare function loadVerify(dir: string): VerifyResult | undefined;
 
+interface BodyHit {
+    rel: string;
+    score: number;
+    terms: string[];
+}
+
 declare function loadEnrichedProse(outDir: string, graph: Graph): Map<string, string>;
-declare function findModules(graph: Graph, query: string, k?: number, prose?: Map<string, string>, symbolNames?: Map<string, string[]>, extraTerms?: string): FindResult[];
+declare function findModules(graph: Graph, query: string, k?: number, prose?: Map<string, string>, symbolNames?: Map<string, string[]>, extraTerms?: string, body?: BodyHit[]): FindResult[];
 declare function runFind(outDir: string, query: string, k?: number, terms?: string): FindResult[] | undefined;
 interface HybridFind {
     results: FindResult[];
@@ -2766,6 +2772,7 @@ declare function indexPaths(outDir: string): {
     vectors: string;
     symbols: string;
     cache: string;
+    search: string;
 };
 declare function indexExists(outDir: string): boolean;
 declare function loadGraph(outDir: string): Graph | undefined;

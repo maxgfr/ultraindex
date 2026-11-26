@@ -119,7 +119,7 @@ review of a branch is 2 → 4; a high-assurance answer adds → 5.
 
 - `build --repo <dir> [--out .ultraindex] [--include/--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid] [--no-gitignore]` — scan and (re)write the index. Idempotent; keeps enriched prose. Incremental (reuses unchanged files' extraction); warns if `--max-files` truncates. `--out docs/ultraindex` for a committed, PR-reviewable index.
 - `map [--module <slug>] [--json]` — print INDEX.md (or one entry, or the module table).
-- `find "<query>" [--terms "<keywords>"] [--k <n>]` — rank modules, print the **exact files to open**. Lexical (with IDF term weighting) by default; hybrid (+ semantic) when vectors.json exists. `--terms` adds search keywords in the code's vocabulary — required when the question is not in English.
+- `find "<query>" [--terms "<keywords>"] [--k <n>]` — rank modules, print the **exact files to open**. Lexical (with IDF term weighting) over the index's metadata and, through the engine's BM25F search, over file contents (an answer that lives only in a function body is found); hybrid (+ semantic) when vectors.json exists. `--terms` adds search keywords in the code's vocabulary — required when the question is not in English.
 - `neighbors <file|module> [--depth <n>] [--kind <k>]` — what links to / from it (`--kind` filters edge kinds: import,call,use,doc-link,mention).
 - `symbols "<name>" [--json]` — where a symbol is **defined** (file:line, kind, owning module) and which files reference it. Fuzzy by identifier sub-token.
 - `impact <file|module> [--depth <n>] [--json]` — the **reverse dependency closure**: everything that imports or uses the target. "What breaks if I change this."

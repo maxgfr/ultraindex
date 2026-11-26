@@ -2,7 +2,7 @@
 //
 // `runBuild` and `runEmbed` are not concurrency-safe: two overlapping calls for
 // the same index race on the same files. `build` rewrites INDEX.md, the
-// per-module entries, graph.json, symbols.json and cache.json — and it does so
+// per-module entries, graph.json, symbols.json, search.jsonl and cache.json — and it does so
 // while PRESERVING the prose regions a human wrote, which means it reads the
 // existing entry, merges, and writes back. Two of those interleaved lose one
 // side's prose. `embed` has the same read-merge-write shape over vectors.json.

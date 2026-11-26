@@ -56,6 +56,7 @@ whose prose regions the model owns and the tooling refuses to let it fake.
   graph.mmd             # a Mermaid module diagram
   manifest.json         # per-file hashes (staleness) + merge bookkeeping
   cache.json            # incremental-build extraction cache (regenerable; gitignore for committed indexes)
+  search.jsonl          # body-search corpus for find/ask (regenerable; gitignore for committed indexes)
   vectors.json          # optional per-module embeddings (`embed`, keyless)
   orchestration/        # optional multi-agent fan-out (`orchestrate`): workflows, contracts, RUNBOOK
 ```
@@ -308,8 +309,9 @@ ultraindex grammars [status|pull]
   scan and the build **warns** (never silently truncates) when the cap is hit.
 - **find** — rank modules for a task and print the **exact files to open**.
   Lexical by default (identifier splitting, light stemming, code-domain
-  synonyms, **IDF** term weighting); hybrid lexical + semantic when `vectors.json`
-  exists (below). `--terms "<keywords>"` merges extra search keywords with the
+  synonyms, **IDF** term weighting), over the index's metadata and, through the
+  engine's BM25F search, over file contents; hybrid lexical + semantic when
+  `vectors.json` exists (below). `--terms "<keywords>"` merges extra search keywords with the
   question — the bridge for a question in any language (below).
 - **symbols** — where a symbol is defined (file:line, kind, owning module) and
   which files reference it, from `symbols.json` — exact then identifier-sub-token
@@ -416,6 +418,25 @@ camelCase/snake_case identifiers (`getUserProfile` finds `src/user/profile.ts`),
 a conservative stemmer bridges plural/-ing variants, and a small code-domain
 synonym table bridges `auth`↔`authentication`↔`login` — all deterministic,
 offline, dependency-free.
+
+That ranking reads the index's metadata: paths, symbol names, titles,
+summaries, enriched prose. An answer that lives only inside a function — a
+route registered inline (`app.get("/health", …)`), a string, a comment — is
+found by the engine's BM25F search instead, which also indexes doc comments
+and the words of comments and short literals. Its file hits lift their
+modules at a weight below a metadata match: a module whose paths, names or
+summaries match still ranks first, in the same order, and one only a body
+matches follows it — or leads, when no metadata matches at all. Files that
+matched, in metadata or in a body, lead each module's `open:` list. `--terms`
+go to both searches.
+
+The build writes the corpus that search reads to `search.jsonl` (the fields of
+each file the engine indexes, plus a term → files list), so a query never
+re-scans the repo. On a large repo a query indexes only the files carrying its
+rarest terms, within a fixed budget (~4 MiB of records, about a thousand
+files); a term too common to fit is left to the metadata ranking. Without
+`search.jsonl` (an index built before it existed, or a committed index that
+ignores it), `find` ranks on metadata alone.
 
 ### Questions in any language
 
