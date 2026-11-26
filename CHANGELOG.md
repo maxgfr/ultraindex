@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+## [7.16.1](https://github.com/maxgfr/ultraindex/compare/v7.16.0...v7.16.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **symbols:** separate bound call sites from name mentions ([398b91e](https://github.com/maxgfr/ultraindex/commit/398b91ed7d6f2f4dd16c75ce57616864fe5ef8bf)), closes [#23](https://github.com/maxgfr/ultraindex/issues/23)
+
 # [7.16.0](https://github.com/maxgfr/ultraindex/compare/v7.15.0...v7.16.0) (2026-11-26)
 
 
