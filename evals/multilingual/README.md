@@ -63,19 +63,19 @@ recall *without* terms minus 2 points. `run.mjs` exits 1 otherwise.
 <!-- results:start -->
 | language | questions | recall without --terms | recall with --terms |
 | --- | ---: | ---: | ---: |
-| en | 60 | 73.3% | 85.0% |
-| fr | 60 | 56.7% | 83.3% |
-| es | 60 | 56.7% | 81.7% |
-| de | 60 | 36.7% | 83.3% |
-| it | 60 | 43.3% | 80.0% |
-| pt | 60 | 53.3% | 83.3% |
-| nl | 60 | 58.3% | 85.0% |
-| ja | 60 | 23.3% | 85.0% |
-| zh | 60 | 23.3% | 85.0% |
-| ar | 60 | 20.0% | 81.7% |
-| ru | 60 | 16.7% | 83.3% |
+| en | 60 | 90.0% | 98.3% |
+| fr | 60 | 66.7% | 96.7% |
+| es | 60 | 73.3% | 96.7% |
+| de | 60 | 43.3% | 96.7% |
+| it | 60 | 51.7% | 95.0% |
+| pt | 60 | 60.0% | 96.7% |
+| nl | 60 | 70.0% | 98.3% |
+| ja | 60 | 23.3% | 96.7% |
+| zh | 60 | 23.3% | 98.3% |
+| ar | 60 | 20.0% | 96.7% |
+| ru | 60 | 16.7% | 96.7% |
 
-Gate floor: 71.3% (English without terms − 2 points).
+Gate floor: 88.0% (English without terms − 2 points).
 <!-- results:end -->
 
 Without terms, recall falls with the distance from English, and what is left
@@ -83,24 +83,35 @@ is not understanding: the Spanish, French or Italian hits come largely from
 short function words substring-matching inside longer words of paths and
 summaries (`de`, `el`, `la`), the Japanese, Chinese, Arabic and Russian ones
 from English words quoted inside the question (`API`, `ID`, `webhook`). With
-terms, every language lands within a few points of English with terms (80–85%
-against 85.0%): the question's language stops mattering.
+terms, every language lands within a few points of English with terms
+(95.0–98.3% against 98.3%): the question's language stops mattering.
 
-Body search lifted every row: `find` now also ranks on the engine's BM25F
-search over file contents, so the `/health` handler registered inline in
-`src/server.ts`, which no path, name or summary mentions, is found. Before it,
-with the same questions and terms, the table read 65.0% / 76.7% for English
-and 11.7–51.7% / 73.3–78.3% for the other languages; `shop-health` alone
-went from 55 misses with terms to 3 (Italian and Japanese terms that do not
-say "health").
+Two engine changes lifted the table. Body search: `find` also ranks on the
+engine's BM25F search over file contents, so the `/health` handler registered
+inline in `src/server.ts`, which no path, name or summary mentions, is found;
+`shop-health` went from 55 misses with terms to 3 (Italian and Japanese terms
+that do not say "health"). Prisma symbols: codeindex 2.32.0 extracts `model`,
+`enum`, `view` and `type` blocks from `.prisma` files as symbols, so the
+`Order` and `Product` models in `prisma/schema.prisma` are visible and
+`shop-order-data` and `shop-products` no longer miss. With the same questions
+and terms, English read 65.0% / 76.7% on metadata only, 73.3% / 85.0% with body
+search and 90.0% / 98.3% with Prisma symbols; the other languages
+11.7–51.7% / 73.3–78.3%, then 16.7–58.3% / 80.0–85.0%, then
+16.7–73.3% / 95.0–98.3%.
 
 What this does not show: the fixtures are tiny (9 and 25 files), so a hit is
 easier than in a real repo, and the terms were written by one model in one
-pass. Most misses with terms now sit in two cases, in every language, English
-included: `shop-order-data` and `shop-products`, whose answers are the `Order`
-and `Product` models in `prisma/schema.prisma`. The engine extracts no words
-from a `.prisma` file, so neither the metadata nor the body search can see
-them. That is a limit of extraction, not of the question's language.
+pass. The 20 misses left with terms are mostly two questions whose terms miss
+the words of the answer. "Can I rename an item in the catalogue?" misses in 7
+languages, English included, wherever the terms say "item" rather than
+"product": `renameProduct` is defined in `src/db/queries.ts`, so that file
+ranks and the `PATCH` route that calls it does not. "What happens when someone
+types the wrong password?" misses in 7 languages (and one Chinese lockout
+question) wherever the terms do not say "login": the NextAuth route mentions
+no password or credentials. The other 5 are single terms strings that drop the
+key word (`shop-health` in it and ja, `next-webhook` in ja, `shop-place-order`
+in fr). That is a limit of the terms and of what the code says, not of the
+question's language.
 
 ## Weighting, measured
 
@@ -108,7 +119,8 @@ With `--terms`, the question's own words (other than identifier-shaped ones)
 rank at half weight and without the raw-substring tier. On this corpus the
 weight itself barely matters — 0 (terms only), 0.5 and 1 give the same table —
 because untranslated words match nothing. The substring tier does: enabling it
-for the question's words lifts it (80.0% → 86.7%), fr (83.3% → 86.7%), es
-(81.7% → 83.3%) and nl (85.0% → 86.7%) here, but the extra hits we traced come from short question words contained
-in unrelated names (`che` in `schema`, `se` in `server`, `du` in `products`):
+for the question's words lifts fr (96.7% → 100.0%), es (96.7% → 98.3%), it
+(95.0% → 96.7%) and nl (98.3% → 100.0%) here, but the extra hits we traced
+come from short question words contained in unrelated names (`du` in
+`products`, `el` in `deleteProduct`, `se` in `server`, `er` in `handler`):
 luck on a 9-file fixture, noise at scale. It stays off.
