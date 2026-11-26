@@ -3,7 +3,7 @@ import { isAbsolute, join, resolve, sep } from "node:path";
 import { runBuild } from "../build.js";
 import { checkAnswer, runCheck } from "../check.js";
 import { runDelta, formatDeltaPanel } from "../delta.js";
-import { ensureGrammars, allGrammarKeys, resolveGrammarsTier } from "../engine.js";
+import { warmGrammars, type WarmGrammarsResult } from "../engine.js";
 import { runAsk, runDossier } from "../explain.js";
 import { runFindHybrid } from "../find.js";
 import { runImpact } from "../impact.js";
@@ -116,39 +116,40 @@ function requireIndex(out: string, repo: string): void {
   }
 }
 
-// The server's counterpart of cli.ts's `warmGrammars`. Same intent — load the
-// tree-sitter grammars so symbol extraction is precise — but it must not do
-// what the CLI's version does: write to stderr and set `process.exitCode`. In a
-// server, the first is noise on a stream a client may be parsing and the second
-// silently poisons the process's eventual exit status.
+// Load the tree-sitter grammars so symbol extraction is precise, through the
+// engine's own `warmGrammars` — the same provisioning `prepareGrammars`
+// (src/lib.ts) exposes: when nothing resolves locally it pulls the wasm into the
+// shared per-machine cache once (sha256-verified, atomic), unless
+// CODEINDEX_NO_GRAMMARS_PULL=1. Unlike the CLI it must not write anything: stdout
+// is the JSON-RPC channel and stderr is a stream a client may be parsing, so the
+// engine's diagnostics go to a no-op sink and come back in the result instead.
 //
-// So the downgrade comes back as a STRING instead. Offline, the engine's regex
-// extractor takes over: still a full, searchable index, just less precise
-// symbols — a fact the caller should fold into its confidence, not an error to
-// retry around. Attempted once per process; a second failure is not re-reported.
-let grammarNote: string | undefined;
-let grammarsTried = false;
+// A downgrade comes back as a STRING. Offline, the engine's regex extractor
+// takes over: still a full, searchable index, just less precise symbols — a fact
+// the caller should fold into its confidence, not an error to retry around.
+// Attempted once per session; the promise is shared so concurrent first calls
+// do not race two pulls, and a failure is not retried.
+let warmup: Promise<string | undefined> | undefined;
 
-async function warmGrammars(): Promise<string | undefined> {
-  if (grammarsTried) return grammarNote;
-  grammarsTried = true;
-  if (resolveGrammarsTier().tier !== "none") return undefined;
-  try {
-    await ensureGrammars(allGrammarKeys());
-  } catch (e) {
-    grammarNote = `tree-sitter grammars unavailable (${(e as Error).message}) — symbols were extracted with the regex fallback, so they are less precise.`;
-    return grammarNote;
-  }
-  if (resolveGrammarsTier().tier === "none") {
-    grammarNote = "tree-sitter grammars unavailable — symbols were extracted with the regex fallback, so they are less precise.";
-  }
-  return grammarNote;
+function grammarsNote(): Promise<string | undefined> {
+  warmup ??= warmGrammars({ label: "ultraindex", onNote: () => {} }).then(coverageNote, (e: unknown) =>
+    coverageNote(undefined, (e as Error).message),
+  );
+  return warmup;
+}
+
+// The coverage note for a warm-up result: nothing when the AST tier is live,
+// otherwise why not (the pull failure, when the engine reported one).
+function coverageNote(res: WarmGrammarsResult | undefined, error?: string): string | undefined {
+  if (res?.ready) return undefined;
+  const reason = error ?? res?.notes.map((n) => n.trim()).find((n) => /\bfailed\b/.test(n));
+  const detail = reason ? ` (${reason})` : "";
+  return `tree-sitter grammars unavailable${detail} — symbols were extracted with the regex fallback, so they are less precise.`;
 }
 
 // Test seam: forget that the warm-up already ran.
 export function resetGrammarWarmup(): void {
-  grammarsTried = false;
-  grammarNote = undefined;
+  warmup = undefined;
 }
 
 // --------------------------------------------------------------------------
@@ -177,15 +178,19 @@ export async function callTool(name: string, args: Record<string, unknown>, defa
   const repo = requiredRepo(args, defaults);
   const out = resolveOut(args, repo);
   const notes: string[] = [];
-  if (!GRAMMARLESS.has(name)) {
-    const note = await warmGrammars();
-    if (note) notes.push(note);
-  }
 
   // Serialized per index directory: a long-lived server can have two calls
   // rebuilding or embedding the same index at once, which the one-shot CLI
-  // never had to survive.
-  const result = await withIndexLock(out, () => callIndexTool(name, args, repo, out));
+  // never had to survive. The grammar warm-up runs INSIDE the lock: it can await
+  // a download, and a call that arrived after a `build` must not overtake it on
+  // the same index while that build is still warming up.
+  const result = await withIndexLock(out, async () => {
+    if (!GRAMMARLESS.has(name)) {
+      const note = await grammarsNote();
+      if (note) notes.push(note);
+    }
+    return callIndexTool(name, args, repo, out);
+  });
   return outcome(name, notes.length ? { ...(result as object), notes } : result);
 }
 

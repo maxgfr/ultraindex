@@ -1,9 +1,9 @@
 import { cpSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createServer, type JsonRpcMessage } from "../src/mcp/server.js";
-import { callTool, ToolError } from "../src/mcp/handlers.js";
+import { callTool, resetGrammarWarmup, ToolError } from "../src/mcp/handlers.js";
 
 // The handlers driven through the JSON-RPC core, in-process, against a real
 // index built from a real fixture. Nothing here mocks the engine: the point is
@@ -205,4 +205,70 @@ describe("guardrails", () => {
     expect(result.isError).toBeFalsy();
     expect(JSON.parse(result.content[0]!.text).total).toBeTypeOf("number");
   });
+});
+
+describe("grammar warm-up on a fresh machine", () => {
+  // No grammar resolves (no env dir, empty shared cache), so the engine's
+  // warm-up must reach for the network. `fetch` is stubbed to refuse, so the
+  // test proves a pull was ATTEMPTED without ever leaving the process — the
+  // real engine code runs, only the socket is faked. The wasm loaded by
+  // tests/setup.ts stays live in-process, so builds here still succeed.
+  const GRAMMARS_URL = "http://127.0.0.1:1/ultraindex-test-grammars.tar.gz";
+  const ENV_KEYS = [
+    "CODEINDEX_GRAMMARS_DIR",
+    "CODEINDEX_GRAMMAR_DIR",
+    "ULTRAINDEX_GRAMMAR_DIR",
+    "CODEINDEX_GRAMMARS_URL",
+    "CODEINDEX_NO_GRAMMARS_PULL",
+    "XDG_CACHE_HOME",
+  ] as const;
+  const saved: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> = {};
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    for (const k of ENV_KEYS) saved[k] = process.env[k];
+    const cache = mkdtempSync(join(tmpdir(), "ui-grammar-cache-"));
+    temps.push(cache);
+    delete process.env.CODEINDEX_GRAMMARS_DIR;
+    delete process.env.CODEINDEX_GRAMMAR_DIR;
+    delete process.env.ULTRAINDEX_GRAMMAR_DIR;
+    delete process.env.CODEINDEX_NO_GRAMMARS_PULL;
+    process.env.XDG_CACHE_HOME = cache;
+    process.env.CODEINDEX_GRAMMARS_URL = GRAMMARS_URL;
+    fetchMock = vi.fn(() => Promise.reject(new Error("network disabled in tests")));
+    vi.stubGlobal("fetch", fetchMock);
+    stdoutSpy = vi.spyOn(process.stdout, "write");
+    resetGrammarWarmup();
+  });
+
+  afterEach(() => {
+    stdoutSpy.mockRestore();
+    vi.unstubAllGlobals();
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    resetGrammarWarmup();
+  });
+
+  it("pulls the grammars on the first build, once per session, writing nothing to stdout", async () => {
+    await callTool("ultraindex_build", { repo: REPO }, { allowWrite: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]![0])).toBe(GRAMMARS_URL);
+
+    // The warm-up is per session: a second build does not try again.
+    await callTool("ultraindex_build", { repo: REPO }, { allowWrite: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // stdout is the JSON-RPC channel: the engine's diagnostics must not land there.
+    expect(stdoutSpy).not.toHaveBeenCalled();
+  }, 120_000);
+
+  it("does not pull when CODEINDEX_NO_GRAMMARS_PULL=1", async () => {
+    process.env.CODEINDEX_NO_GRAMMARS_PULL = "1";
+    await callTool("ultraindex_build", { repo: REPO }, { allowWrite: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(stdoutSpy).not.toHaveBeenCalled();
+  }, 120_000);
 });

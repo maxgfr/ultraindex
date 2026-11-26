@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -25,14 +26,21 @@ interface Session {
 interface SessionOptions {
   args?: string[];
   timeoutMs?: number;
+  // Overrides merged over the parent's environment; `undefined` unsets a key.
+  env?: Record<string, string | undefined>;
 }
 
 // Feed the server a set of newline-delimited frames, close stdin, and collect
 // everything it wrote.
 function session(frames: unknown[], opts: SessionOptions = {}): Promise<Session> {
   const { args = [], timeoutMs = 60_000 } = opts;
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const [k, v] of Object.entries(opts.env ?? {})) {
+    if (v === undefined) delete env[k];
+    else env[k] = v;
+  }
   return new Promise((resolve, reject) => {
-    const child: ChildProcessWithoutNullStreams = spawn(process.execPath, [BUNDLE, "mcp", ...args], { env: { ...process.env } });
+    const child: ChildProcessWithoutNullStreams = spawn(process.execPath, [BUNDLE, "mcp", ...args], { env });
     let out = "";
     let err = "";
     const timer = setTimeout(() => {
@@ -257,4 +265,43 @@ describe("server flags, through the bundle", () => {
     expect(s.stderr).toMatch(/invalid --transport "bogus"/);
     expect(s.lines).toHaveLength(0);
   });
+
+  it("tries to pull the grammars on a fresh machine and reports the regex fallback in-band", async () => {
+    // A fresh machine: no grammar dir, an empty shared cache, and a pull URL on
+    // a port nothing listens on — so the pull is attempted and fails fast with
+    // no traffic leaving the host. The downgrade must come back as a note in
+    // the tool result; stdout carries only JSON-RPC frames and the warm-up
+    // writes nothing to stderr either.
+    const cache = mkdtempSync(join(tmpdir(), "ui-mcp-fresh-cache-"));
+    try {
+      const fresh = {
+        CODEINDEX_GRAMMARS_DIR: undefined,
+        CODEINDEX_GRAMMAR_DIR: undefined,
+        ULTRAINDEX_GRAMMAR_DIR: undefined,
+        CODEINDEX_NO_GRAMMARS_PULL: undefined,
+        XDG_CACHE_HOME: cache,
+        CODEINDEX_GRAMMARS_URL: "http://127.0.0.1:1/ultraindex-test-grammars.tar.gz",
+      };
+      const build = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "ultraindex_build", arguments: { repo: LIB } } };
+      const s = await session([INIT, build], { args: ["--allow-write"], env: fresh });
+      expect(s.lines).toHaveLength(2);
+      const msgs = s.lines.map((l) => JSON.parse(l));
+      const payload = JSON.parse(msgs.find((m) => m.id === 2).result.content[0].text);
+      expect(payload.notes).toHaveLength(1);
+      expect(payload.notes[0]).toMatch(/tree-sitter grammars unavailable \(.*pull failed.*\) — symbols were extracted with the regex fallback/);
+      expect(s.stderr).not.toMatch(/grammar/i);
+      expect(s.code).toBe(0);
+
+      // With pulling disabled, the same build makes no attempt: the note has no
+      // pull failure to report.
+      const off = await session([INIT, build], { args: ["--allow-write"], env: { ...fresh, CODEINDEX_NO_GRAMMARS_PULL: "1" } });
+      const offPayload = JSON.parse(off.lines.map((l) => JSON.parse(l)).find((m) => m.id === 2).result.content[0].text);
+      expect(offPayload.notes).toEqual([
+        "tree-sitter grammars unavailable — symbols were extracted with the regex fallback, so they are less precise.",
+      ]);
+      expect(off.stderr).not.toMatch(/grammar/i);
+    } finally {
+      rmSync(cache, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

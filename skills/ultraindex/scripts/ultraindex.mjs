@@ -31978,22 +31978,20 @@ function requireIndex(out2, repo) {
     );
   }
 }
-var grammarNote;
-var grammarsTried = false;
-async function warmGrammars2() {
-  if (grammarsTried) return grammarNote;
-  grammarsTried = true;
-  if (resolveGrammarsTier().tier !== "none") return void 0;
-  try {
-    await ensureGrammars(allGrammarKeys());
-  } catch (e) {
-    grammarNote = `tree-sitter grammars unavailable (${e.message}) \u2014 symbols were extracted with the regex fallback, so they are less precise.`;
-    return grammarNote;
-  }
-  if (resolveGrammarsTier().tier === "none") {
-    grammarNote = "tree-sitter grammars unavailable \u2014 symbols were extracted with the regex fallback, so they are less precise.";
-  }
-  return grammarNote;
+var warmup;
+function grammarsNote() {
+  warmup ??= warmGrammars({ label: "ultraindex", onNote: () => {
+  } }).then(
+    coverageNote,
+    (e) => coverageNote(void 0, e.message)
+  );
+  return warmup;
+}
+function coverageNote(res, error) {
+  if (res?.ready) return void 0;
+  const reason = error ?? res?.notes.map((n) => n.trim()).find((n) => /\bfailed\b/.test(n));
+  const detail = reason ? ` (${reason})` : "";
+  return `tree-sitter grammars unavailable${detail} \u2014 symbols were extracted with the regex fallback, so they are less precise.`;
 }
 var WRITE_TOOL_NAMES = /* @__PURE__ */ new Set(["ultraindex_build", "ultraindex_embed"]);
 var GRAMMARLESS = /* @__PURE__ */ new Set([
@@ -32013,11 +32011,13 @@ async function callTool2(name2, args2, defaults = {}) {
   const repo = requiredRepo(args2, defaults);
   const out2 = resolveOut(args2, repo);
   const notes = [];
-  if (!GRAMMARLESS.has(name2)) {
-    const note = await warmGrammars2();
-    if (note) notes.push(note);
-  }
-  const result = await withIndexLock(out2, () => callIndexTool(name2, args2, repo, out2));
+  const result = await withIndexLock(out2, async () => {
+    if (!GRAMMARLESS.has(name2)) {
+      const note = await grammarsNote();
+      if (note) notes.push(note);
+    }
+    return callIndexTool(name2, args2, repo, out2);
+  });
   return outcome2(name2, notes.length ? { ...result, notes } : result);
 }
 function outcome2(name2, result) {
@@ -33385,7 +33385,7 @@ function oneOf(name2, value, allowed) {
   }
   return value;
 }
-async function warmGrammars3() {
+async function warmGrammars2() {
   if (resolveGrammarsTier().tier === "none") {
     process.stderr.write(
       "ultraindex: tree-sitter grammars not found locally \u2014 pulling them into the shared cache (once per machine)\u2026\n"
@@ -33485,7 +33485,7 @@ async function cmdBuild(p) {
   if (maxBytes !== void 0 && (!Number.isFinite(maxBytes) || maxBytes <= 0)) fail("invalid --max-bytes");
   const maxFiles = p.values["max-files"] ? Number(p.values["max-files"]) : void 0;
   if (maxFiles !== void 0 && (!Number.isInteger(maxFiles) || maxFiles <= 0)) fail("invalid --max-files");
-  await warmGrammars3();
+  await warmGrammars2();
   const { graph, manifest, capped } = runBuild(
     {
       repo,
