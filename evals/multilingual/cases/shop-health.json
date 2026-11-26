@@ -1,0 +1,173 @@
+{
+  "id": "shop-health",
+  "fixture": "shop-express-prisma",
+  "expect": {
+    "files": [
+      "src/server.ts"
+    ],
+    "from": "cites",
+    "nodes": [
+      "route:GET /health"
+    ]
+  },
+  "questions": {
+    "en": [
+      "What does the health check return exactly?",
+      "How can I tell if the service is up — what does the health endpoint say?",
+      "What information does the health endpoint give when I ping it?",
+      "If the API is queried for its status, what comes back?",
+      "Is the health check just an OK flag, or does it report more detail?"
+    ],
+    "fr": [
+      "Que renvoie exactement le endpoint de santé ?",
+      "Comment savoir si le service tourne — que dit le health check ?",
+      "Quelles infos donne la route de santé quand on l'interroge ?",
+      "Si je ping l'API pour vérifier son état, qu'est-ce qui revient ?",
+      "Le health check se limite-t-il à un statut ou donne-t-il plus de détails ?"
+    ],
+    "es": [
+      "¿Qué devuelve exactamente la comprobación de estado?",
+      "¿Cómo puedo saber si el servicio está levantado? ¿Qué dice el endpoint de salud?",
+      "¿Qué información da el endpoint de salud cuando lo llamo?",
+      "Si le pregunto a la API por su estado, ¿qué devuelve?",
+      "¿La comprobación de estado es solo un OK o da más detalle?"
+    ],
+    "de": [
+      "Was gibt der Health-Check genau zurück?",
+      "Woran erkenne ich, ob der Dienst läuft — was sagt der Health-Endpoint dazu?",
+      "Welche Informationen liefert der Health-Endpoint, wenn ich ihn abfrage?",
+      "Was kommt zurück, wenn man die API nach ihrem Status fragt?",
+      "Ist der Health-Check nur ein einfaches OK-Flag, oder liefert er mehr Details?"
+    ],
+    "it": [
+      "Cosa restituisce esattamente il health check?",
+      "Come faccio a capire se il servizio è su? Cosa dice l'endpoint di stato?",
+      "Che informazioni restituisce l'endpoint di stato quando lo interrogo?",
+      "Se chiedo all'API il suo stato, cosa torna indietro?",
+      "Il health check restituisce solo un flag OK o dà anche dettagli in più?"
+    ],
+    "pt": [
+      "O que o health check retorna exatamente?",
+      "Como eu sei se o serviço está de pé — o que o endpoint de health diz?",
+      "Que informação o endpoint de health devolve quando dou um ping nele?",
+      "Se eu consultar o status da API, o que volta?",
+      "O health check é só uma flag de OK ou traz mais detalhes?"
+    ],
+    "nl": [
+      "Wat geeft de health check precies terug?",
+      "Hoe zie ik of de service draait — wat zegt het health endpoint?",
+      "Welke informatie geeft het health endpoint als ik hem ping?",
+      "Wat krijg je terug als je de API om z'n status vraagt?",
+      "Is de health check niets meer dan een oké-vlaggetje, of geeft die ook meer details terug?"
+    ],
+    "ja": [
+      "ヘルスチェックは具体的に何を返してくるの？",
+      "サービスが生きてるかどうかはどうやって確認すればいい？ヘルスチェックのエンドポイントは何を返すの？",
+      "ヘルスチェックのエンドポイントを叩くと、どんな情報が返ってくる？",
+      "APIにステータスを問い合わせたら、何が返ってくるの？",
+      "ヘルスチェックって単にOKのフラグだけなの？それとももっと詳しい情報も返してくれるの？"
+    ],
+    "zh": [
+      "健康检查具体会返回什么？",
+      "怎么判断服务是不是正常起来了？健康检查接口会返回什么？",
+      "请求一下健康检查接口会返回哪些信息？",
+      "查询 API 状态时会返回什么内容？",
+      "健康检查是只返回一个 OK 标志，还是会报告更详细的信息？"
+    ],
+    "ar": [
+      "ماذا يُرجِع فحص الصحة بالضبط؟",
+      "كيف أتأكد أن الخدمة تعمل — ماذا يقول إندبوينت فحص الصحة؟",
+      "ما المعلومات التي يعطيها إندبوينت الصحة عندما أستدعيه؟",
+      "لو استفسرت الـ API عن حالتها، ماذا يرجع في الرد؟",
+      "هل فحص الصحة مجرد علامة «تمام» أم أنه يعطي تفاصيل أكثر؟"
+    ],
+    "ru": [
+      "Что именно возвращает проверка состояния?",
+      "Как понять, что сервис поднялся — что говорит эндпоинт проверки состояния?",
+      "Какую информацию отдаёт health-эндпоинт, если по нему стукнуться?",
+      "Если запросить у API статус, что приходит в ответе?",
+      "Проверка состояния — это просто флажок «всё ок» или она выдаёт больше подробностей?"
+    ]
+  },
+  "terms": {
+    "en": [
+      "health check response body fields",
+      "service up health endpoint status",
+      "health endpoint ping response payload",
+      "api status endpoint response body",
+      "health check ok status detail"
+    ],
+    "fr": [
+      "health endpoint response json body",
+      "health check service status running",
+      "health route response fields info",
+      "ping api status health response",
+      "health check status details version uptime"
+    ],
+    "es": [
+      "health check endpoint return response body",
+      "health endpoint service up status",
+      "health endpoint response json fields",
+      "api status route response format",
+      "healthcheck response detail ok status payload"
+    ],
+    "de": [
+      "health check response body fields",
+      "health endpoint service running status",
+      "health endpoint response information details",
+      "api status endpoint response body",
+      "health check ok status details payload"
+    ],
+    "it": [
+      "health check endpoint response body",
+      "service up status endpoint check",
+      "status endpoint response details fields",
+      "api status endpoint response payload",
+      "health check ok status flag details"
+    ],
+    "pt": [
+      "health check endpoint return value",
+      "service health endpoint status check",
+      "health endpoint ping response payload",
+      "api status endpoint response fields",
+      "health check ok status detail"
+    ],
+    "nl": [
+      "health check endpoint response body format",
+      "health endpoint service running status",
+      "health endpoint ping response details",
+      "api status endpoint response body",
+      "health check ok flag response details fields"
+    ],
+    "ja": [
+      "health check response body format",
+      "service alive check endpoint response",
+      "health endpoint response details fields",
+      "api status endpoint response fields",
+      "health check status flag detailed response"
+    ],
+    "zh": [
+      "health check response body fields",
+      "service ready health check startup status",
+      "health check endpoint response fields details",
+      "api status endpoint response content",
+      "health check ok flag detailed report"
+    ],
+    "ar": [
+      "health check return response body",
+      "health endpoint service running status",
+      "health endpoint response details fields",
+      "api status endpoint response payload",
+      "health check ok details status response"
+    ],
+    "ru": [
+      "health check return response value",
+      "health endpoint service ready status",
+      "health endpoint response fields details",
+      "api status endpoint response body",
+      "health check ok flag details"
+    ]
+  },
+  "generator": "glm-5.3-flash",
+  "provenance": "questions.en and questions.fr: the source eval cases, verbatim. Every other question (paraphrases of those) and every terms string: generated by glm-5.3-flash (open weights, MIT), verbatim."
+}

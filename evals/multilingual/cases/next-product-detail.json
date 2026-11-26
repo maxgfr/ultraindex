@@ -1,0 +1,173 @@
+{
+  "id": "next-product-detail",
+  "fixture": "next-drizzle",
+  "expect": {
+    "files": [
+      "src/app/api/products/[id]/route.ts"
+    ],
+    "from": "nodes",
+    "nodes": [
+      "route:GET /api/products/:id"
+    ]
+  },
+  "questions": {
+    "en": [
+      "How can I fetch a single product when I know its ID?",
+      "What does the API send back when a product is queried by its identifier?",
+      "Which fields come back in the product detail response — price, stock, images?",
+      "What happens if I request a product identifier that doesn't exist?",
+      "Is there a route like GET /products/{id} to get one item's full details?"
+    ],
+    "fr": [
+      "Comment récupérer un seul produit quand on connaît son identifiant ?",
+      "Que renvoie l'API quand on interroge un produit par son ID ?",
+      "Quels champs sont renvoyés dans le détail d'un produit — prix, stock, images ?",
+      "Que se passe-t-il si je demande un identifiant de produit qui n'existe pas ?",
+      "Existe-t-il une route du type GET /products/{id} pour obtenir la fiche complète d'un article ?"
+    ],
+    "es": [
+      "¿Cómo puedo obtener un producto concreto cuando conozco su ID?",
+      "¿Qué devuelve la API cuando se consulta un producto por su identificador?",
+      "¿Qué campos vienen en la respuesta del detalle del producto: precio, stock, imágenes?",
+      "¿Qué pasa si solicito un identificador de producto que no existe?",
+      "¿Hay alguna ruta tipo GET /products/{id} para obtener todos los detalles de un artículo?"
+    ],
+    "de": [
+      "Wie kann ich ein einzelnes Produkt abrufen, wenn ich seine ID kenne?",
+      "Was liefert die API zurück, wenn man ein Produkt anhand seiner Kennung abfragt?",
+      "Welche Felder kommen in der Antwort zu den Produktdetails zurück – Preis, Bestand, Bilder?",
+      "Was passiert, wenn ich eine Produktkennung abfrage, die es nicht gibt?",
+      "Gibt es eine Route wie GET /products/{id}, über die man die vollständigen Details eines Artikels bekommt?"
+    ],
+    "it": [
+      "Come faccio a recuperare un singolo prodotto quando ne conosco l'ID?",
+      "Cosa restituisce l'API quando si interroga un prodotto tramite il suo identificatore?",
+      "Quali campi sono inclusi nella risposta con il dettaglio del prodotto — prezzo, disponibilità, immagini?",
+      "Cosa succede se richiedo un identificatore di prodotto che non esiste?",
+      "Esiste un endpoint tipo GET /products/{id} per ottenere tutti i dettagli di un singolo articolo?"
+    ],
+    "pt": [
+      "Como faço para buscar um único produto quando já sei o ID dele?",
+      "O que a API retorna quando consulto um produto pelo identificador?",
+      "Quais campos vêm na resposta com os detalhes do produto — preço, estoque, imagens?",
+      "O que acontece se eu pedir um identificador de produto que não existe?",
+      "Existe alguma rota tipo GET /products/{id} para pegar todos os detalhes de um item?"
+    ],
+    "nl": [
+      "Hoe kan ik één product ophalen als ik het ID ken?",
+      "Wat geeft de API terug als je een product opvraagt op basis van zijn ID?",
+      "Welke velden krijg je terug in het antwoord met de productdetails — prijs, voorraad, afbeeldingen?",
+      "Wat gebeurt er als ik een product-ID opvraag die niet bestaat?",
+      "Is er een route zoals GET /products/{id} om alle details van één product op te halen?"
+    ],
+    "ja": [
+      "IDが分かっている商品を1件取得するには、どうすればいいですか？",
+      "商品をIDで取得したとき、APIからは何が返ってきますか？",
+      "商品詳細のレスポンスには、価格や在庫、画像など、どんなフィールドが含まれていますか？",
+      "存在しない商品IDをリクエストすると、どうなりますか？",
+      "1件の商品の詳細をすべて取得できる、GET /products/{id} のようなエンドポイントはありますか？"
+    ],
+    "zh": [
+      "知道商品的 ID 之后，怎么获取单个商品的信息？",
+      "用 ID 查商品的时候，接口会返回什么数据？",
+      "商品详情的响应里都有哪些字段？价格、库存、图片这些有吗？",
+      "如果我请求一个不存在的商品 ID，会怎么样？",
+      "有没有类似 GET /products/{id} 这样的接口，能拿到单个商品的完整详情？"
+    ],
+    "ar": [
+      "كيف أستطيع جلب منتج واحد عندما أعرف معرّفه؟",
+      "ماذا تُعيد الـ API عندما نستعلم عن منتج بواسطة معرّفه؟",
+      "ما الحقول التي تظهر في استجابة تفاصيل المنتج — السعر، المخزون، الصور؟",
+      "ماذا يحدث إذا طلبت معرّف منتج غير موجود؟",
+      "هل يوجد مسار مثل GET /products/{id} لجلب التفاصيل الكاملة لمنتج واحد؟"
+    ],
+    "ru": [
+      "Как получить один товар, если известен его ID?",
+      "Что возвращает API, когда запрашиваешь товар по его идентификатору?",
+      "Какие поля приходят в ответе с деталями товара — цена, наличие на складе, изображения?",
+      "Что будет, если запросить товар по идентификатору, которого не существует?",
+      "Есть ли маршрут вроде GET /products/{id}, чтобы получить полные данные о конкретном товаре?"
+    ]
+  },
+  "terms": {
+    "en": [
+      "fetch single product id",
+      "product api query response",
+      "product detail response fields price stock images",
+      "product not found error",
+      "get products id route endpoint"
+    ],
+    "fr": [
+      "get product by id fetch",
+      "api response product id lookup",
+      "product detail fields price stock images",
+      "product not found 404 error response",
+      "products get id route endpoint controller"
+    ],
+    "es": [
+      "get product id fetch single",
+      "get product api response return",
+      "product detail response fields price stock images",
+      "invalid product id 404 error handling",
+      "get products id route endpoint handler"
+    ],
+    "de": [
+      "get single product by id",
+      "api response get product by id",
+      "product details response fields price stock images",
+      "product id not found error handling",
+      "get products id route endpoint details"
+    ],
+    "it": [
+      "get product by id",
+      "api product identifier lookup response",
+      "product detail fields price availability images",
+      "product id not found error",
+      "products endpoint get single product detail"
+    ],
+    "pt": [
+      "get product by id",
+      "product lookup api response",
+      "product response fields price stock images",
+      "product not found error handling",
+      "products route get by id"
+    ],
+    "nl": [
+      "get single product by id",
+      "api response product by id",
+      "product detail fields price stock images",
+      "product not found error handling",
+      "get products id route endpoint"
+    ],
+    "ja": [
+      "get single product by id",
+      "fetch product api response body",
+      "product detail response fields price stock image",
+      "product not found invalid id",
+      "get products id endpoint route"
+    ],
+    "zh": [
+      "get product by id fetch single product detail",
+      "product by id endpoint return response data",
+      "product detail response fields price stock images",
+      "product not found 404 invalid id error",
+      "get products id route endpoint single product detail"
+    ],
+    "ar": [
+      "get product by id",
+      "product by id api response",
+      "product response fields price stock images",
+      "product not found invalid id error",
+      "get products id route endpoint"
+    ],
+    "ru": [
+      "get single product id",
+      "api get product response",
+      "product response fields price stock images",
+      "product id not found error",
+      "route get product detail endpoint"
+    ]
+  },
+  "generator": "glm-5.3-flash",
+  "provenance": "questions.en and questions.fr: the source eval cases, verbatim. Every other question (paraphrases of those) and every terms string: generated by glm-5.3-flash (open weights, MIT), verbatim."
+}

@@ -1,0 +1,174 @@
+{
+  "id": "shop-order-lookup",
+  "fixture": "shop-express-prisma",
+  "expect": {
+    "files": [
+      "src/routes/orders.ts"
+    ],
+    "from": "cites",
+    "nodes": [
+      "route:GET /api/orders/:id",
+      "route:GET /api/orders"
+    ]
+  },
+  "questions": {
+    "en": [
+      "How do I fetch a specific order by its ID?",
+      "Is there a way to list all the orders that have been placed?",
+      "Where do I look to retrieve one order or see the full order list?",
+      "Can the API return a single order, and can it also give me every order?",
+      "What's the endpoint for viewing an order's details or browsing all orders?"
+    ],
+    "fr": [
+      "Comment récupérer une commande précise à partir de son identifiant ?",
+      "Peut-on obtenir la liste de toutes les commandes passées ?",
+      "Par où passer pour consulter une commande ou voir toutes les commandes ?",
+      "L'API permet-elle d'afficher une commande en particulier, et aussi de tout lister ?",
+      "Quelle route permet de voir le détail d'une commande ou d'en parcourir la liste ?"
+    ],
+    "es": [
+      "¿Cómo puedo obtener un pedido concreto a partir de su ID?",
+      "¿Hay alguna forma de listar todos los pedidos que se han realizado?",
+      "¿Dónde tengo que mirar para consultar un pedido o ver la lista completa de pedidos?",
+      "¿Puede la API devolver un solo pedido y también darme todos los pedidos?",
+      "¿Cuál es el endpoint para ver los detalles de un pedido o consultar todos los pedidos?"
+    ],
+    "de": [
+      "Wie kann ich eine bestimmte Bestellung über ihre ID abrufen?",
+      "Gibt es eine Möglichkeit, alle aufgegebenen Bestellungen aufzulisten?",
+      "Wo kann ich eine einzelne Bestellung abrufen oder die komplette Bestellliste einsehen?",
+      "Kann die API eine einzelne Bestellung zurückgeben und mir auch alle Bestellungen liefern?",
+      "Über welchen Endpunkt kann ich die Details einer Bestellung ansehen oder alle Bestellungen durchstöbern?"
+    ],
+    "it": [
+      "Come faccio a recuperare un ordine specifico tramite il suo ID?",
+      "C'è un modo per ottenere l'elenco di tutti gli ordini effettuati?",
+      "Dove devo guardare per recuperare un singolo ordine o vedere l'elenco completo degli ordini?",
+      "L'API può restituire un singolo ordine e può anche darmi tutti gli ordini?",
+      "Qual è l'endpoint per vedere i dettagli di un ordine o consultare tutti gli ordini?"
+    ],
+    "pt": [
+      "Como faço para buscar um pedido específico pelo ID?",
+      "Tem como listar todos os pedidos que foram feitos?",
+      "Onde devo procurar para consultar um pedido ou ver a lista completa de pedidos?",
+      "A API consegue retornar um único pedido, e também me trazer todos eles?",
+      "Qual é o endpoint para ver os detalhes de um pedido ou navegar por todos os pedidos?"
+    ],
+    "nl": [
+      "Hoe kan ik een specifieke bestelling opvragen op basis van het ID?",
+      "Is er een manier om een lijst te krijgen van alle bestellingen die zijn geplaatst?",
+      "Waar kan ik één bestelling ophalen of de volledige lijst met bestellingen bekijken?",
+      "Kan de API één enkele bestelling teruggeven, en kan ik er ook alle bestellingen mee ophalen?",
+      "Via welk endpoint kan ik de details van een bestelling bekijken of door alle bestellingen bladeren?"
+    ],
+    "ja": [
+      "特定の注文をIDで取得するにはどうすればいいですか？",
+      "これまでに登録された注文を全部一覧で取得する方法はありますか？",
+      "注文を1件取得したり、全件の一覧を見たりするときは、どこを見ればいいですか？",
+      "APIで注文を1件だけ取得できますか？あと、全件まとめて取得することもできますか？",
+      "注文の詳細を見るのと全注文を一覧するのに使うエンドポイントはどれですか？"
+    ],
+    "zh": [
+      "怎么根据订单 ID 查询某个具体的订单?",
+      "有没有办法把所有已下的订单都列出来?",
+      "想查单个订单或者看完整的订单列表,该去哪里找?",
+      "这个 API 能返回单个订单吗?能不能把所有订单也都给我?",
+      "查看订单详情或浏览所有订单的接口是什么?"
+    ],
+    "ar": [
+      "كيف أسترجع طلبًا معيّنًا عن طريق المعرّف الخاص به؟",
+      "هل توجد طريقة لعرض جميع الطلبات التي تم تقديمها؟",
+      "من أين يمكنني استرجاع طلب واحد أو الاطلاع على قائمة الطلبات كاملة؟",
+      "هل يمكن لواجهة برمجة التطبيقات (API) إرجاع طلب واحد، وهل يمكنها أيضًا أن تعطيني جميع الطلبات؟",
+      "ما هو الـ endpoint المستخدم لعرض تفاصيل طلب معيّن أو تصفح جميع الطلبات؟"
+    ],
+    "ru": [
+      "Как мне достать конкретный заказ по его ID?",
+      "А можно как-то вывести список всех оформленных заказов?",
+      "Где искать, чтобы вытащить один заказ или посмотреть весь список заказов?",
+      "API умеет возвращать один заказ — а может выдать и все сразу?",
+      "Через какой эндпоинт можно посмотреть детали заказа или полистать все заказы?"
+    ]
+  },
+  "terms": {
+    "en": [
+      "get order id fetch",
+      "list all orders placed",
+      "retrieve single order list all orders",
+      "api single order list orders endpoint",
+      "order details endpoint list orders route"
+    ],
+    "fr": [
+      "get order by id",
+      "list all orders",
+      "order route endpoint list",
+      "api order detail list",
+      "route order detail list"
+    ],
+    "es": [
+      "get order by id",
+      "list all orders",
+      "order query list all orders",
+      "api get single order list orders",
+      "endpoint order details list all orders"
+    ],
+    "de": [
+      "get order by id",
+      "list all orders",
+      "get single order list all orders",
+      "api fetch single order all orders",
+      "endpoint order details list all orders"
+    ],
+    "it": [
+      "get specific order id",
+      "list all orders",
+      "retrieve single order list all orders",
+      "api get single order all orders",
+      "endpoint order details list all orders"
+    ],
+    "pt": [
+      "get order by id",
+      "list all orders",
+      "get order list all orders",
+      "api get single order list all",
+      "endpoint order details list all orders"
+    ],
+    "nl": [
+      "get order id lookup",
+      "list orders api endpoint",
+      "fetch single order list orders",
+      "api single order list orders",
+      "endpoint order details list orders"
+    ],
+    "ja": [
+      "get order by id",
+      "list all registered orders",
+      "order find get list service",
+      "api fetch single order all",
+      "order detail list endpoint route"
+    ],
+    "zh": [
+      "get order by id",
+      "list all placed orders",
+      "find single order and list orders",
+      "api return single order all orders",
+      "order detail endpoint list orders api"
+    ],
+    "ar": [
+      "get order by id",
+      "list all submitted orders",
+      "get single order list all orders",
+      "api return single order all orders",
+      "endpoint order detail list all orders"
+    ],
+    "ru": [
+      "get order id lookup",
+      "list all orders",
+      "get order list all",
+      "api get all orders",
+      "order details endpoint list all"
+    ]
+  },
+  "generator": "glm-5.3-flash",
+  "provenance": "questions.en and questions.fr: the source eval cases, verbatim. Every other question (paraphrases of those) and every terms string: generated by glm-5.3-flash (open weights, MIT), verbatim."
+}

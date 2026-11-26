@@ -1,0 +1,173 @@
+{
+  "id": "next-webhook",
+  "fixture": "next-drizzle",
+  "expect": {
+    "files": [
+      "src/pages/api/webhook.ts"
+    ],
+    "from": "nodes",
+    "nodes": [
+      "route:POST /api/webhook"
+    ]
+  },
+  "questions": {
+    "en": [
+      "How do we handle incoming notifications from an external provider?",
+      "Does the webhook endpoint acknowledge receipt, and with which status code?",
+      "How can I verify that a webhook call really comes from the third-party service — is there a signature check?",
+      "If processing a webhook payload fails, do we still answer 200?",
+      "Can the same delivery arrive twice, and are duplicates handled idempotently?"
+    ],
+    "fr": [
+      "Comment gérons-nous les notifications entrantes d'un prestataire externe ?",
+      "Le endpoint des webhooks accuse-t-il réception, et avec quel code de statut ?",
+      "Comment vérifier qu'un appel webhook provient bien du service tiers — y a-t-il une vérification de signature ?",
+      "Si le traitement du payload d'un webhook échoue, répond-on quand même un 200 ?",
+      "Une même livraison peut-elle arriver deux fois, et les doublons sont-ils traités de manière idempotente ?"
+    ],
+    "es": [
+      "¿Cómo gestionamos las notificaciones que nos llegan de un proveedor externo?",
+      "¿El endpoint del webhook acusa recibo de la llamada, y con qué código de estado?",
+      "¿Cómo puedo comprobar que una llamada al webhook viene de verdad del servicio de terceros? ¿Hay alguna comprobación de firma?",
+      "Si falla el procesamiento del payload de un webhook, ¿respondemos igualmente con un 200?",
+      "¿Puede ser que la misma entrega llegue dos veces, y los duplicados se gestionen de forma idempotente?"
+    ],
+    "de": [
+      "Wie gehen wir mit eingehenden Benachrichtigungen von einem externen Anbieter um?",
+      "Bestätigt der Webhook-Endpunkt den Eingang, und wenn ja, mit welchem Statuscode?",
+      "Wie kann ich prüfen, ob ein Webhook-Aufruf wirklich vom Dienst des Drittanbieters stammt — gibt es eine Signaturprüfung?",
+      "Wenn die Verarbeitung der Payload eines Webhooks fehlschlägt, antworten wir trotzdem mit 200?",
+      "Kann dieselbe Zustellung zweimal ankommen, und werden Duplikate idempotent behandelt?"
+    ],
+    "it": [
+      "Come gestiamo le notifiche in arrivo da un provider esterno?",
+      "L'endpoint del webhook conferma la ricezione, e con quale codice di stato?",
+      "Come faccio a verificare che una chiamata webhook venga davvero dal servizio di terze parti? C'è una verifica della firma?",
+      "Se l'elaborazione del payload di un webhook fallisce, rispondiamo comunque con 200?",
+      "Può capitare che la stessa consegna arrivi due volte, e i duplicati vengono gestiti in modo idempotente?"
+    ],
+    "pt": [
+      "Como a gente lida com as notificações que chegam de um provedor externo?",
+      "O endpoint do webhook confirma o recebimento? E com qual código de status?",
+      "Como faço para verificar se uma chamada de webhook veio mesmo do serviço de terceiros — existe alguma verificação de assinatura?",
+      "Se der erro ao processar o payload de um webhook, a gente ainda responde 200?",
+      "A mesma entrega pode chegar duas vezes, e os duplicados são tratados de forma idempotente?"
+    ],
+    "nl": [
+      "Hoe gaan we om met inkomende notificaties van een externe provider?",
+      "Geeft het webhook-endpoint een ontvangstbevestiging terug, en met welke statuscode?",
+      "Hoe kan ik verifiëren dat een webhook-verzoek echt van de externe partij afkomstig is — is er een handtekeningcontrole?",
+      "Als de verwerking van de payload van een webhook mislukt, geven we dan alsnog een 200 terug?",
+      "Kan dezelfde aflevering twee keer aankomen, en worden duplicaten idempotent afgehandeld?"
+    ],
+    "ja": [
+      "外部プロバイダーから届く通知はどう処理することになっていますか？",
+      "webhook のエンドポイントは受信を確認応答してますか？どのステータスコードで返すことになってますか？",
+      "webhook の呼び出しが本当にその外部サービスから来たものか、どうやって確認できますか？署名の検証とかはできますか？",
+      "webhook のペイロードの処理に失敗した場合でも、200 を返すことになっていますか？",
+      "同じ配信が 2 回届くことはありますか？重複は冪等に処理されるようになっていますか？"
+    ],
+    "zh": [
+      "外部服务商发来的通知，我们这边是怎么处理的？",
+      "webhook 接口收到后会确认吗？返回的是哪个状态码？",
+      "有什么办法能验证 webhook 请求确实是第三方服务发来的？有没有签名校验？",
+      "如果 webhook 的 payload 处理失败了，我们还是会返回 200 吗？",
+      "同一条推送有可能收到两次吗？重复的话有没有做幂等处理？"
+    ],
+    "ar": [
+      "كيف نتعامل مع الإشعارات الواردة من مزوّد خارجي؟",
+      "هل نقطة الويبهوك تُأكّد الاستلام، وبأي رمز حالة؟",
+      "كيف أتأكّد أن طلب الويبهوك يأتي فعلًا من الخدمة الخارجية — هل هناك تحقّق من التوقيع؟",
+      "إذا فشلت معالجة حمولة الويبهوك، هل نردّ بـ 200 على أي حال؟",
+      "هل يمكن أن يصل التسليم نفسه مرتين، وهل تُعالَج النسخ المكرّرة بطريقة idempotent بحيث لا يتكرر التأثير؟"
+    ],
+    "ru": [
+      "Как мы обрабатываем входящие уведомления от внешнего провайдера?",
+      "Подтверждает ли эндпоинт вебхука получение запроса, и каким статус-кодом?",
+      "Как убедиться, что вызов вебхука действительно пришёл от стороннего сервиса — там есть проверка подписи?",
+      "Если обработка данных вебхука падает с ошибкой, мы всё равно отвечаем 200?",
+      "Может ли одна и та же доставка прийти дважды, и обрабатываются ли дубли идемпотентно?"
+    ]
+  },
+  "terms": {
+    "en": [
+      "handle incoming provider webhook notifications",
+      "webhook endpoint acknowledge receipt status code",
+      "verify webhook signature third party",
+      "webhook processing failure response status",
+      "webhook duplicate delivery idempotency event id"
+    ],
+    "fr": [
+      "handle incoming webhook notifications external provider",
+      "webhook endpoint acknowledge receipt status code",
+      "verify webhook signature hmac third party",
+      "webhook payload processing failure return 200",
+      "webhook duplicate delivery idempotency event id"
+    ],
+    "es": [
+      "webhook external provider notifications handling",
+      "webhook endpoint acknowledge response status code",
+      "webhook signature verification hmac secret",
+      "webhook payload processing failure error response",
+      "webhook duplicate delivery idempotency event id"
+    ],
+    "de": [
+      "handle incoming webhook notifications external provider",
+      "webhook endpoint acknowledge receipt status code",
+      "verify webhook signature hmac third party",
+      "webhook processing failure still return 200",
+      "webhook duplicate delivery idempotent event handling"
+    ],
+    "it": [
+      "handle incoming external provider webhook notifications",
+      "webhook endpoint acknowledge receipt status code",
+      "verify webhook signature hmac third party",
+      "webhook payload processing failure error handling",
+      "webhook duplicate delivery idempotency event processing"
+    ],
+    "pt": [
+      "webhook provider notification handler receive",
+      "webhook endpoint acknowledge response status code",
+      "webhook signature verification hmac secret",
+      "webhook payload processing error handler return",
+      "webhook delivery duplicate idempotent event deduplication"
+    ],
+    "nl": [
+      "webhook incoming notifications external provider handler",
+      "webhook endpoint acknowledgement response status code",
+      "webhook signature verification hmac request",
+      "webhook payload processing error return 200",
+      "webhook duplicate delivery idempotency event deduplication"
+    ],
+    "ja": [
+      "handle external provider incoming notifications",
+      "webhook endpoint acknowledge status code response",
+      "webhook signature verification secret hmac",
+      "webhook payload processing failure error response",
+      "webhook duplicate delivery idempotency event id"
+    ],
+    "zh": [
+      "webhook notification handler external provider process",
+      "webhook endpoint response status code acknowledge",
+      "webhook signature verification hmac validate request",
+      "webhook payload processing error return 200",
+      "webhook duplicate delivery idempotency deduplication event"
+    ],
+    "ar": [
+      "handle incoming webhook external provider notifications",
+      "webhook endpoint acknowledge status code",
+      "webhook signature verification hmac request",
+      "webhook payload processing failure response",
+      "webhook duplicate delivery idempotent event"
+    ],
+    "ru": [
+      "handle incoming external provider webhook notifications",
+      "webhook endpoint acknowledge response status code",
+      "webhook signature verification hmac secret",
+      "webhook handler exception return status 200",
+      "webhook duplicate delivery idempotency event id"
+    ]
+  },
+  "generator": "glm-5.3-flash",
+  "provenance": "questions.en and questions.fr: the source eval cases, verbatim. Every other question (paraphrases of those) and every terms string: generated by glm-5.3-flash (open weights, MIT), verbatim."
+}

@@ -1,0 +1,173 @@
+{
+  "id": "next-delete-product",
+  "fixture": "next-drizzle",
+  "expect": {
+    "files": [
+      "src/app/api/products/[id]/route.ts"
+    ],
+    "from": "nodes",
+    "nodes": [
+      "route:DELETE /api/products/:id"
+    ]
+  },
+  "questions": {
+    "en": [
+      "What's the endpoint for taking a product off the catalogue?",
+      "If an admin deletes a product, what happens to past orders that contained it?",
+      "Does removing a product through the API do a hard delete or a soft delete?",
+      "Can a store item be removed permanently, and is that reversible if it was a mistake?",
+      "Which status code should the API return once the product has been deleted?"
+    ],
+    "fr": [
+      "Quelle est la route pour retirer un produit du catalogue ?",
+      "Si un admin supprime un produit, que deviennent les anciennes commandes qui le contenaient ?",
+      "La suppression d'un produit via l'API est-elle définitive ou juste masquée (soft delete) ?",
+      "Peut-on supprimer définitivement un article de la boutique, et est-ce réversible en cas d'erreur ?",
+      "Quel code de statut l'API doit-elle renvoyer une fois le produit supprimé ?"
+    ],
+    "es": [
+      "¿Cuál es el endpoint para quitar un producto del catálogo?",
+      "Si un admin elimina un producto, ¿qué pasa con los pedidos anteriores que lo incluían?",
+      "Cuando se elimina un producto a través de la API, ¿se hace un borrado físico o un borrado lógico?",
+      "¿Se puede eliminar un artículo de la tienda de forma permanente, y ese cambio se puede revertir si fue un error?",
+      "¿Qué código de estado debería devolver la API una vez eliminado el producto?"
+    ],
+    "de": [
+      "Über welchen Endpunkt kann man ein Produkt aus dem Katalog entfernen?",
+      "Was passiert mit früheren Bestellungen, in denen das Produkt enthalten war, wenn ein Admin es löscht?",
+      "Wenn man ein Produkt über die API entfernt, wird es dann endgültig gelöscht oder nur als gelöscht markiert (Soft Delete)?",
+      "Kann man einen Shop-Artikel endgültig löschen, und lässt sich das rückgängig machen, falls es ein Versehen war?",
+      "Welchen Statuscode sollte die API zurückgeben, sobald das Produkt gelöscht wurde?"
+    ],
+    "it": [
+      "Qual è l'endpoint per rimuovere un prodotto dal catalogo?",
+      "Se un admin elimina un prodotto, cosa succede agli ordini passati che lo contenevano?",
+      "Quando si rimuove un prodotto tramite API, si tratta di un hard delete o di un soft delete?",
+      "Si può eliminare definitivamente un articolo dal negozio? E se è stato un errore, l'operazione è reversibile?",
+      "Quale status code dovrebbe restituire l'API una volta eliminato il prodotto?"
+    ],
+    "pt": [
+      "Qual é o endpoint pra remover um produto do catálogo?",
+      "Se um admin excluir um produto, o que acontece com os pedidos antigos que o continham?",
+      "Quando se remove um produto via API, é hard delete ou soft delete?",
+      "Dá pra excluir um item da loja de vez? E se tiver sido um engano, dá pra reverter?",
+      "Qual código de status a API deve retornar depois que o produto for excluído?"
+    ],
+    "nl": [
+      "Via welk endpoint kun je een product uit de catalogus halen?",
+      "Als een admin een product verwijdert, wat gebeurt er dan met eerdere bestellingen waarin dat product zat?",
+      "Als je een product via de API verwijdert, is dat een hard delete of een soft delete?",
+      "Kan een artikel in de winkel definitief verwijderd worden, en is dat ongedaan te maken als het een vergissing was?",
+      "Welke statuscode hoort de API terug te geven zodra het product verwijderd is?"
+    ],
+    "ja": [
+      "商品をカタログから削除するエンドポイントはどれですか？",
+      "管理者が商品を削除した場合、その商品を含む過去の注文はどうなりますか？",
+      "APIで商品を削除するとき、物理削除と論理削除のどちらになりますか？",
+      "商品を完全に削除することはできますか？もし間違いだった場合、元に戻せますか？",
+      "商品を削除したあと、APIはどのステータスコードを返すべきですか？"
+    ],
+    "zh": [
+      "下架商品的接口是哪个？",
+      "管理员删掉一个商品后，原来包含它的历史订单会怎么处理？",
+      "通过 API 删除商品是物理删除还是逻辑删除？",
+      "商品可以彻底删除吗？要是误删了还能恢复吗？",
+      "商品删除成功后，API 应该返回什么状态码？"
+    ],
+    "ar": [
+      "ما هو الـ endpoint المستخدم لإزالة منتج من الكتالوج؟",
+      "إذا قام المشرف بحذف منتج، ماذا سيحدث للطلبات السابقة التي كانت تحتوي عليه؟",
+      "هل حذف المنتج عبر الـ API يكون حذفًا نهائيًا فعليًا أم مجرد حذف ناعم؟",
+      "هل يمكن إزالة عنصر من المتجر نهائيًا، وهل يمكن التراجع عن ذلك إذا كان خطأً؟",
+      "ما كود الحالة الذي يجب أن يُرجِعه الـ API بعد حذف المنتج؟"
+    ],
+    "ru": [
+      "Какой эндпоинт отвечает за удаление товара из каталога?",
+      "Если админ удаляет товар, что происходит со старыми заказами, в которых он был?",
+      "Удаление товара через API — это жёсткое удаление из базы или мягкое (просто пометка об удалении)?",
+      "Можно ли удалить товар из магазина насовсем, и если это была ошибка, можно ли потом его вернуть?",
+      "Какой статус-код должен возвращать API после удаления товара?"
+    ]
+  },
+  "terms": {
+    "en": [
+      "product delete endpoint route controller",
+      "admin delete product order cascade foreign key",
+      "product delete soft hard deleted flag",
+      "item remove permanent restore archive reversible",
+      "delete product http status code response"
+    ],
+    "fr": [
+      "delete product route endpoint catalog",
+      "admin delete product existing orders order items cascade",
+      "product delete api soft delete permanent",
+      "delete shop item permanent reversible restore",
+      "delete product api http status code response"
+    ],
+    "es": [
+      "delete product endpoint catalog route",
+      "delete product order history cascade",
+      "soft delete hard delete product",
+      "restore deleted product undo permanent",
+      "delete product http status code"
+    ],
+    "de": [
+      "delete product catalog endpoint api",
+      "delete product existing orders cascade",
+      "soft delete product permanent removal",
+      "hard delete product restore undo",
+      "delete product response status code"
+    ],
+    "it": [
+      "delete product endpoint catalog route remove",
+      "admin delete product past orders references",
+      "product delete hard soft",
+      "permanently delete product restore recover",
+      "delete product api response status code"
+    ],
+    "pt": [
+      "delete product catalog endpoint route",
+      "delete product order items cascade foreign key",
+      "product soft delete deleted_at column",
+      "restore deleted product undo trash",
+      "delete product response status code"
+    ],
+    "nl": [
+      "get product catalog endpoint route fetch",
+      "admin delete product existing orders cascade",
+      "product delete api hard soft delete",
+      "shop product permanent delete undo restore",
+      "delete product api response status code"
+    ],
+    "ja": [
+      "delete product catalog endpoint route",
+      "delete product orders cascade foreign key",
+      "product delete soft delete hard delete",
+      "permanent delete product restore undo",
+      "delete product response status code"
+    ],
+    "zh": [
+      "unpublish product off shelf api endpoint",
+      "admin delete product historical orders handling",
+      "api delete product physical soft delete",
+      "product permanently delete recover restore",
+      "delete product api response status code"
+    ],
+    "ar": [
+      "delete product catalog endpoint route",
+      "admin delete product existing orders contain",
+      "delete product api hard soft",
+      "remove item store permanently undo restore",
+      "api delete product response status code"
+    ],
+    "ru": [
+      "delete product endpoint catalog route",
+      "delete product existing orders foreign key cascade",
+      "product soft delete hard delete flag",
+      "restore deleted product recover permanent remove",
+      "delete product response status code"
+    ]
+  },
+  "generator": "glm-5.3-flash",
+  "provenance": "questions.en and questions.fr: the source eval cases, verbatim. Every other question (paraphrases of those) and every terms string: generated by glm-5.3-flash (open weights, MIT), verbatim."
+}

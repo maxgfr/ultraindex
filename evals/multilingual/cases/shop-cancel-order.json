@@ -1,0 +1,174 @@
+{
+  "id": "shop-cancel-order",
+  "fixture": "shop-express-prisma",
+  "expect": {
+    "files": [
+      "src/services/orders.ts"
+    ],
+    "from": "cites",
+    "nodes": [
+      "route:DELETE /api/orders/:id",
+      "sym:src/services/orders.ts#cancelOrder"
+    ]
+  },
+  "questions": {
+    "en": [
+      "What happens to an order when it gets cancelled?",
+      "If someone deletes an order, is it removed for good or just marked cancelled?",
+      "How does the system handle order cancellations?",
+      "A customer changed their mind — what does cancelling their order actually do?",
+      "Does cancelling an order wipe the record or just free up the items?"
+    ],
+    "fr": [
+      "Que devient une commande quand elle est annulée ?",
+      "Si on supprime une commande, elle disparaît vraiment ou elle est juste marquée annulée ?",
+      "Comment l'annulation d'une commande est-elle gérée par le backend ?",
+      "Un client veut se rétracter : qu'est-ce que ça change concrètement pour sa commande ?",
+      "Est-ce qu'annuler une commande efface les données ou libère juste les articles ?"
+    ],
+    "es": [
+      "¿Qué pasa con un pedido cuando se cancela?",
+      "Si alguien elimina un pedido, ¿se borra para siempre o solo se marca como cancelado?",
+      "¿Cómo gestiona el sistema las cancelaciones de pedidos?",
+      "Un cliente cambió de opinión: ¿qué hace exactamente cancelar su pedido?",
+      "¿Cancelar un pedido borra el registro o solo libera los artículos?"
+    ],
+    "de": [
+      "Was passiert mit einer Bestellung, wenn sie storniert wird?",
+      "Wenn jemand eine Bestellung löscht, wird sie endgültig entfernt oder nur als storniert markiert?",
+      "Wie geht das System mit Stornierungen von Bestellungen um?",
+      "Ein Kunde hat es sich anders überlegt — was genau passiert beim Stornieren seiner Bestellung?",
+      "Löscht das Stornieren einer Bestellung den Datensatz oder werden nur die Artikel wieder freigegeben?"
+    ],
+    "it": [
+      "Cosa succede a un ordine quando viene annullato?",
+      "Se qualcuno elimina un ordine, viene rimosso definitivamente o gli viene solo messo lo stato di annullato?",
+      "Come gestisce il sistema gli annullamenti degli ordini?",
+      "Un cliente ha cambiato idea: cosa fa esattamente l'annullamento del suo ordine?",
+      "Quando si annulla un ordine, il record viene eliminato per davvero o si liberano solo gli articoli?"
+    ],
+    "pt": [
+      "O que acontece com um pedido quando ele é cancelado?",
+      "Se alguém apaga um pedido, ele é excluído de vez ou só fica marcado como cancelado?",
+      "Como o sistema lida com o cancelamento de pedidos?",
+      "Um cliente mudou de ideia — o que o cancelamento do pedido dele faz, na prática?",
+      "Cancelar um pedido apaga o registro ou só libera os itens?"
+    ],
+    "nl": [
+      "Wat gebeurt er met een bestelling als die wordt geannuleerd?",
+      "Als iemand een bestelling verwijdert, is die dan voorgoed weg of wordt die alleen als geannuleerd gemarkeerd?",
+      "Hoe gaat het systeem om met het annuleren van bestellingen?",
+      "Een klant heeft zich bedacht — wat doet het annuleren van de bestelling eigenlijk?",
+      "Wordt bij het annuleren van een bestelling het record gewist, of komen alleen de artikelen weer vrij?"
+    ],
+    "ja": [
+      "注文がキャンセルされた場合、その注文はどうなりますか？",
+      "注文を削除すると、完全に消えるんですか？それともキャンセル済みのマークが付くだけですか？",
+      "注文のキャンセルは、システム上でどう処理されていますか？",
+      "お客さんが気が変わって注文をキャンセルしたとき、実際には何が行われるんですか？",
+      "注文をキャンセルすると、レコードは消えてしまうんですか？それとも在庫に戻るだけですか？"
+    ],
+    "zh": [
+      "订单被取消之后会发生什么？",
+      "如果有人删掉一个订单，它是被彻底删除了，还是只是被标记为已取消？",
+      "系统是怎么处理订单取消的？",
+      "客户改主意了——取消他的订单具体会做什么？",
+      "取消订单时是把记录直接抹掉，还是只是把里面的商品释放出来？"
+    ],
+    "ar": [
+      "When an order gets cancelled, what happens to it?",
+      "If someone deletes an order, is it removed permanently or is it just marked as cancelled?",
+      "How does the system deal with order cancellations?",
+      "A customer backed out of the purchase — what does cancelling their order do exactly?",
+      "Does cancelling an order erase the record, or does it just free up the items?"
+    ],
+    "ru": [
+      "Что происходит с заказом, когда его отменяют?",
+      "Если кто-то удаляет заказ, он удаляется насовсем или просто помечается как отменённый?",
+      "Как система обрабатывает отмену заказов?",
+      "Клиент передумал — что на самом деле происходит при отмене его заказа?",
+      "При отмене заказа запись удаляется полностью или просто освобождаются зарезервированные товары?"
+    ]
+  },
+  "terms": {
+    "en": [
+      "order cancel status transition handler",
+      "order delete soft delete cancelled status",
+      "order cancellation handling service logic",
+      "cancel customer order side effects",
+      "cancel order release inventory items stock"
+    ],
+    "fr": [
+      "order cancel status transition state",
+      "delete order soft delete cancelled flag",
+      "cancel order backend api endpoint handler",
+      "customer cancel order refund withdrawal status",
+      "cancel order restore stock release inventory"
+    ],
+    "es": [
+      "order cancel status transition update",
+      "delete order soft delete mark cancelled",
+      "order cancellation handler flow logic",
+      "customer cancel order refund inventory",
+      "cancel order delete record inventory release"
+    ],
+    "de": [
+      "order cancel status handling",
+      "order delete hard soft",
+      "order cancellation handler flow",
+      "customer cancel order refund",
+      "cancel order release inventory stock"
+    ],
+    "it": [
+      "order cancel status transition",
+      "delete order soft delete cancelled status",
+      "handle order cancellation workflow",
+      "cancel order restore items stock",
+      "cancel order release items inventory"
+    ],
+    "pt": [
+      "cancel order status update",
+      "order delete soft delete cancelled",
+      "cancel order service controller endpoint",
+      "customer cancel order refund stock release",
+      "cancel order delete record release items"
+    ],
+    "nl": [
+      "order cancel status handler",
+      "delete order soft delete cancelled",
+      "order cancellation handling logic",
+      "cancel order customer request",
+      "cancel order release items inventory"
+    ],
+    "ja": [
+      "order cancel status transition",
+      "order delete soft delete cancelled status",
+      "cancel order handler processing logic",
+      "customer cancel order workflow flow",
+      "cancel order restock restore inventory record"
+    ],
+    "zh": [
+      "order cancelled after side effects",
+      "delete order hard soft cancelled",
+      "order cancellation handler logic",
+      "customer cancel order side effects",
+      "cancel order release inventory items"
+    ],
+    "ar": [
+      "order cancel status update",
+      "delete order soft delete permanent",
+      "order cancellation logic workflow",
+      "cancel customer order purchase",
+      "cancel order release stock inventory"
+    ],
+    "ru": [
+      "order cancel status update",
+      "order delete soft delete cancelled",
+      "order cancellation handler service",
+      "customer cancel order flow",
+      "order cancel release reserved inventory"
+    ]
+  },
+  "generator": "glm-5.3-flash",
+  "provenance": "questions.en and questions.fr: the source eval cases, verbatim. Every other question (paraphrases of those) and every terms string: generated by glm-5.3-flash (open weights, MIT), verbatim."
+}

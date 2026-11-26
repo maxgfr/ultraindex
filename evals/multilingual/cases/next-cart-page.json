@@ -1,0 +1,173 @@
+{
+  "id": "next-cart-page",
+  "fixture": "next-drizzle",
+  "expect": {
+    "files": [
+      "src/app/(shop)/cart/page.tsx"
+    ],
+    "from": "nodes",
+    "nodes": [
+      "screen:/cart"
+    ]
+  },
+  "questions": {
+    "en": [
+      "Where can customers see the items they've added to their basket?",
+      "Does the cart page show the total price including shipping?",
+      "Can shoppers change quantities or remove a line directly from the cart view?",
+      "What should the page display when the cart is empty?",
+      "Is the cart kept between sessions, or does it vanish if the user closes the tab?"
+    ],
+    "fr": [
+      "Où les clients peuvent-ils voir les articles ajoutés à leur panier ?",
+      "La page panier affiche-t-elle le total, frais de port compris ?",
+      "Peut-on modifier les quantités ou supprimer une ligne directement depuis la vue panier ?",
+      "Que doit afficher la page quand le panier est vide ?",
+      "Le panier est-il conservé d'une session à l'autre, ou perdu si l'utilisateur ferme l'onglet ?"
+    ],
+    "es": [
+      "¿Dónde pueden los clientes ver los productos que han añadido a su cesta?",
+      "¿La página del carrito muestra el precio total con el envío incluido?",
+      "¿Los compradores pueden cambiar las cantidades o eliminar una línea directamente desde la vista del carrito?",
+      "¿Qué debería mostrar la página cuando el carrito está vacío?",
+      "¿El carrito se conserva entre sesiones o desaparece si el usuario cierra la pestaña?"
+    ],
+    "de": [
+      "Wo können Kunden die Artikel sehen, die sie in den Warenkorb gelegt haben?",
+      "Zeigt die Warenkorbseite den Gesamtpreis inklusive Versandkosten?",
+      "Können Kunden die Menge ändern oder eine Position direkt in der Warenkorbansicht entfernen?",
+      "Was soll die Seite anzeigen, wenn der Warenkorb leer ist?",
+      "Bleibt der Warenkorb zwischen den Sitzungen erhalten, oder verschwindet er, sobald der Nutzer den Tab schließt?"
+    ],
+    "it": [
+      "Dove possono i clienti vedere gli articoli che hanno aggiunto al carrello?",
+      "La pagina del carrello mostra il prezzo totale, spese di spedizione incluse?",
+      "Gli acquirenti possono modificare le quantità o rimuovere una voce direttamente dalla schermata del carrello?",
+      "Cosa deve mostrare la pagina quando il carrello è vuoto?",
+      "Il carrello viene conservato tra una sessione e l'altra, o scompare se l'utente chiude la scheda?"
+    ],
+    "pt": [
+      "Onde os clientes conseguem ver os itens que colocaram no carrinho?",
+      "A página do carrinho mostra o valor total já com o frete incluído?",
+      "Na tela do carrinho, dá para mudar as quantidades ou remover um item direto de lá?",
+      "O que a página deve exibir quando o carrinho estiver vazio?",
+      "O carrinho fica salvo entre as sessões ou some se o usuário fechar a aba?"
+    ],
+    "nl": [
+      "Waar kunnen klanten zien welke artikelen ze aan hun winkelwagen hebben toegevoegd?",
+      "Toont de winkelwagenpagina de totaalprijs inclusief verzendkosten?",
+      "Kunnen klanten direct in de winkelwagen het aantal aanpassen of een artikel verwijderen?",
+      "Wat moet er op de pagina staan als de winkelwagen leeg is?",
+      "Blijft de winkelwagen bewaard tussen sessies, of verdwijnt hij zodra de gebruiker het tabblad sluit?"
+    ],
+    "ja": [
+      "顧客がカートに追加した商品は、どこで確認できますか？",
+      "カートページには、送料込みの合計金額が表示されますか？",
+      "カート画面から直接、数量を変更したり商品を削除したりできますか？",
+      "カートが空のときは、ページに何を表示すべきですか？",
+      "カートはセッションをまたいで保持されますか？それともタブを閉じると消えてしまいますか？"
+    ],
+    "zh": [
+      "顾客在哪里能看到自己加入购物车的商品？",
+      "购物车页面显示的总价包含运费吗？",
+      "顾客能直接在购物车里修改数量或删除某条商品吗？",
+      "购物车为空时页面应该显示什么？",
+      "购物车会在不同会话之间保留吗，还是用户一关掉标签页就没了？"
+    ],
+    "ar": [
+      "أين يمكن للعملاء رؤية المنتجات التي أضافوها إلى سلة التسوق؟",
+      "هل تعرض صفحة السلة السعر الإجمالي شاملاً تكلفة الشحن؟",
+      "هل يمكن للمتسوقين تعديل الكميات أو حذف أحد المنتجات مباشرةً من صفحة السلة؟",
+      "ماذا ينبغي أن تعرض الصفحة عندما تكون السلة فارغة؟",
+      "هل تبقى السلة محفوظة بين الجلسات، أم تختفي بمجرد إغلاق المستخدم للتبويب؟"
+    ],
+    "ru": [
+      "Где покупатели могут увидеть товары, которые добавили в корзину?",
+      "На странице корзины отображается итоговая цена с учётом доставки?",
+      "Можно ли изменить количество или удалить позицию прямо со страницы корзины?",
+      "Что должно отображаться на странице, когда корзина пуста?",
+      "Корзина сохраняется между сессиями или исчезает, если пользователь закроет вкладку?"
+    ]
+  },
+  "terms": {
+    "en": [
+      "cart basket items page view",
+      "cart total price shipping cost",
+      "cart update quantity remove item",
+      "empty cart page display state",
+      "cart persistence session storage cookie"
+    ],
+    "fr": [
+      "cart page items view display",
+      "cart total price shipping cost",
+      "cart update quantity remove item line",
+      "cart empty state page message",
+      "cart persistence session storage localstorage"
+    ],
+    "es": [
+      "cart page view added products items",
+      "cart total price shipping included subtotal",
+      "cart update quantity remove item line",
+      "empty cart page state message",
+      "cart persistence session storage localstorage"
+    ],
+    "de": [
+      "shopping cart items display page view",
+      "cart total price shipping cost summary",
+      "cart update quantity remove item",
+      "empty cart page state message",
+      "cart persistence session storage localStorage expire"
+    ],
+    "it": [
+      "cart page items list view",
+      "cart total price shipping cost",
+      "cart update quantity remove item",
+      "empty cart state message",
+      "cart persistence session storage"
+    ],
+    "pt": [
+      "cart page items list view",
+      "cart total shipping cost included",
+      "cart update quantity remove item",
+      "cart empty state page display",
+      "cart persistence session storage save"
+    ],
+    "nl": [
+      "cart page show added items",
+      "cart total price shipping cost",
+      "cart update quantity remove item",
+      "cart empty state message",
+      "cart persist session storage localstorage"
+    ],
+    "ja": [
+      "cart add product view page",
+      "cart page total shipping cost",
+      "cart update quantity remove item",
+      "empty cart page display",
+      "cart persistence session storage expire"
+    ],
+    "zh": [
+      "cart page view items display",
+      "cart total price shipping cost",
+      "cart update quantity remove item",
+      "empty cart state message",
+      "cart persistence session storage expire"
+    ],
+    "ar": [
+      "cart page view added products",
+      "cart total price shipping cost",
+      "cart update quantity remove item",
+      "empty cart page message",
+      "cart persistence session storage localstorage"
+    ],
+    "ru": [
+      "cart page items products view",
+      "cart total price shipping cost",
+      "cart item quantity update remove",
+      "cart empty state page display",
+      "cart persistence session storage tab"
+    ]
+  },
+  "generator": "glm-5.3-flash",
+  "provenance": "questions.en and questions.fr: the source eval cases, verbatim. Every other question (paraphrases of those) and every terms string: generated by glm-5.3-flash (open weights, MIT), verbatim."
+}

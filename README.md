@@ -447,6 +447,13 @@ every language and keeps full weight, and a question word that matches no
 module does not count against coverage. Without `--terms` the ranking is
 exactly what it was.
 
+[`evals/multilingual`](evals/multilingual/README.md) measures it: 660
+questions in 11 languages (en, fr, es, de, it, pt, nl, ja, zh, ar, ru) over two
+synthetic repos. Without terms, recall drops from 65.0% in English to 11.7–51.7%
+elsewhere; with terms every language reaches 73.3–78.3%. CI fails if any
+language with terms falls more than 2 points below English without them
+(`pnpm run eval:multilingual`).
+
 ## Measured cost of an explained, grounded answer
 
 `evals/token-savings/run.mjs` meters what ultraindex alone provides. It used to
@@ -527,6 +534,7 @@ pnpm build        # tsup → scripts/ultraindex.mjs (mirrored into the skill dir
 pnpm test         # vitest
 pnpm typecheck
 pnpm check:build  # asserts the committed bundles are reproducible
+pnpm eval:multilingual  # find recall in 11 languages, with and without --terms (gated)
 ```
 
 Releases are Conventional-Commit-driven via semantic-release (GitHub releases).

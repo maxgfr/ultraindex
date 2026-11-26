@@ -1,0 +1,173 @@
+{
+  "id": "next-rename-product",
+  "fixture": "next-drizzle",
+  "expect": {
+    "files": [
+      "src/app/api/products/[id]/route.ts"
+    ],
+    "from": "nodes",
+    "nodes": [
+      "route:PATCH /api/products/:id"
+    ]
+  },
+  "questions": {
+    "en": [
+      "How do I update a product's title through the API?",
+      "Which endpoint should an admin call to edit the name of an existing product?",
+      "Can I rename an item in the catalogue without recreating it?",
+      "What happens to the product page URL once a product gets a new name?",
+      "Is there any validation on the new name, like a maximum length or forbidden characters?"
+    ],
+    "fr": [
+      "Comment modifier le nom d'un produit via l'API ?",
+      "Quelle route un admin doit-il appeler pour renommer un produit existant ?",
+      "Est-ce qu'on peut changer l'intitulé d'un article du catalogue sans le recréer ?",
+      "Qu'est-ce qui se passe pour l'URL de la fiche produit quand on renomme le produit ?",
+      "Y a-t-il une validation sur le nouveau nom, par exemple une longueur maximale ou des caractères interdits ?"
+    ],
+    "es": [
+      "¿Cómo puedo actualizar el título de un producto a través de la API?",
+      "¿Qué endpoint debería llamar un administrador para editar el nombre de un producto existente?",
+      "¿Puedo cambiar el nombre de un artículo del catálogo sin tener que volver a crearlo?",
+      "¿Qué pasa con la URL de la página del producto cuando este cambia de nombre?",
+      "¿Hay alguna validación para el nuevo nombre, como una longitud máxima o caracteres no permitidos?"
+    ],
+    "de": [
+      "Wie aktualisiere ich den Titel eines Produkts über die API?",
+      "Welchen Endpoint sollte ein Admin aufrufen, um den Namen eines bestehenden Produkts zu ändern?",
+      "Kann ich einen Artikel im Katalog umbenennen, ohne ihn neu anzulegen?",
+      "Was passiert mit der URL der Produktseite, wenn ein Produkt einen neuen Namen bekommt?",
+      "Gibt es eine Validierung für den neuen Namen, etwa eine maximale Länge oder verbotene Zeichen?"
+    ],
+    "it": [
+      "Come faccio ad aggiornare il titolo di un prodotto tramite l'API?",
+      "Quale endpoint deve chiamare un amministratore per modificare il nome di un prodotto esistente?",
+      "Posso rinominare un articolo del catalogo senza doverlo ricreare?",
+      "Cosa succede all'URL della pagina prodotto quando un prodotto viene rinominato?",
+      "C'è qualche validazione sul nuovo nome, per esempio una lunghezza massima o caratteri non consentiti?"
+    ],
+    "pt": [
+      "Como faço para atualizar o título de um produto pela API?",
+      "Qual endpoint um admin deve chamar para editar o nome de um produto já existente?",
+      "Dá para renomear um item do catálogo sem precisar recriá-lo?",
+      "O que acontece com a URL da página do produto quando ele recebe um nome novo?",
+      "Existe alguma validação no nome novo, tipo um tamanho máximo ou caracteres proibidos?"
+    ],
+    "nl": [
+      "Hoe kan ik de titel van een product aanpassen via de API?",
+      "Welk endpoint moet een beheerder aanroepen om de naam van een bestaand product te wijzigen?",
+      "Kan ik een artikel in de catalogus een andere naam geven zonder het opnieuw aan te maken?",
+      "Wat gebeurt er met de URL van de productpagina zodra een product een nieuwe naam krijgt?",
+      "Is er een validatie op de nieuwe naam, zoals een maximale lengte of verboden tekens?"
+    ],
+    "ja": [
+      "APIで商品名を更新するにはどうすればいいですか？",
+      "既存の商品名を編集するには、管理者はどのエンドポイントを叩けばいいですか？",
+      "カタログの商品を作り直さずに名前だけ変更することはできますか？",
+      "商品名を変更すると、商品ページのURLはどうなりますか？",
+      "新しい名前には何かバリデーションがありますか？文字数の上限や使えない文字みたいな。"
+    ],
+    "zh": [
+      "怎么通过 API 更新商品的标题？",
+      "管理员想修改一个已有商品的名称，应该调用哪个接口？",
+      "能不能不重新创建商品，直接给目录里的某个商品改名？",
+      "商品改名之后，商品页面的 URL 会发生什么变化？",
+      "对新名称有什么校验吗？比如最大长度或者禁止使用的字符？"
+    ],
+    "ar": [
+      "كيف يمكنني تحديث عنوان المنتج عبر الـ API؟",
+      "ما هو الـ endpoint الذي يجب على المسؤول استدعاؤه لتعديل اسم منتج موجود بالفعل؟",
+      "هل يمكنني إعادة تسمية عنصر في الكتالوج دون الحاجة إلى إعادة إنشائه؟",
+      "ماذا يحدث لرابط صفحة المنتج بعد أن يحصل المنتج على اسم جديد؟",
+      "هل هناك أي تحقق على الاسم الجديد، مثل حد أقصى للطول أو أحرف ممنوعة؟"
+    ],
+    "ru": [
+      "Как обновить название товара через API?",
+      "Какой эндпоинт должен вызвать администратор, чтобы изменить название существующего товара?",
+      "Можно ли переименовать позицию в каталоге, не создавая её заново?",
+      "Что станет со ссылкой на страницу товара, когда у товара появится новое название?",
+      "Есть ли какие-нибудь проверки для нового названия — например, ограничение по длине или запрещённые символы?"
+    ]
+  },
+  "terms": {
+    "en": [
+      "update product title api endpoint patch",
+      "admin endpoint edit product name update",
+      "rename catalogue item update without recreate",
+      "product page url slug change rename",
+      "product name validation max length forbidden characters"
+    ],
+    "fr": [
+      "product update name api endpoint",
+      "admin route rename product endpoint",
+      "catalog item update label title",
+      "product slug url rename",
+      "product name validation max length characters"
+    ],
+    "es": [
+      "update product title api request",
+      "admin edit product name endpoint",
+      "rename catalog item without recreate",
+      "product page url slug rename redirect",
+      "product name validation max length allowed characters"
+    ],
+    "de": [
+      "update product title api",
+      "admin endpoint rename product name",
+      "rename existing catalog item",
+      "product page url slug rename",
+      "product name validation max length forbidden characters"
+    ],
+    "it": [
+      "update product title api endpoint",
+      "admin update product name endpoint",
+      "rename catalog product without recreate",
+      "product page url slug rename",
+      "product name validation max length characters"
+    ],
+    "pt": [
+      "update product title api request",
+      "admin endpoint edit product name",
+      "rename catalog item existing record",
+      "product slug url name change",
+      "product name validation max length forbidden characters"
+    ],
+    "nl": [
+      "api update product title",
+      "admin endpoint rename product name",
+      "catalog item rename existing product",
+      "product page url slug rename",
+      "product name validation max length"
+    ],
+    "ja": [
+      "api update product name endpoint",
+      "admin edit product name endpoint",
+      "rename catalog product without recreate",
+      "product name change slug url",
+      "product name validation max length"
+    ],
+    "zh": [
+      "update product title api",
+      "admin rename product endpoint",
+      "rename product catalog update",
+      "product rename slug url",
+      "product name validation max length"
+    ],
+    "ar": [
+      "update product title api",
+      "admin endpoint modify product name",
+      "rename catalog item without recreate",
+      "product url slug redirect rename",
+      "product name validation length forbidden characters"
+    ],
+    "ru": [
+      "update product name api",
+      "admin endpoint change existing product name",
+      "rename catalog item without recreate",
+      "product page url slug rename",
+      "product name validation length forbidden characters"
+    ]
+  },
+  "generator": "glm-5.3-flash",
+  "provenance": "questions.en and questions.fr: the source eval cases, verbatim. Every other question (paraphrases of those) and every terms string: generated by glm-5.3-flash (open weights, MIT), verbatim."
+}

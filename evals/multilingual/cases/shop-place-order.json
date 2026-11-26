@@ -1,0 +1,175 @@
+{
+  "id": "shop-place-order",
+  "fixture": "shop-express-prisma",
+  "expect": {
+    "files": [
+      "src/routes/orders.ts",
+      "src/services/orders.ts"
+    ],
+    "from": "cites",
+    "nodes": [
+      "route:POST /api/orders",
+      "sym:src/services/orders.ts#placeOrder"
+    ]
+  },
+  "questions": {
+    "en": [
+      "How does placing an order work, from checkout to confirmation?",
+      "If a customer hits buy, what happens between the request and the order being saved?",
+      "Walk me through the whole flow of creating a new order in the shop.",
+      "What does the backend do when an order comes in?",
+      "Can you describe the end-to-end process for submitting an order?"
+    ],
+    "fr": [
+      "Comment se passe la création d'une commande, du panier à la confirmation ?",
+      "Qu'est-ce qui se passe côté serveur quand un client valide son panier ?",
+      "Décris-moi le parcours complet d'une commande, de la demande à l'enregistrement.",
+      "Comment une commande est-elle passée dans la boutique, étape par étape ?",
+      "Si un acheteur clique sur « payer », comment la commande aboutit-elle ?"
+    ],
+    "es": [
+      "¿Cómo funciona el proceso de hacer un pedido, desde el checkout hasta la confirmación?",
+      "Si un cliente le da al botón de comprar, ¿qué pasa entre que llega la petición y el momento en que se guarda el pedido?",
+      "Cuéntame paso a paso cómo se crea un pedido nuevo en la tienda, todo el flujo completo.",
+      "¿Qué hace el backend cuando llega un pedido?",
+      "¿Podrías describirme el proceso completo, de principio a fin, para enviar un pedido?"
+    ],
+    "de": [
+      "Wie läuft das Bestellen ab, vom Checkout bis zur Bestätigung?",
+      "Was passiert alles zwischen dem Request und dem Speichern der Bestellung, wenn ein Kunde auf Kaufen klickt?",
+      "Führ mich mal durch den ganzen Ablauf, wie man im Shop eine neue Bestellung anlegt.",
+      "Was macht das Backend, wenn eine Bestellung reinkommt?",
+      "Kannst du den End-to-End-Ablauf beim Absenden einer Bestellung mal beschreiben?"
+    ],
+    "it": [
+      "Come funziona la procedura d'ordine, dal checkout alla conferma?",
+      "Se un cliente clicca su «acquista», cosa succede tra la richiesta e il momento in cui l'ordine viene salvato?",
+      "Spiegami tutto il flusso di creazione di un nuovo ordine nello shop.",
+      "Cosa fa il backend quando arriva un ordine?",
+      "Mi puoi descrivere il processo completo di invio di un ordine, dall'inizio alla fine?"
+    ],
+    "pt": [
+      "Como funciona o processo de fazer um pedido, do checkout até a confirmação?",
+      "Quando o cliente clica em comprar, o que acontece entre a requisição e o pedido ser salvo?",
+      "Me explica todo o fluxo de criação de um novo pedido na loja?",
+      "O que o backend faz quando chega um pedido?",
+      "Você consegue descrever o processo de envio de um pedido, de ponta a ponta?"
+    ],
+    "nl": [
+      "Hoe werkt het plaatsen van een bestelling, van afrekenen tot bevestiging?",
+      "Als een klant op 'kopen' klikt, wat gebeurt er dan allemaal tussen het verzoek en het moment dat de bestelling wordt opgeslagen?",
+      "Loop me eens door het hele proces van het aanmaken van een nieuwe bestelling in de webshop.",
+      "Wat doet de backend als er een bestelling binnenkomt?",
+      "Kun je beschrijven hoe het indienen van een bestelling van A tot Z verloopt?"
+    ],
+    "ja": [
+      "注文って、購入手続きから完了確認まで全体としてどういう流れで処理されるんですか？",
+      "お客さんが購入ボタンを押したあと、リクエストが来てから注文が保存されるまでの間にどんな処理が走るんですか？",
+      "ショップで新規注文を作成するときの流れを、最初から順を追って説明してもらえますか？",
+      "注文が入ってきたとき、バックエンド側では何が行われるんですか？",
+      "注文を送信するときの一連の処理を、最初から最後まで一通り説明してもらえますか？"
+    ],
+    "zh": [
+      "从结账到订单确认，下单的整个流程具体是怎么走的？",
+      "用户点了购买之后，从请求发出到订单被保存，这中间都发生了什么？",
+      "带我过一遍商城里创建新订单的完整流程吧。",
+      "订单进来的时候，后端都会做些什么？",
+      "能描述一下提交订单从头到尾的完整流程吗？"
+    ],
+    "ar": [
+      "كيف تسير عملية تقديم الطلب، من مرحلة الدفع وحتى تأكيد الطلب؟",
+      "إذا ضغط العميل على زر الشراء، ماذا يحدث بين لحظة إرسال الطلب وحفظ الطلبية؟",
+      "اشرح لي خطوة بخطوة المسار الكامل لإنشاء طلب جديد في المتجر.",
+      "ماذا يفعل الباك إند عندما يصل طلب جديد؟",
+      "هل يمكنك وصف العملية الكاملة لتقديم الطلب من البداية إلى النهاية؟"
+    ],
+    "ru": [
+      "Как проходит оформление заказа — от оплаты до подтверждения?",
+      "Если покупатель жмёт «купить», что происходит между запросом и сохранением заказа?",
+      "Расскажи по шагам, как выглядит весь процесс создания нового заказа в магазине.",
+      "Что делает бэкенд, когда приходит заказ?",
+      "Можешь описать весь процесс оформления заказа от начала до конца?"
+    ]
+  },
+  "terms": {
+    "en": [
+      "checkout order confirmation flow",
+      "order request save handler",
+      "create order flow controller",
+      "backend order processing handler",
+      "submit order endpoint flow"
+    ],
+    "fr": [
+      "create order cart checkout confirmation",
+      "server side validate cart checkout handler",
+      "order flow request save database lifecycle",
+      "place order shop steps checkout process",
+      "pay button click payment complete order"
+    ],
+    "es": [
+      "checkout order placement flow confirmation",
+      "buy button request handler save order",
+      "create new order flow steps",
+      "backend receive order process handler",
+      "submit order dispatch fulfillment flow"
+    ],
+    "de": [
+      "checkout order confirmation flow",
+      "customer buy click order save",
+      "create new order shop flow",
+      "backend incoming order processing handler",
+      "order submit end to end flow"
+    ],
+    "it": [
+      "order checkout confirmation flow",
+      "place order request create save",
+      "create new order shop flow",
+      "backend order received handler processing",
+      "submit order endpoint request flow"
+    ],
+    "pt": [
+      "order create checkout confirmation flow",
+      "customer buy request handler save order",
+      "create new order store flow",
+      "backend receive order processing handler",
+      "place order submit process flow"
+    ],
+    "nl": [
+      "place order checkout confirmation flow",
+      "buy click create order save database",
+      "create new order process webshop",
+      "backend incoming order endpoint handler",
+      "submit order request validation persistence"
+    ],
+    "ja": [
+      "order checkout flow completion confirmation",
+      "order create request controller save",
+      "shop create new order flow",
+      "order backend processing receive api",
+      "order submit process validation persist"
+    ],
+    "zh": [
+      "checkout order confirmation flow",
+      "buy click request order save",
+      "create new order flow",
+      "backend order processing controller service",
+      "submit order process flow validation"
+    ],
+    "ar": [
+      "order checkout payment confirmation flow",
+      "buy button click order submit save",
+      "create new order shop steps",
+      "backend new order handler create",
+      "order placement process start finish"
+    ],
+    "ru": [
+      "checkout order payment confirmation flow",
+      "buy button click create save order",
+      "create new order process steps shop",
+      "backend order received processing handler",
+      "order checkout process flow complete"
+    ]
+  },
+  "generator": "glm-5.3-flash",
+  "provenance": "questions.en and questions.fr: the source eval cases, verbatim. Every other question (paraphrases of those) and every terms string: generated by glm-5.3-flash (open weights, MIT), verbatim."
+}

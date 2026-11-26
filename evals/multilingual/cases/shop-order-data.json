@@ -1,0 +1,174 @@
+{
+  "id": "shop-order-data",
+  "fixture": "shop-express-prisma",
+  "expect": {
+    "files": [
+      "prisma/schema.prisma"
+    ],
+    "from": "cites",
+    "nodes": [
+      "entity:Order",
+      "entity:OrderItem"
+    ]
+  },
+  "questions": {
+    "en": [
+      "What details are kept for each order and the items in it?",
+      "Which fields does an order record contain?",
+      "If I look at an order in the database, what information do I find about it and its line items?",
+      "What does the system remember about a purchase — customer info, items, amounts?",
+      "How is an order's data structured, including its products?"
+    ],
+    "fr": [
+      "Quelles informations sont conservées pour chaque commande et ses articles ?",
+      "Quels champs composent une fiche commande ?",
+      "Si j'inspecte une commande en base, qu'est-ce que j'y trouve sur elle et ses lignes ?",
+      "Que retient le système d'un achat : client, articles, montants ?",
+      "Comment sont structurées les données d'une commande et de ses produits ?"
+    ],
+    "es": [
+      "¿Qué datos se guardan de cada pedido y de los artículos que incluye?",
+      "¿Qué campos contiene un registro de pedido?",
+      "Si consulto un pedido en la base de datos, ¿qué información encuentro sobre él y sobre sus líneas de pedido?",
+      "¿Qué recuerda el sistema de una compra: los datos del cliente, los artículos, los importes?",
+      "¿Cómo se estructuran los datos de un pedido, incluidos sus productos?"
+    ],
+    "de": [
+      "Was wird für jede Bestellung gespeichert – auch zu den einzelnen Positionen?",
+      "Welche Felder enthält ein Bestelldatensatz?",
+      "Wenn ich mir eine Bestellung in der Datenbank ansehe, welche Informationen finde ich dann dazu und zu den einzelnen Positionen?",
+      "Was merkt sich das System bei einem Kauf – Kundendaten, Artikel, Beträge?",
+      "Wie sind die Daten einer Bestellung strukturiert, inklusive der zugehörigen Produkte?"
+    ],
+    "it": [
+      "Quali dettagli vengono salvati per ogni ordine e per gli articoli che contiene?",
+      "Quali campi contiene il record di un ordine?",
+      "Se apro un ordine nel database, quali informazioni ci trovo sull'ordine e sulle sue righe?",
+      "Cosa memorizza il sistema di un acquisto: dati del cliente, articoli e importi?",
+      "Come sono strutturati i dati di un ordine, inclusi i suoi prodotti?"
+    ],
+    "pt": [
+      "Quais detalhes ficam guardados para cada pedido e seus itens?",
+      "Quais campos um registro de pedido contém?",
+      "Se eu olhar um pedido no banco de dados, que informações encontro sobre ele e seus itens?",
+      "O que o sistema guarda sobre uma compra — dados do cliente, itens, valores?",
+      "Como os dados de um pedido são estruturados, incluindo os produtos?"
+    ],
+    "nl": [
+      "Welke details worden er per bestelling bijgehouden, ook voor de artikelen erin?",
+      "Welke velden bevat een orderrecord?",
+      "Als ik een bestelling in de database bekijk, welke informatie vind ik dan over die bestelling en de orderregels erbij?",
+      "Wat onthoudt het systeem van een aankoop — klantgegevens, artikelen, bedragen?",
+      "Hoe is de data van een bestelling gestructureerd, inclusief de producten erin?"
+    ],
+    "ja": [
+      "注文1件ごとに、その中の商品の情報も含めて、どんな詳細が保存されますか？",
+      "注文のレコードには、どのようなフィールドが含まれていますか？",
+      "データベースで一件の注文を見たとき、その注文と明細行についてどんな情報が確認できますか？",
+      "システムは購入について、顧客情報や商品、金額といった何を記録していますか？",
+      "注文データは、含まれる商品も含めて、どのような構造になっていますか？"
+    ],
+    "zh": [
+      "每个订单以及其中的商品都保存了哪些信息？",
+      "一条订单记录里有哪些字段？",
+      "如果去数据库里看一条订单，能查到它本身和订单明细的哪些信息？",
+      "系统对一笔购买会记住哪些信息——比如客户信息、商品和金额？",
+      "一个订单的数据结构是怎样的，包括其中的商品？"
+    ],
+    "ar": [
+      "ما هي التفاصيل التي يتم حفظها لكل طلب والأصناف التي يحتوي عليها؟",
+      "ما هي الحقول التي يتضمنها سجل الطلب؟",
+      "إذا نظرت إلى طلب داخل قاعدة البيانات، ما هي المعلومات التي سأجدها عنه وعن بنوده؟",
+      "ما هي المعلومات التي يحتفظ بها النظام عن عملية الشراء، مثل بيانات العميل والأصناف والمبالغ؟",
+      "كيف تُنظَّم بيانات الطلب، بما في ذلك منتجاته؟"
+    ],
+    "ru": [
+      "Какие данные хранятся по каждому заказу и товарам в нём?",
+      "Какие поля есть у записи о заказе?",
+      "Если посмотреть заказ в базе данных, какая информация там будет о нём и его позициях?",
+      "Что система запоминает о покупке — данные клиента, товары, суммы?",
+      "Как устроены данные заказа, включая его товары?"
+    ]
+  },
+  "terms": {
+    "en": [
+      "order items details stored fields",
+      "order record fields schema",
+      "order line items database schema columns",
+      "purchase customer total amount stored data",
+      "order product data model structure"
+    ],
+    "fr": [
+      "order item stored information fields",
+      "order fields record schema model",
+      "order database table columns lines",
+      "purchase order customer amount items total",
+      "order product data structure schema model"
+    ],
+    "es": [
+      "order item data stored fields",
+      "order record fields schema columns",
+      "query order lines database select",
+      "order customer items amount stored",
+      "order data structure product model"
+    ],
+    "de": [
+      "order stored line items fields",
+      "order record fields schema",
+      "order database table line items columns",
+      "purchase customer items amount stored",
+      "order data structure products schema model"
+    ],
+    "it": [
+      "order item details saved fields",
+      "order record fields schema definition",
+      "order database table order line columns",
+      "purchase store customer items total amount",
+      "order data structure products model"
+    ],
+    "pt": [
+      "order item stored details fields",
+      "order record fields schema model",
+      "order database table columns items",
+      "purchase customer data items amount",
+      "order data structure schema products"
+    ],
+    "nl": [
+      "order details items tracked fields",
+      "order record fields schema",
+      "order database table order lines",
+      "purchase stored customer items amount",
+      "order data model product items structure"
+    ],
+    "ja": [
+      "order details saved product items",
+      "order record fields schema columns",
+      "database order line items details",
+      "purchase customer product amount total",
+      "order data structure items schema"
+    ],
+    "zh": [
+      "order item product stored fields",
+      "order record schema fields",
+      "order order detail database schema fields",
+      "purchase customer product amount stored",
+      "order data structure product items"
+    ],
+    "ar": [
+      "order line items details stored",
+      "order record fields schema",
+      "order database record items columns",
+      "purchase customer items amount total",
+      "order data model products structure"
+    ],
+    "ru": [
+      "order data stored items product details",
+      "order record fields schema model",
+      "order database table columns line items",
+      "purchase customer data items total amount",
+      "order data structure items schema relationship"
+    ]
+  },
+  "generator": "glm-5.3-flash",
+  "provenance": "questions.en and questions.fr: the source eval cases, verbatim. Every other question (paraphrases of those) and every terms string: generated by glm-5.3-flash (open weights, MIT), verbatim."
+}

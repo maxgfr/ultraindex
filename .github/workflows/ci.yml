@@ -36,6 +36,9 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Multilingual find recall (11 languages, with and without --terms)
+        run: pnpm run eval:multilingual # exits 1 if any language with --terms falls below English without terms − 2 points
+
       - name: Smoke-run the committed bundle (offline, fixture repo)
         run: pnpm run demo # build the index for a fixture repo, then check it
 

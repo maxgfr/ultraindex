@@ -1,0 +1,174 @@
+{
+  "id": "shop-products",
+  "fixture": "shop-express-prisma",
+  "expect": {
+    "files": [
+      "prisma/schema.prisma"
+    ],
+    "from": "cites",
+    "nodes": [
+      "entity:Product",
+      "entity:OrderItem"
+    ]
+  },
+  "questions": {
+    "en": [
+      "How are products linked to orders?",
+      "What's the relationship between the product catalog and the orders people place?",
+      "When someone orders something, how do the products tie into that order?",
+      "Do orders reference products directly, and how is that connection stored?",
+      "How does the shop connect what's for sale with what's been bought?"
+    ],
+    "fr": [
+      "Comment les produits sont-ils reliés aux commandes ?",
+      "Quel lien y a-t-il entre le catalogue produits et les commandes passées ?",
+      "Quand quelqu'un commande, comment les produits sont-ils rattachés à la commande ?",
+      "Les commandes font-elles référence aux produits, et comment ce lien est-il stocké ?",
+      "Comment la boutique relie-t-elle ce qui est en vente à ce qui a été acheté ?"
+    ],
+    "es": [
+      "¿Cómo se relacionan los productos con los pedidos?",
+      "¿Qué relación hay entre el catálogo de productos y los pedidos que hace la gente?",
+      "Cuando alguien hace un pedido, ¿cómo se vinculan los productos a ese pedido?",
+      "¿Los pedidos hacen referencia directa a los productos y cómo se guarda esa relación?",
+      "¿Cómo conecta la tienda lo que está a la venta con lo que se ha comprado?"
+    ],
+    "de": [
+      "Wie sind Produkte mit Bestellungen verknüpft?",
+      "Wie hängen der Produktkatalog und die Bestellungen, die Kunden aufgeben, zusammen?",
+      "Wenn jemand etwas bestellt, wie fließen die Produkte in diese Bestellung ein?",
+      "Verweisen Bestellungen direkt auf Produkte, und wie wird diese Verbindung gespeichert?",
+      "Wie bringt der Shop das Angebot mit dem zusammen, was gekauft wurde?"
+    ],
+    "it": [
+      "Come vengono collegati i prodotti agli ordini?",
+      "Che legame c'è tra il catalogo prodotti e gli ordini che fanno i clienti?",
+      "Quando qualcuno ordina qualcosa, come vengono associati i prodotti a quell'ordine?",
+      "Gli ordini fanno riferimento direttamente ai prodotti, e come viene salvato questo collegamento?",
+      "Come fa il negozio a collegare quello che è in vendita con quello che è stato acquistato?"
+    ],
+    "pt": [
+      "Como os produtos ficam vinculados aos pedidos?",
+      "Qual é a relação entre o catálogo de produtos e os pedidos que as pessoas fazem?",
+      "Quando alguém faz um pedido, como os produtos entram nesse pedido?",
+      "Os pedidos referenciam os produtos diretamente? Como essa ligação fica armazenada?",
+      "Como a loja conecta o que está à venda com o que já foi comprado?"
+    ],
+    "nl": [
+      "Hoe zijn producten gekoppeld aan bestellingen?",
+      "Hoe hangen de productcatalogus en de bestellingen die mensen plaatsen met elkaar samen?",
+      "Als iemand iets bestelt, hoe komen de producten dan in die bestelling terecht?",
+      "Verwijzen bestellingen rechtstreeks naar producten, en hoe wordt die koppeling opgeslagen?",
+      "Hoe verbindt de winkel wat er te koop is met wat er gekocht is?"
+    ],
+    "ja": [
+      "商品と注文はどういうふうに紐づいていますか？",
+      "商品カタログと、ユーザーが実際に出す注文との間にはどんな関係があるんですか？",
+      "誰かが注文するとき、商品はその注文にどうやって紐づくんですか？",
+      "注文は商品を直接参照する形になっていますか？その紐づけはどう保存されているんですか？",
+      "このショップでは、売られている商品と実際に買われたものをどう結びつけているんですか？"
+    ],
+    "zh": [
+      "商品和订单是怎么关联的？",
+      "商品目录和用户下的订单之间是什么关系？",
+      "用户下单的时候，商品是怎么关联到订单里的？",
+      "订单是直接引用商品的吗？这种关联是怎么存储的？",
+      "商店是怎么把在售商品和已购买的东西对应起来的？"
+    ],
+    "ar": [
+      "كيف ترتبط المنتجات بالطلبات؟",
+      "ما العلاقة بين كتالوج المنتجات والطلبات التي يقدمها العملاء؟",
+      "عندما يطلب شخصٌ ما شيئًا، كيف ترتبط المنتجات بذلك الطلب؟",
+      "هل تشير الطلبات إلى المنتجات مباشرةً، وكيف يتم تخزين هذا الارتباط؟",
+      "كيف يربط المتجر بين ما يُعرض للبيع وما تم شراؤه فعليًا؟"
+    ],
+    "ru": [
+      "Как товары связаны с заказами?",
+      "Какая связь между каталогом товаров и заказами, которые оформляют пользователи?",
+      "Когда человек что-то заказывает, как товары привязываются к этому заказу?",
+      "Ссылаются ли заказы на товары напрямую и как хранится эта связь?",
+      "Как магазин связывает то, что продаётся, с тем, что куплено?"
+    ]
+  },
+  "terms": {
+    "en": [
+      "order product relationship foreign key",
+      "product catalog order association model",
+      "order line item product quantity",
+      "order product reference foreign key storage",
+      "shop order product purchase relation"
+    ],
+    "fr": [
+      "order product relation foreign key",
+      "catalog product order link association",
+      "create order product line item",
+      "order product foreign key storage",
+      "shop purchase product order mapping"
+    ],
+    "es": [
+      "product order relationship association model",
+      "catalog order relation join table",
+      "create order product line items",
+      "order product reference foreign key",
+      "shop purchase sale product link"
+    ],
+    "de": [
+      "product order association foreign key",
+      "product catalog customer order relation",
+      "add product to order items",
+      "order product reference foreign key",
+      "shop catalog match purchased products"
+    ],
+    "it": [
+      "order product association foreign key",
+      "product catalog order relationship",
+      "create order associate product items",
+      "order product reference foreign key stored",
+      "product sale purchase order link"
+    ],
+    "pt": [
+      "product order link foreign key",
+      "product catalog order relationship",
+      "create order add products cart",
+      "order product reference stored foreign key",
+      "order items product purchase connection"
+    ],
+    "nl": [
+      "order item product relationship link",
+      "catalog order schema relation model",
+      "cart add item product checkout",
+      "order product foreign key join table",
+      "shop product order item link"
+    ],
+    "ja": [
+      "order item product association foreign key",
+      "product catalog order relationship schema",
+      "create order product line item",
+      "order product id reference stored foreign key",
+      "product purchase order item link"
+    ],
+    "zh": [
+      "order item product foreign key association",
+      "product catalog order relationship model",
+      "create order link product cart items",
+      "order items table store product reference",
+      "map listed products to purchased items"
+    ],
+    "ar": [
+      "order product association foreign key",
+      "product catalog order customer relationship",
+      "order line item product association",
+      "order product id foreign key storage",
+      "catalog product purchase order mapping"
+    ],
+    "ru": [
+      "order product relationship foreign key",
+      "product catalog order user purchase",
+      "order line item product quantity",
+      "order product id foreign key",
+      "order item product purchase cart"
+    ]
+  },
+  "generator": "glm-5.3-flash",
+  "provenance": "questions.en and questions.fr: the source eval cases, verbatim. Every other question (paraphrases of those) and every terms string: generated by glm-5.3-flash (open weights, MIT), verbatim."
+}

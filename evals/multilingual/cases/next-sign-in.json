@@ -1,0 +1,173 @@
+{
+  "id": "next-sign-in",
+  "fixture": "next-drizzle",
+  "expect": {
+    "files": [
+      "src/app/api/auth/[...nextauth]/route.ts"
+    ],
+    "from": "nodes",
+    "nodes": [
+      "route:POST /api/auth/*nextauth"
+    ]
+  },
+  "questions": {
+    "en": [
+      "How does the login endpoint work — what credentials does it expect?",
+      "What does the API return on a successful sign-in, a token?",
+      "What happens when someone types the wrong password?",
+      "After a user logs in, are sessions handled with cookies or JWTs?",
+      "Is there rate limiting or account lockout after repeated failed login attempts?"
+    ],
+    "fr": [
+      "Comment fonctionne la route de connexion — quels identifiants attend-elle ?",
+      "Que renvoie l'API quand la connexion réussit, un token ?",
+      "Que se passe-t-il si un utilisateur se trompe de mot de passe ?",
+      "Une fois l'utilisateur connecté, les sessions sont-elles gérées par cookies ou par JWT ?",
+      "Existe-t-il une limitation ou un blocage de compte après plusieurs échecs de connexion répétés ?"
+    ],
+    "es": [
+      "¿Cómo funciona el endpoint de login y qué credenciales espera recibir?",
+      "¿Qué devuelve la API cuando el inicio de sesión es correcto, un token?",
+      "¿Qué pasa si alguien escribe mal la contraseña?",
+      "Cuando un usuario inicia sesión, ¿las sesiones se manejan con cookies o con JWT?",
+      "¿Hay rate limiting o bloqueo de cuenta tras varios intentos fallidos de inicio de sesión?"
+    ],
+    "de": [
+      "Wie funktioniert der Login-Endpoint – welche Zugangsdaten erwartet er?",
+      "Was gibt die API bei einem erfolgreichen Login zurück – einen Token?",
+      "Was passiert, wenn jemand ein falsches Passwort eingibt?",
+      "Wie werden die Sessions gehandhabt, nachdem sich jemand eingeloggt hat – mit Cookies oder JWTs?",
+      "Gibt es ein Rate Limiting oder eine Account-Sperre nach mehreren fehlgeschlagenen Login-Versuchen?"
+    ],
+    "it": [
+      "Come funziona l'endpoint di login — quali credenziali si aspetta?",
+      "Cosa restituisce l'API in caso di login andato a buon fine, un token?",
+      "Cosa succede se uno sbaglia la password?",
+      "Dopo che un utente ha fatto il login, le sessioni sono gestite con cookie o JWT?",
+      "C'è un rate limiting oppure il blocco dell'account dopo vari tentativi di accesso falliti?"
+    ],
+    "pt": [
+      "Como funciona o endpoint de login — que credenciais ele espera receber?",
+      "O que a API devolve quando o login dá certo, um token?",
+      "O que acontece quando alguém digita a senha errada?",
+      "Depois que o usuário faz login, as sessões são gerenciadas com cookies ou JWTs?",
+      "Existe rate limiting ou bloqueio da conta após várias tentativas de login malsucedidas?"
+    ],
+    "nl": [
+      "Hoe werkt het login-endpoint precies — welke inloggegevens verwacht het?",
+      "Wat geeft de API terug bij een geslaagde login — een token?",
+      "Wat gebeurt er als iemand een verkeerd wachtwoord intypt?",
+      "Hoe worden sessies geregeld nadat een gebruiker is ingelogd — met cookies of met JWT's?",
+      "Is er rate limiting of wordt een account geblokkeerd na herhaaldelijk mislukte inlogpogingen?"
+    ],
+    "ja": [
+      "ログインのエンドポイントはどういう仕組みで動いてるんですか？どんな認証情報を渡す想定ですか？",
+      "ログインが成功したとき、APIは何を返してくるんですか？トークンとかですか？",
+      "パスワードを打ち間違えた場合はどうなるんですか？",
+      "ユーザーがログインした後のセッション管理は、クッキーでやるんですか？それともJWTですか？",
+      "ログインに何度も失敗した場合って、レート制限やアカウントロックの仕組みはありますか？"
+    ],
+    "zh": [
+      "登录接口是怎么工作的——需要传哪些凭据？",
+      "登录成功后 API 会返回什么，是 token 吗？",
+      "密码输错了会发生什么？",
+      "用户登录之后，会话是用 cookie 还是 JWT 来处理的？",
+      "登录失败次数过多时，有没有限流或者锁定账号的机制？"
+    ],
+    "ar": [
+      "كيف تعمل نقطة النهاية الخاصة بتسجيل الدخول، وما بيانات الاعتماد التي يتوقعها؟",
+      "ماذا يعيد الـ API عند نجاح تسجيل الدخول — هل يعيد توكن؟",
+      "ماذا يحدث إذا أدخل أحدهم كلمة المرور الخطأ؟",
+      "بعد تسجيل دخول المستخدم، هل تُدار الجلسات بالكوكيز أم بالـ JWT؟",
+      "هل يوجد تحديد لعدد الطلبات أو قفل للحساب بعد تكرار محاولات تسجيل الدخول الفاشلة؟"
+    ],
+    "ru": [
+      "Как работает эндпоинт логина — какие учётные данные он ожидает?",
+      "Что возвращает API при успешном входе — токен?",
+      "Что будет, если ввести неправильный пароль?",
+      "После входа пользователя сессии обрабатываются через куки или JWT?",
+      "Есть ли рейт-лимитинг или блокировка аккаунта после нескольких неудачных попыток входа подряд?"
+    ]
+  },
+  "terms": {
+    "en": [
+      "login endpoint credentials username password request",
+      "login success response access token",
+      "wrong password invalid credentials login error",
+      "session cookie jwt token authentication",
+      "login rate limit lockout failed attempts"
+    ],
+    "fr": [
+      "login route credentials email password request",
+      "login success response token api",
+      "login invalid password wrong credentials error",
+      "session cookie jwt authentication token",
+      "account lockout failed login attempts rate limit"
+    ],
+    "es": [
+      "login endpoint credentials request body",
+      "login success response token",
+      "invalid password wrong credentials error",
+      "session cookie jwt token authentication",
+      "rate limit failed login attempts lockout"
+    ],
+    "de": [
+      "login endpoint credentials request body",
+      "login success response token",
+      "wrong password invalid credentials error",
+      "session handling cookie jwt authentication",
+      "rate limiting failed login attempts account lockout"
+    ],
+    "it": [
+      "login endpoint credentials username password request",
+      "login success response token return json",
+      "invalid password wrong credentials unauthorized error",
+      "session cookie jwt token authentication",
+      "rate limit account lockout failed login attempts"
+    ],
+    "pt": [
+      "login endpoint credentials request body password",
+      "login success response token return",
+      "invalid password wrong credentials error handling",
+      "session management cookie jwt authentication",
+      "rate limit failed login attempts lockout"
+    ],
+    "nl": [
+      "login endpoint request credentials username password",
+      "login success response access token",
+      "invalid password wrong credentials error response",
+      "session management cookie jwt authentication",
+      "rate limiting failed login attempts account lockout"
+    ],
+    "ja": [
+      "login endpoint authentication credentials request handler",
+      "login success response access token",
+      "login wrong password invalid credentials error",
+      "session cookie jwt token authentication",
+      "login rate limit account lockout failed attempts"
+    ],
+    "zh": [
+      "login endpoint credentials request authentication",
+      "login response token jwt payload",
+      "invalid password error login failed",
+      "session cookie jwt token authentication",
+      "rate limit account lockout failed attempts"
+    ],
+    "ar": [
+      "login endpoint credentials request body",
+      "login success response access token",
+      "wrong password invalid credentials error",
+      "session management cookie jwt token",
+      "failed login rate limit account lockout"
+    ],
+    "ru": [
+      "login endpoint credentials request body",
+      "login response api return token",
+      "invalid password wrong credentials error",
+      "session cookie jwt token authentication",
+      "rate limit failed login attempts lockout"
+    ]
+  },
+  "generator": "glm-5.3-flash",
+  "provenance": "questions.en and questions.fr: the source eval cases, verbatim. Every other question (paraphrases of those) and every terms string: generated by glm-5.3-flash (open weights, MIT), verbatim."
+}
