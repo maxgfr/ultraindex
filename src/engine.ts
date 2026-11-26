@@ -99,6 +99,7 @@ export {
   sha1,
   sharedGrammarsCacheDir,
   shortHash,
+  subtokens,
   tierForPath,
   untrackedFiles,
   walk,

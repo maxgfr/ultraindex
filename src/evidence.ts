@@ -176,10 +176,12 @@ export function renderAskDossier(
   question: string,
   modules: { slug: string; files: string[] }[],
   budget?: number,
+  terms?: string,
 ): string {
   const byId = new Map(graph.modules.map((m) => [m.slug, m]));
   const lines = [
     `# Evidence dossier for: "${question}"`,
+    ...(terms?.trim() ? ["", `Search terms: ${terms.trim()}`] : []),
     "",
     "## Task",
     `Answer the question USING ONLY the source below (and files you open from it) — not your own memory of the codebase. Write your answer to \`ANSWER.md\`, then run \`ultraindex check --answer ANSWER.md\`. ${CITE_HELP} An answer must carry at least one citation.`,

@@ -27,6 +27,13 @@ const budgetProp: JsonSchemaProp = {
   description: "Rough character budget for the inlined source. Lower it when the packet is bigger than you need.",
 };
 
+const termsProp: JsonSchemaProp = {
+  type: "string",
+  description:
+    "Extra search keywords merged with the question for ranking. Ranking is lexical, so when the question is not in the code's language, pass " +
+    "the code's own words here: English code keywords, plus the repo's identifiers when you know them (e.g. \"order cancel refund cancelOrder\").",
+};
+
 // The line every read tool carries. ultraindex answers from an index that must
 // exist first, and a model that does not know this reads "no index" as a broken
 // tool rather than as a missing step.
@@ -59,6 +66,7 @@ export const TOOLS: ToolDecl[] = [
         repo: repoProp,
         out: outProp,
         query: { type: "string", description: "The task or question, in natural language." },
+        terms: termsProp,
         k: { type: "number", description: "How many modules to return (default 8)." },
       },
       required: ["repo", "query"],
@@ -77,6 +85,7 @@ export const TOOLS: ToolDecl[] = [
         repo: repoProp,
         out: outProp,
         question: { type: "string", description: "The question to gather evidence for." },
+        terms: termsProp,
         k: { type: "number", description: "How many modules to draw source from (default 5)." },
         budget: budgetProp,
       },

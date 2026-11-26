@@ -59,13 +59,16 @@ export function loadEnrichedProse(outDir: string, graph: Graph): Map<string, str
 // a file rel → its exported symbol names, folded into that file's haystack so a
 // query naming an exported identifier surfaces its owning module even when no
 // title/summary/path mentions it. Absent ⇒ identical to symbol-free scoring.
+// `extraTerms` are the caller's `--terms`: search keywords merged with the
+// question's own (see queryTerms for the weighting). Absent ⇒ the question alone.
 export function scoreModules(
   graph: Graph,
   query: string,
   prose?: Map<string, string>,
   symbolNames?: Map<string, string[]>,
+  extraTerms?: string,
 ): { r: FindResult; degree: number }[] {
-  const terms = queryTerms(query);
+  const terms = queryTerms(query, extraTerms);
   if (terms.length === 0) return [];
 
   // Exported symbol names declared in a file, folded into its haystack.
@@ -110,8 +113,21 @@ export function scoreModules(
 
   // Full-query tier, computed once: the whole query joined into one string, and
   // the largest IDF among its terms (the bonus scales with the query's rarity).
-  const joined = terms.map((t) => t.exact).join(" ");
-  const maxIdf = Math.max(1, ...terms.map((t) => idf.get(t.raw) ?? 1));
+  // Only full-weight terms take part: with `--terms`, the terms ARE the query
+  // in the code's vocabulary, and a translated question never equals a label.
+  const primary = terms.filter((t) => t.weight >= 1);
+  const joined = primary.map((t) => t.exact).join(" ");
+  const maxIdf = Math.max(1, ...primary.map((t) => idf.get(t.raw) ?? 1));
+
+  // Coverage denominator. Every term counts by its weight — except a
+  // down-weighted question word that matches no module at all: next to
+  // `--terms` that is a word no code here shares (the untranslated question),
+  // and letting it dilute coverage would penalize every module equally while
+  // squashing the spread between good and partial matches. Without `--terms`
+  // all weights are 1 and nothing is excluded: coverage is matched/total, as
+  // it always was.
+  const countable = terms.filter((t) => t.weight >= 1 || (df.get(t.raw) ?? 0) > 0);
+  const countableWeight = countable.reduce((sum, t) => sum + t.weight, 0);
 
   const scored: { r: FindResult; degree: number }[] = [];
   for (const m of graph.modules) {
@@ -145,11 +161,12 @@ export function scoreModules(
     if (mod.score === 0 && bestFile === 0 && pro.score === 0) continue;
 
     const matchedTerms = new Set([...mod.matched, ...pro.matched, ...scoredFiles.flatMap((x) => x.matched)]);
-    // Coverage: reward matching MORE of the distinct query terms. Squared so a
-    // 1-of-5 collision on a single term can't ride a high tier past a 3-of-5
-    // match; the 0.4 floor is kept because ultraindex's blended score must not
-    // zero out partial matches.
-    const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / terms.length) ** 2;
+    // Coverage: reward matching MORE of the distinct query terms (by weight).
+    // Squared so a 1-of-5 collision on a single term can't ride a high tier past
+    // a 3-of-5 match; the 0.4 floor is kept because ultraindex's blended score
+    // must not zero out partial matches.
+    const matchedWeight = countable.reduce((sum, t) => sum + (matchedTerms.has(t.raw) ? t.weight : 0), 0);
+    const coverageWeight = 0.4 + 0.6 * (countableWeight > 0 ? matchedWeight / countableWeight : 0) ** 2;
     // Tail (tests/docs/examples) down-weighted so implementation outranks tests.
     const tierWeight = m.tier === 2 ? 0.45 : 1;
     // A test/demo/sandbox dir mid-path (e.g. app/api/test-sentry-error) is not a
@@ -228,8 +245,9 @@ export function findModules(
   k = DEFAULT_K,
   prose?: Map<string, string>,
   symbolNames?: Map<string, string[]>,
+  extraTerms?: string,
 ): FindResult[] {
-  return scoreModules(graph, query, prose, symbolNames).slice(0, k).map((x) => x.r);
+  return scoreModules(graph, query, prose, symbolNames, extraTerms).slice(0, k).map((x) => x.r);
 }
 
 // graphify's seed constants, verbatim: at most 3 seeds, and a seed must score at
@@ -241,7 +259,9 @@ const SEED_GAP_RATIO = 0.2;
 // top-down taking up to 3 seeds, stopping once a row drops below 20% of the top
 // score. Then a per-term guarantee: for each query term with no seed covering it,
 // append the first (highest-ranked) module that DID match that term, so a term
-// whose only bearer sits below top-k is never silently dropped.
+// whose only bearer sits below top-k is never silently dropped. The guarantee
+// covers full-weight terms only: a down-weighted question word next to
+// `--terms` is no reason to pull a module in.
 export function pickSeeds(scored: { r: FindResult; degree: number }[], terms: QueryTerm[]): string[] {
   if (scored.length === 0) return [];
   const topScore = scored[0]!.r.score;
@@ -255,6 +275,7 @@ export function pickSeeds(scored: { r: FindResult; degree: number }[], terms: Qu
     picked.add(s.r.slug);
   }
   for (const t of terms) {
+    if (t.weight < 1) continue;
     if (seeds.some((slug) => matchedBySlug.get(slug)?.includes(t.raw))) continue;
     const hit = scored.find((s) => s.r.matched.includes(t.raw));
     if (hit && !picked.has(hit.r.slug)) {
@@ -389,13 +410,13 @@ function loadSymbolNames(outDir: string): Map<string, string[]> | undefined {
   return index ? exportedNamesByFile(index) : undefined;
 }
 
-export function runFind(outDir: string, query: string, k = DEFAULT_K): FindResult[] | undefined {
+export function runFind(outDir: string, query: string, k = DEFAULT_K, terms?: string): FindResult[] | undefined {
   const graph = loadGraph(outDir);
   if (!graph) return undefined;
   const prose = loadEnrichedProse(outDir, graph);
-  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir));
+  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir), terms);
   const top = full.slice(0, k).map((x) => x.r);
-  return expandResults(graph, top, full, pickSeeds(full, queryTerms(query)), k, new Set(prose.keys()));
+  return expandResults(graph, top, full, pickSeeds(full, queryTerms(query, terms)), k, new Set(prose.keys()));
 }
 
 // A result row for a module that surfaced semantically but never matched a
@@ -431,23 +452,26 @@ export interface HybridFind {
 // semantic side is strictly additive and strictly optional: without
 // vectors.json this returns exactly the lexical results. On the engine's static
 // tier it never touches the network either; on the endpoint tier an unreachable
-// server degrades to lexical with a warning.
+// server degrades to lexical with a warning. `terms` (the caller's `--terms`)
+// join the question on both sides: merged into the lexical terms, appended to
+// the text the semantic side embeds.
 export async function runFindHybrid(
   outDir: string,
   query: string,
   k = DEFAULT_K,
   repo?: string,
+  terms?: string,
 ): Promise<HybridFind | undefined> {
   const graph = loadGraph(outDir);
   if (!graph) return undefined;
   const prose = loadEnrichedProse(outDir, graph);
   const pool = Math.max(k * 3, 24);
-  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir));
+  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir), terms);
   const lexical = full.slice(0, pool).map((x) => x.r);
   // Seeds come from the LEXICAL scored list (rows with score > 0); expansion is
   // applied to whatever ranked list is ultimately returned — the fused list when
   // semantic ran, else the lexical one it degrades to.
-  const seeds = pickSeeds(full, queryTerms(query));
+  const seeds = pickSeeds(full, queryTerms(query, terms));
   const expand = (topRows: FindResult[]): FindResult[] => expandResults(graph, topRows, full, seeds, k, new Set(prose.keys()));
 
   const store = loadVectors(outDir);
@@ -471,7 +495,7 @@ export async function runFindHybrid(
   }
   let queryVector: Int8Array;
   try {
-    queryVector = await encodeQuery(tier, query);
+    queryVector = await encodeQuery(tier, terms?.trim() ? `${query} ${terms.trim()}` : query);
   } catch (e) {
     return lexOnly(`semantic tier unavailable (${(e as Error).message}) — lexical-only results`);
   }

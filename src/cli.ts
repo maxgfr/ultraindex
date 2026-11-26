@@ -30,7 +30,7 @@ huge codebases without filling its context window. Zero deps, no keys.
 
 Usage:
   ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid] [--no-gitignore]
-  ultraindex find    "<query>" [--out <dir>] [--k <n>]
+  ultraindex find    "<query>" [--terms "<keywords>"] [--out <dir>] [--k <n>]
   ultraindex embed   [--out <dir>] [--force]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>] [--kind <k>]
   ultraindex symbols "<name>" [--out <dir>] [--json]
@@ -39,7 +39,7 @@ Usage:
   ultraindex map     [--out <dir>] [--module <slug>]
   ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
-  ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
+  ultraindex ask     "<question>" [--terms "<keywords>"] [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic] [--prose]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
@@ -112,6 +112,9 @@ Options:
   --full-hash       build: re-hash every file, disabling the (size,mtime) fastpath
   --no-mermaid      Do not write graph.mmd
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
+  --terms "<kw>"    find/ask: extra search keywords, merged with the question.
+                    For a question not in the code's language, pass the code's
+                    words (English keywords, the repo's own identifiers)
   --depth <n>       neighbors: hops to traverse (default: 1); delta: blast-radius
                     hops (default: 2)
   --base <ref>      delta: review base ref (default: origin/HEAD → main → master,
@@ -161,6 +164,7 @@ const VALUE_FLAGS = new Set([
   "max-bytes",
   "max-files",
   "k",
+  "terms",
   "depth",
   "kind",
   "budget",
@@ -449,8 +453,9 @@ async function cmdFind(p: Parsed): Promise<void> {
   if (!query) fail('missing query — usage: ultraindex find "<task keywords>"');
   const k = p.values.k ? Number(p.values.k) : 8;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
+  const terms = p.values.terms?.trim() || undefined;
 
-  const found = await runFindHybrid(out, query, k, base);
+  const found = await runFindHybrid(out, query, k, base, terms);
   if (found === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
   if (found.warning) process.stderr.write(`ultraindex: warning: ${found.warning}\n`);
   const results = found.results;
@@ -462,7 +467,10 @@ async function cmdFind(p: Parsed): Promise<void> {
     process.stdout.write(`No modules matched "${query}".\n`);
     return;
   }
-  const lines: string[] = [`ultraindex: ${results.length} module(s) for "${query}"${found.semantic ? " (hybrid)" : ""}`, ""];
+  const lines: string[] = [
+    `ultraindex: ${results.length} module(s) for "${query}"${terms ? ` + terms "${terms}"` : ""}${found.semantic ? " (hybrid)" : ""}`,
+    "",
+  ];
   for (const r of results) {
     lines.push(`▸ ${r.slug}  (${r.path}, tier ${r.tier}, score ${r.score}${r.semanticRank !== undefined ? `, semantic #${r.semanticRank}` : ""})${r.via ? ` via:${r.via}` : ""}`);
     if (r.matched.length) lines.push(`    matched: ${r.matched.join(", ")}`);
@@ -699,7 +707,7 @@ async function cmdAsk(p: Parsed): Promise<void> {
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
   const budget = p.values.budget ? Number(p.values.budget) : undefined;
   if (budget !== undefined && (!Number.isInteger(budget) || budget <= 0)) fail("invalid --budget");
-  const res = await runAsk(out, repo, question, k, budget);
+  const res = await runAsk(out, repo, question, k, budget, p.values.terms?.trim() || undefined);
   if (res === undefined) fail(`no index at ${out} — run \`ultraindex build\` first`);
   if (res.warning) process.stderr.write(`ultraindex: warning: ${res.warning}\n`);
   if (p.bools.has("json")) {

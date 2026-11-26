@@ -125,7 +125,7 @@ ${CORE_RULE}
 **Sequence:**
 
 1. \`ultraindex_map\` — only if you do not already know how this repo is laid out. Navigation, not evidence: cite the source, never the map.
-2. \`ultraindex_ask\` with the question. It returns the ranked modules AND their real source, assembled as one packet.
+2. \`ultraindex_ask\` with the question. It returns the ranked modules AND their real source, assembled as one packet. Ranking is lexical: when the question is not in English (or the code's vocabulary differs from the question's), also pass \`terms\` — English code keywords, plus the repo's own identifiers when you know them.
 3. Widen what is thin: \`ultraindex_symbols\` to resolve a name to its declaration and its callers, \`ultraindex_impact\` for what a change would reach, \`ultraindex_read\` for the full file behind an excerpt.
 4. Write the answer, citing \`[file:line]\` on every claim.
 5. \`ultraindex_check\` with the answer as \`answer_text\`.

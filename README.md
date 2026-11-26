@@ -284,7 +284,7 @@ the pure `verify` steps, the index loaders and the persisted types.
 
 ```
 ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid] [--no-gitignore]
-ultraindex find    "<query>" [--out <dir>] [--k <n>]
+ultraindex find    "<query>" [--terms "<keywords>"] [--out <dir>] [--k <n>]
 ultraindex embed   [--out <dir>] [--force]
 ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>] [--kind <k>]
 ultraindex symbols "<name>" [--out <dir>] [--json]
@@ -293,7 +293,7 @@ ultraindex delta   [--base <ref>] [--staged] [--out <dir>] [--repo <dir>] [--dep
 ultraindex map     [--out <dir>] [--module <slug>] [--json]
 ultraindex status  [--out <dir>]
 ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
-ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
+ultraindex ask     "<question>" [--terms "<keywords>"] [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
 ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic] [--quiet]
 ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
 ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
@@ -309,7 +309,8 @@ ultraindex grammars [status|pull]
 - **find** — rank modules for a task and print the **exact files to open**.
   Lexical by default (identifier splitting, light stemming, code-domain
   synonyms, **IDF** term weighting); hybrid lexical + semantic when `vectors.json`
-  exists (below).
+  exists (below). `--terms "<keywords>"` merges extra search keywords with the
+  question — the bridge for a question in any language (below).
 - **symbols** — where a symbol is defined (file:line, kind, owning module) and
   which files reference it, from `symbols.json` — exact then identifier-sub-token
   match, no repo re-scan.
@@ -415,6 +416,36 @@ camelCase/snake_case identifiers (`getUserProfile` finds `src/user/profile.ts`),
 a conservative stemmer bridges plural/-ing variants, and a small code-domain
 synonym table bridges `auth`↔`authentication`↔`login` — all deterministic,
 offline, dependency-free.
+
+### Questions in any language
+
+Questions and repos can be in any language. Tokenization follows the engine's
+`keywords()` on both sides: words are runs of Unicode letters, marks and
+digits, diacritics are folded, and Chinese, Japanese and Korean — written
+without spaces — are cut into overlapping bigrams. A repo documented in
+Russian or Japanese is searchable in Russian or Japanese.
+
+What lexical ranking cannot do is translate: code is mostly written in
+English, so a question in Spanish or Arabic shares almost no words with it.
+`find` and `ask` take `--terms "<keywords>"` (`terms` on the MCP tools) for
+that — the calling agent is a multilingual model, so it writes the English
+code keywords, plus the repo's own identifiers when they are in yet another
+language:
+
+```bash
+ultraindex find "¿Dónde se cancela un pedido?" --terms "order cancel refund cancelOrder"
+```
+
+Terms are query terms like the question's own and are deduplicated against
+them (by stem: `orders` in the question and `order` in the terms are one term,
+counted once). Once terms are given they rank at full weight, and the
+question's remaining words at half, without the raw-substring tier: the
+untranslated words of a question match nothing, and its short function words
+(`de`, `la`, `и`) would otherwise substring-match nearly every module. A
+question word shaped like code (`cancelOrder`, `user_id`, `v2`) is the same in
+every language and keeps full weight, and a question word that matches no
+module does not count against coverage. Without `--terms` the ranking is
+exactly what it was.
 
 ## Measured cost of an explained, grounded answer
 

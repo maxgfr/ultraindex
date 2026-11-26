@@ -29,6 +29,13 @@ workflow's job.
    ```
    node scripts/ultraindex.mjs find "<task keywords>" --out <index-dir>
    ```
+   **A question that is not in English needs `--terms`.** Ranking is lexical;
+   pass the question as asked plus `--terms "<keywords>"` — English code
+   keywords for its intent and the repo's own identifiers when you know them
+   (`find "注文をキャンセルするには？" --terms "order cancel cancelOrder"`). The
+   same applies when the repo's vocabulary differs from the question's
+   language (an English question over French identifiers: put the French
+   words in `--terms`). `ask` takes the same flag.
    It returns the top modules with their **exact source files to open**, the
    matched terms, and graph neighbours. Results flagged `enriched` carry
    verified, citation-checked analysis in their entry — trust those entries
@@ -68,7 +75,8 @@ workflow's job.
 
    **When `find` comes up empty or wrong, escalate in this order:**
    1. Re-query with synonyms and identifier-style terms (`auth login session`,
-      `parseConfig`, the feature's route or flag name).
+      `parseConfig`, the feature's route or flag name) — or, for a question in
+      another language, add or widen `--terms`.
    2. `symbols "<name>"` if you know the identifier; `neighbors` or `impact`
       from any file or module you DO know is involved.
    3. If available, set up semantic search (semantic.md) — it catches

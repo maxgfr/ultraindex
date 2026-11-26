@@ -2680,14 +2680,14 @@ declare function reduceVerdicts(verdicts: Verdict[]): VerifyResult;
 declare function loadVerify(dir: string): VerifyResult | undefined;
 
 declare function loadEnrichedProse(outDir: string, graph: Graph): Map<string, string>;
-declare function findModules(graph: Graph, query: string, k?: number, prose?: Map<string, string>, symbolNames?: Map<string, string[]>): FindResult[];
-declare function runFind(outDir: string, query: string, k?: number): FindResult[] | undefined;
+declare function findModules(graph: Graph, query: string, k?: number, prose?: Map<string, string>, symbolNames?: Map<string, string[]>, extraTerms?: string): FindResult[];
+declare function runFind(outDir: string, query: string, k?: number, terms?: string): FindResult[] | undefined;
 interface HybridFind {
     results: FindResult[];
     semantic: boolean;
     warning?: string;
 }
-declare function runFindHybrid(outDir: string, query: string, k?: number, repo?: string): Promise<HybridFind | undefined>;
+declare function runFindHybrid(outDir: string, query: string, k?: number, repo?: string, terms?: string): Promise<HybridFind | undefined>;
 
 declare function runNeighbors(outDir: string, target: string, depth?: number, kinds?: Set<string>): NeighborResult | undefined;
 
@@ -2748,10 +2748,10 @@ declare function renderModuleDossier(repo: string, graph: Graph, module: ModuleN
 declare function renderAskDossier(repo: string, graph: Graph, question: string, modules: {
     slug: string;
     files: string[];
-}[], budget?: number): string;
+}[], budget?: number, terms?: string): string;
 
 declare function runDossier(outDir: string, repo: string, slug: string, budget?: number): string | undefined;
-declare function runAsk(outDir: string, repo: string, question: string, k?: number, budget?: number): Promise<{
+declare function runAsk(outDir: string, repo: string, question: string, k?: number, budget?: number, terms?: string): Promise<{
     content: string;
     modules: string[];
     warning?: string;

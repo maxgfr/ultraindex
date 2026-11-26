@@ -304,11 +304,13 @@ function handleMap(args: Record<string, unknown>, repo: string, out: string): un
 async function handleFind(args: Record<string, unknown>, repo: string, out: string): Promise<unknown> {
   requireIndex(out, repo);
   const query = requiredStr(args, "query", "the task or question to rank modules against.");
-  const found = await runFindHybrid(out, query, positive(args.k, "k") ?? 8, repo);
+  const terms = str(args.terms)?.trim();
+  const found = await runFindHybrid(out, query, positive(args.k, "k") ?? 8, repo, terms);
   if (!found) throw new ToolError(`no index at ${out} — build one first with ultraindex_build.`);
   return {
     out,
     query,
+    ...(terms ? { terms } : {}),
     // A lexical-only ranking because no vectors exist is not a failure; it is a
     // fact about this answer's recall, and the caller should see it.
     ...(found.warning ? { note: found.warning } : {}),
@@ -319,11 +321,13 @@ async function handleFind(args: Record<string, unknown>, repo: string, out: stri
 async function handleAsk(args: Record<string, unknown>, repo: string, out: string): Promise<unknown> {
   requireIndex(out, repo);
   const question = requiredStr(args, "question", "the question to gather evidence for.");
-  const res = await runAsk(out, repo, question, positive(args.k, "k") ?? 5, positive(args.budget, "budget"));
+  const terms = str(args.terms)?.trim();
+  const res = await runAsk(out, repo, question, positive(args.k, "k") ?? 5, positive(args.budget, "budget"), terms);
   if (!res) throw new ToolError(`no index at ${out} — build one first with ultraindex_build.`);
   return {
     out,
     question,
+    ...(terms ? { terms } : {}),
     modules: res.modules,
     ...(res.warning ? { note: res.warning } : {}),
     evidence: res.content,

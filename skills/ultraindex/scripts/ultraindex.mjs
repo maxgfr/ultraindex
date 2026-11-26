@@ -29920,7 +29920,14 @@ function runBuild(opts, builtAt) {
 import { join as join35, basename as basename8, extname as extname5 } from "path";
 
 // src/lex.ts
+var NON_ASCII2 = /[^\x00-\x7F]/;
+var UNICODE_WORD_SPLIT = /(?:[^\p{L}\p{M}\p{N}_]|[\u{FE00}-\u{FE0F}\u{20D0}-\u{20FF}\u{E0100}-\u{E01EF}])+/u;
+var ASCII_SEPARATORS = /[\x00-\x2F\x3A-\x40\x5B-\x5E\x60\x7B-\x7F]+/;
+var UNICODE_PART_SPLIT = /(?:[^\p{L}\p{M}\p{N}]|[\u{FE00}-\u{FE0F}\u{20D0}-\u{20FF}\u{E0100}-\u{E01EF}])+/u;
+var UNICODE_SPLITTABLE = /[\p{Lu}\p{Lt}\p{N}_]/u;
+var HAS_CJK2 = /[\u1100-\u11FF\u2E80-\u9FFF\uA960-\uA97F\uAC00-\uD7FF\uF900-\uFAFF\uFF66-\uFFDC\u{16FE0}-\u{16FFF}\u{1AFF0}-\u{1B2FF}\u{20000}-\u{3FFFF}]/u;
 function splitIdentifier(token) {
+  if (NON_ASCII2.test(token)) return splitUnicodeIdentifier(token);
   const spaced = token.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/([A-Za-z])(\d)/g, "$1 $2").replace(/(\d)([A-Za-z])/g, "$1 $2");
   const seen = /* @__PURE__ */ new Set();
   const out2 = [];
@@ -29930,6 +29937,22 @@ function splitIdentifier(token) {
     if (seen.has(lower)) continue;
     seen.add(lower);
     out2.push(lower);
+  }
+  return out2;
+}
+function splitUnicodeIdentifier(token) {
+  const spaced = foldText(token).replace(new RegExp("([\\p{Ll}\\p{N}])(\\p{Lu})", "gu"), "$1 $2").replace(new RegExp("(\\p{Lu}+)(\\p{Lu}\\p{Ll})", "gu"), "$1 $2").replace(new RegExp("(\\p{L})(\\p{N})", "gu"), "$1 $2").replace(new RegExp("(\\p{N})(\\p{L})", "gu"), "$1 $2");
+  const seen = /* @__PURE__ */ new Set();
+  const out2 = [];
+  const push = (t) => {
+    if (!t || seen.has(t)) return;
+    seen.add(t);
+    out2.push(t);
+  };
+  for (const part of spaced.split(UNICODE_PART_SPLIT)) {
+    if (!part) continue;
+    if (HAS_CJK2.test(part)) for (const seg of subtokens(part)) push(seg);
+    else push(part.toLowerCase());
   }
   return out2;
 }
@@ -29974,46 +29997,116 @@ SYNONYM_GROUPS.forEach((group, id) => {
 function synonymGroup(token) {
   return GROUP_OF.get(token) ?? GROUP_OF.get(stem2(token));
 }
-function queryTerms(question) {
-  return keywords(question).map((raw) => {
-    const exact = raw.toLowerCase();
-    const parts2 = splitIdentifier(raw).filter((p) => p !== exact && keywords(p).length > 0);
-    const forms = /* @__PURE__ */ new Set();
-    for (const f of [stem2(exact), ...parts2, ...parts2.map(stem2)]) {
-      if (f !== exact) forms.add(f);
+var QUESTION_WEIGHT_WITH_TERMS = 0.5;
+var IDENTIFIER_SHAPED = /[a-z][A-Z]|_|\d/;
+function expandTerm(raw, weight, substring) {
+  const exact = raw.toLowerCase();
+  const parts2 = splitIdentifier(raw).filter((p) => p !== exact && keywords(p).length > 0);
+  const forms = /* @__PURE__ */ new Set();
+  for (const f of [stem2(exact), ...parts2, ...parts2.map(stem2)]) {
+    if (f !== exact) forms.add(f);
+  }
+  const groups = /* @__PURE__ */ new Set();
+  for (const f of [exact, ...parts2]) {
+    const g = synonymGroup(f);
+    if (g !== void 0) groups.add(g);
+  }
+  return { raw, exact, forms: [...forms], groups: [...groups], weight, substring, needle: foldText(exact) };
+}
+function queryTerms(question, extra) {
+  const fromQuestion = keywords(question);
+  const fromTerms = extra ? keywords(extra) : [];
+  if (fromTerms.length === 0) return fromQuestion.map((raw) => expandTerm(raw, 1, true));
+  const out2 = [];
+  const byStem = /* @__PURE__ */ new Map();
+  const add = (raw, weight, substring) => {
+    const key = stem2(raw.toLowerCase());
+    const prior = byStem.get(key);
+    if (prior) {
+      prior.weight = Math.max(prior.weight, weight);
+      prior.substring ||= substring;
+      return;
     }
-    const groups = /* @__PURE__ */ new Set();
-    for (const f of [exact, ...parts2]) {
-      const g = synonymGroup(f);
-      if (g !== void 0) groups.add(g);
-    }
-    return { raw, exact, forms: [...forms], groups: [...groups] };
-  });
+    const term = expandTerm(raw, weight, substring);
+    byStem.set(key, term);
+    out2.push(term);
+  };
+  for (const raw of fromTerms) add(raw, 1, true);
+  for (const raw of fromQuestion) {
+    if (IDENTIFIER_SHAPED.test(raw)) add(raw, 1, true);
+    else add(raw, QUESTION_WEIGHT_WITH_TERMS, false);
+  }
+  return out2;
 }
 function bump(map, key) {
   map.set(key, (map.get(key) ?? 0) + 1);
+}
+function wordForms(tok) {
+  const lower = tok.toLowerCase();
+  const forms = /* @__PURE__ */ new Set([lower, stem2(lower)]);
+  for (const part of splitIdentifier(tok)) {
+    forms.add(part);
+    forms.add(stem2(part));
+  }
+  return forms;
+}
+function addForms(counts, groups, forms) {
+  for (const f of forms) bump(counts, f);
+  const seen = /* @__PURE__ */ new Set();
+  for (const f of forms) {
+    const g = GROUP_OF.get(f);
+    if (g !== void 0 && !seen.has(g)) {
+      seen.add(g);
+      bump(groups, g);
+    }
+  }
+}
+function addPair(counts, groups, form, stemmed) {
+  bump(counts, form);
+  const g = GROUP_OF.get(form);
+  if (g !== void 0) bump(groups, g);
+  if (stemmed === form) return;
+  bump(counts, stemmed);
+  const h = GROUP_OF.get(stemmed);
+  if (h !== void 0 && h !== g) bump(groups, h);
 }
 function buildHaystack(text) {
   const folded = foldText(text);
   const counts = /* @__PURE__ */ new Map();
   const groups = /* @__PURE__ */ new Map();
   let length = 0;
-  for (const tok of folded.split(/[^A-Za-z0-9_]+/)) {
-    if (!tok) continue;
-    length++;
-    const lower = tok.toLowerCase();
-    const forms = /* @__PURE__ */ new Set([lower, stem2(lower)]);
-    for (const part of splitIdentifier(tok)) {
-      forms.add(part);
-      forms.add(stem2(part));
+  if (!NON_ASCII2.test(folded)) {
+    for (const tok of folded.split(/[^A-Za-z0-9_]+/)) {
+      if (!tok) continue;
+      length++;
+      addForms(counts, groups, wordForms(tok));
     }
-    for (const f of forms) bump(counts, f);
-    const seen = /* @__PURE__ */ new Set();
-    for (const f of forms) {
-      const g = GROUP_OF.get(f);
-      if (g !== void 0 && !seen.has(g)) {
-        seen.add(g);
-        bump(groups, g);
+    return { counts, groups, raw: folded.toLowerCase(), length };
+  }
+  for (const chunk of folded.split(ASCII_SEPARATORS)) {
+    if (!chunk) continue;
+    if (!NON_ASCII2.test(chunk)) {
+      length++;
+      addForms(counts, groups, wordForms(chunk));
+      continue;
+    }
+    for (const tok of chunk.split(UNICODE_WORD_SPLIT)) {
+      if (!tok) continue;
+      if (!NON_ASCII2.test(tok)) {
+        length++;
+        addForms(counts, groups, wordForms(tok));
+      } else if (HAS_CJK2.test(tok)) {
+        for (const seg of subtokens(tok)) {
+          length++;
+          addPair(counts, groups, seg, stem2(seg));
+        }
+      } else {
+        length++;
+        if (UNICODE_SPLITTABLE.test(tok)) addForms(counts, groups, wordForms(tok));
+        else {
+          const lower = tok.toLowerCase();
+          addPair(counts, groups, lower, stem2(lower));
+        }
       }
     }
   }
@@ -30041,7 +30134,7 @@ function scoreHaystack(hay, terms, saturate = false, idf) {
           if (c2 > count2) count2 = c2;
         }
         if (count2 > 0) weight = 1.5;
-        else if (hay.raw.includes(t.exact)) {
+        else if (t.substring && hay.raw.includes(t.needle)) {
           weight = 1;
           count2 = 1;
         }
@@ -30049,7 +30142,7 @@ function scoreHaystack(hay, terms, saturate = false, idf) {
     }
     if (weight === 0) continue;
     const rarity = idf?.get(t.raw) ?? 1;
-    score += (saturate ? weight * Math.min(1.5, 1 + Math.log1p(count2 - 1) * 0.25) : weight) * rarity;
+    score += (saturate ? weight * Math.min(1.5, 1 + Math.log1p(count2 - 1) * 0.25) : weight) * rarity * t.weight;
     matched.push(t.raw);
   }
   if (saturate) score /= 1 + Math.log(Math.max(1, hay.length / 200));
@@ -30324,8 +30417,8 @@ function loadEnrichedProse(outDir, graph) {
   }
   return out2;
 }
-function scoreModules(graph, query, prose, symbolNames) {
-  const terms = queryTerms(query);
+function scoreModules(graph, query, prose, symbolNames, extraTerms) {
+  const terms = queryTerms(query, extraTerms);
   if (terms.length === 0) return [];
   const namesOf = (rel2) => (symbolNames?.get(rel2) ?? []).join(" ");
   const filesByModule = /* @__PURE__ */ new Map();
@@ -30355,8 +30448,11 @@ function scoreModules(graph, query, prose, symbolNames) {
     const d = df.get(t.raw) ?? 0;
     idf.set(t.raw, Math.min(2, Math.max(0.5, 1 + Math.log((N2 + 1) / (d + 1)))));
   }
-  const joined = terms.map((t) => t.exact).join(" ");
-  const maxIdf = Math.max(1, ...terms.map((t) => idf.get(t.raw) ?? 1));
+  const primary = terms.filter((t) => t.weight >= 1);
+  const joined = primary.map((t) => t.exact).join(" ");
+  const maxIdf = Math.max(1, ...primary.map((t) => idf.get(t.raw) ?? 1));
+  const countable = terms.filter((t) => t.weight >= 1 || (df.get(t.raw) ?? 0) > 0);
+  const countableWeight = countable.reduce((sum, t) => sum + t.weight, 0);
   const scored = [];
   for (const m of graph.modules) {
     const members = filesByModule.get(m.slug) ?? [];
@@ -30374,7 +30470,8 @@ function scoreModules(graph, query, prose, symbolNames) {
     const matchCount = scoredFiles.filter((x) => x.score > 0).length;
     if (mod.score === 0 && bestFile === 0 && pro.score === 0) continue;
     const matchedTerms = /* @__PURE__ */ new Set([...mod.matched, ...pro.matched, ...scoredFiles.flatMap((x) => x.matched)]);
-    const coverageWeight = 0.4 + 0.6 * (matchedTerms.size / terms.length) ** 2;
+    const matchedWeight = countable.reduce((sum, t) => sum + (matchedTerms.has(t.raw) ? t.weight : 0), 0);
+    const coverageWeight = 0.4 + 0.6 * (countableWeight > 0 ? matchedWeight / countableWeight : 0) ** 2;
     const tierWeight = m.tier === 2 ? 0.45 : 1;
     const pathPenalty = /(^|\/|-|_)(tests?|demo|examples?|sandbox|stub|mock|fixtures?)(\/|-|_|$)/i.test(m.path) ? 0.55 : 1;
     const leaf = m.path.split("/").pop() ?? "";
@@ -30429,6 +30526,7 @@ function pickSeeds(scored, terms) {
     picked.add(s.r.slug);
   }
   for (const t of terms) {
+    if (t.weight < 1) continue;
     if (seeds.some((slug) => matchedBySlug.get(slug)?.includes(t.raw))) continue;
     const hit = scored.find((s) => s.r.matched.includes(t.raw));
     if (hit && !picked.has(hit.r.slug)) {
@@ -30532,14 +30630,14 @@ function bareRow(graph, m, members, enriched) {
     enriched
   };
 }
-async function runFindHybrid(outDir, query, k = DEFAULT_K, repo) {
+async function runFindHybrid(outDir, query, k = DEFAULT_K, repo, terms) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
   const prose = loadEnrichedProse(outDir, graph);
   const pool = Math.max(k * 3, 24);
-  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir));
+  const full = scoreModules(graph, query, prose, loadSymbolNames(outDir), terms);
   const lexical = full.slice(0, pool).map((x) => x.r);
-  const seeds = pickSeeds(full, queryTerms(query));
+  const seeds = pickSeeds(full, queryTerms(query, terms));
   const expand = (topRows) => expandResults(graph, topRows, full, seeds, k, new Set(prose.keys()));
   const store = loadVectors(outDir);
   if (!store) return { results: expand(lexical.slice(0, k)), semantic: false };
@@ -30558,7 +30656,7 @@ async function runFindHybrid(outDir, query, k = DEFAULT_K, repo) {
   }
   let queryVector;
   try {
-    queryVector = await encodeQuery(tier, query);
+    queryVector = await encodeQuery(tier, terms?.trim() ? `${query} ${terms.trim()}` : query);
   } catch (e) {
     return lexOnly(`semantic tier unavailable (${e.message}) \u2014 lexical-only results`);
   }
@@ -31625,10 +31723,11 @@ function renderModuleDossier(repo, graph, module2, budget) {
   else lines.push("", "_(no code files in this module \u2014 likely docs/config)_");
   return lines.join("\n") + "\n";
 }
-function renderAskDossier(repo, graph, question, modules, budget) {
+function renderAskDossier(repo, graph, question, modules, budget, terms) {
   const byId = new Map(graph.modules.map((m) => [m.slug, m]));
   const lines = [
     `# Evidence dossier for: "${question}"`,
+    ...terms?.trim() ? ["", `Search terms: ${terms.trim()}`] : [],
     "",
     "## Task",
     `Answer the question USING ONLY the source below (and files you open from it) \u2014 not your own memory of the codebase. Write your answer to \`ANSWER.md\`, then run \`ultraindex check --answer ANSWER.md\`. ${CITE_HELP} An answer must carry at least one citation.`,
@@ -31656,14 +31755,14 @@ function runDossier(outDir, repo, slug, budget) {
   if (!module2) return void 0;
   return renderModuleDossier(repo, graph, module2, budget);
 }
-async function runAsk(outDir, repo, question, k = 5, budget) {
+async function runAsk(outDir, repo, question, k = 5, budget, terms) {
   const graph = loadGraph(outDir);
   if (!graph) return void 0;
-  const found = await runFindHybrid(outDir, question, k, repo);
+  const found = await runFindHybrid(outDir, question, k, repo, terms);
   if (!found) return void 0;
   const modules = found.results.map((r) => ({ slug: r.slug, files: r.files }));
   return {
-    content: renderAskDossier(repo, graph, question, modules, budget),
+    content: renderAskDossier(repo, graph, question, modules, budget, terms),
     modules: found.results.map((r) => r.slug),
     warning: found.warning
   };
@@ -32211,11 +32310,13 @@ function handleMap(args2, repo, out2) {
 async function handleFind(args2, repo, out2) {
   requireIndex(out2, repo);
   const query = requiredStr(args2, "query", "the task or question to rank modules against.");
-  const found = await runFindHybrid(out2, query, positive(args2.k, "k") ?? 8, repo);
+  const terms = str2(args2.terms)?.trim();
+  const found = await runFindHybrid(out2, query, positive(args2.k, "k") ?? 8, repo, terms);
   if (!found) throw new ToolError(`no index at ${out2} \u2014 build one first with ultraindex_build.`);
   return {
     out: out2,
     query,
+    ...terms ? { terms } : {},
     // A lexical-only ranking because no vectors exist is not a failure; it is a
     // fact about this answer's recall, and the caller should see it.
     ...found.warning ? { note: found.warning } : {},
@@ -32225,11 +32326,13 @@ async function handleFind(args2, repo, out2) {
 async function handleAsk(args2, repo, out2) {
   requireIndex(out2, repo);
   const question = requiredStr(args2, "question", "the question to gather evidence for.");
-  const res = await runAsk(out2, repo, question, positive(args2.k, "k") ?? 5, positive(args2.budget, "budget"));
+  const terms = str2(args2.terms)?.trim();
+  const res = await runAsk(out2, repo, question, positive(args2.k, "k") ?? 5, positive(args2.budget, "budget"), terms);
   if (!res) throw new ToolError(`no index at ${out2} \u2014 build one first with ultraindex_build.`);
   return {
     out: out2,
     question,
+    ...terms ? { terms } : {},
     modules: res.modules,
     ...res.warning ? { note: res.warning } : {},
     evidence: res.content,
@@ -32461,6 +32564,10 @@ var budgetProp = {
   type: "number",
   description: "Rough character budget for the inlined source. Lower it when the packet is bigger than you need."
 };
+var termsProp = {
+  type: "string",
+  description: `Extra search keywords merged with the question for ranking. Ranking is lexical, so when the question is not in the code's language, pass the code's own words here: English code keywords, plus the repo's identifiers when you know them (e.g. "order cancel refund cancelOrder").`
+};
 var INDEX_NOTE = "Requires an index: run ultraindex_build once per repo first (it is incremental afterwards).";
 var TOOLS2 = [
   {
@@ -32483,6 +32590,7 @@ var TOOLS2 = [
         repo: repoProp2,
         out: outProp,
         query: { type: "string", description: "The task or question, in natural language." },
+        terms: termsProp,
         k: { type: "number", description: "How many modules to return (default 8)." }
       },
       required: ["repo", "query"]
@@ -32498,6 +32606,7 @@ var TOOLS2 = [
         repo: repoProp2,
         out: outProp,
         question: { type: "string", description: "The question to gather evidence for." },
+        terms: termsProp,
         k: { type: "number", description: "How many modules to draw source from (default 5)." },
         budget: budgetProp
       },
@@ -32794,7 +32903,7 @@ ${CORE_RULE}
 **Sequence:**
 
 1. \`ultraindex_map\` \u2014 only if you do not already know how this repo is laid out. Navigation, not evidence: cite the source, never the map.
-2. \`ultraindex_ask\` with the question. It returns the ranked modules AND their real source, assembled as one packet.
+2. \`ultraindex_ask\` with the question. It returns the ranked modules AND their real source, assembled as one packet. Ranking is lexical: when the question is not in English (or the code's vocabulary differs from the question's), also pass \`terms\` \u2014 English code keywords, plus the repo's own identifiers when you know them.
 3. Widen what is thin: \`ultraindex_symbols\` to resolve a name to its declaration and its callers, \`ultraindex_impact\` for what a change would reach, \`ultraindex_read\` for the full file behind an excerpt.
 4. Write the answer, citing \`[file:line]\` on every claim.
 5. \`ultraindex_check\` with the answer as \`answer_text\`.
@@ -33294,7 +33403,7 @@ huge codebases without filling its context window. Zero deps, no keys.
 
 Usage:
   ultraindex build   --repo <dir> [--out <dir>] [--include <glob>] [--exclude <glob>] [--max-bytes <n>] [--max-files <n>] [--no-cache] [--full-hash] [--no-mermaid] [--no-gitignore]
-  ultraindex find    "<query>" [--out <dir>] [--k <n>]
+  ultraindex find    "<query>" [--terms "<keywords>"] [--out <dir>] [--k <n>]
   ultraindex embed   [--out <dir>] [--force]
   ultraindex neighbors <file|module-slug> [--out <dir>] [--depth <n>] [--kind <k>]
   ultraindex symbols "<name>" [--out <dir>] [--json]
@@ -33303,7 +33412,7 @@ Usage:
   ultraindex map     [--out <dir>] [--module <slug>]
   ultraindex status  [--out <dir>]
   ultraindex dossier <module-slug> [--out <dir>] [--repo <dir>] [--budget <n>]
-  ultraindex ask     "<question>" [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
+  ultraindex ask     "<question>" [--terms "<keywords>"] [--out <dir>] [--repo <dir>] [--k <n>] [--budget <n>]
   ultraindex check   [--out <dir>] [--repo <dir>] [--answer <file>] [--semantic] [--prose]
   ultraindex verify  --answer <file> [--repo <dir>] [--apply <verdicts.json>] [--max-verify <n>]
   ultraindex orchestrate [--out <dir>] [--repo <dir>] [--answer <file>] [--phase <name>] [--eco] [--list]
@@ -33376,6 +33485,9 @@ Options:
   --full-hash       build: re-hash every file, disabling the (size,mtime) fastpath
   --no-mermaid      Do not write graph.mmd
   --k <n>           find/ask: number of modules to return      (default: 8 / 5)
+  --terms "<kw>"    find/ask: extra search keywords, merged with the question.
+                    For a question not in the code's language, pass the code's
+                    words (English keywords, the repo's own identifiers)
   --depth <n>       neighbors: hops to traverse (default: 1); delta: blast-radius
                     hops (default: 2)
   --base <ref>      delta: review base ref (default: origin/HEAD \u2192 main \u2192 master,
@@ -33424,6 +33536,7 @@ var VALUE_FLAGS2 = /* @__PURE__ */ new Set([
   "max-bytes",
   "max-files",
   "k",
+  "terms",
   "depth",
   "kind",
   "budget",
@@ -33656,7 +33769,8 @@ async function cmdFind(p) {
   if (!query) fail('missing query \u2014 usage: ultraindex find "<task keywords>"');
   const k = p.values.k ? Number(p.values.k) : 8;
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
-  const found = await runFindHybrid(out2, query, k, base);
+  const terms = p.values.terms?.trim() || void 0;
+  const found = await runFindHybrid(out2, query, k, base, terms);
   if (found === void 0) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
   if (found.warning) process.stderr.write(`ultraindex: warning: ${found.warning}
 `);
@@ -33670,7 +33784,10 @@ async function cmdFind(p) {
 `);
     return;
   }
-  const lines = [`ultraindex: ${results.length} module(s) for "${query}"${found.semantic ? " (hybrid)" : ""}`, ""];
+  const lines = [
+    `ultraindex: ${results.length} module(s) for "${query}"${terms ? ` + terms "${terms}"` : ""}${found.semantic ? " (hybrid)" : ""}`,
+    ""
+  ];
   for (const r of results) {
     lines.push(`\u25B8 ${r.slug}  (${r.path}, tier ${r.tier}, score ${r.score}${r.semanticRank !== void 0 ? `, semantic #${r.semanticRank}` : ""})${r.via ? ` via:${r.via}` : ""}`);
     if (r.matched.length) lines.push(`    matched: ${r.matched.join(", ")}`);
@@ -33886,7 +34003,7 @@ async function cmdAsk(p) {
   if (!Number.isFinite(k) || k <= 0) fail("invalid --k");
   const budget = p.values.budget ? Number(p.values.budget) : void 0;
   if (budget !== void 0 && (!Number.isInteger(budget) || budget <= 0)) fail("invalid --budget");
-  const res = await runAsk(out2, repo, question, k, budget);
+  const res = await runAsk(out2, repo, question, k, budget, p.values.terms?.trim() || void 0);
   if (res === void 0) fail(`no index at ${out2} \u2014 run \`ultraindex build\` first`);
   if (res.warning) process.stderr.write(`ultraindex: warning: ${res.warning}
 `);
