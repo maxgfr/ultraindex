@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [7.15.0](https://github.com/maxgfr/ultraindex/compare/v7.14.2...v7.15.0) (2026-11-26)
+
+
+### Features
+
+* **find:** bridge questions in any language with --terms ([ee0333e](https://github.com/maxgfr/ultraindex/commit/ee0333ee86a868d8e913a16bd482b2786779366c)), closes [#21](https://github.com/maxgfr/ultraindex/issues/21)
+
 ## [7.14.2](https://github.com/maxgfr/ultraindex/compare/v7.14.1...v7.14.2) (2026-11-26)
 
 
