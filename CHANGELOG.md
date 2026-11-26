@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here, generated automatically from the [Conventional Commits](https://www.conventionalcommits.org/) by [semantic-release](https://github.com/semantic-release/semantic-release).
 
+# [7.14.0](https://github.com/maxgfr/ultraindex/compare/v7.13.15...v7.14.0) (2026-11-26)
+
+
+### Features
+
+* ship a vendorable library entry (scripts/engine.mjs) ([077fe06](https://github.com/maxgfr/ultraindex/commit/077fe0608f20453c1ad21af349dbbb31e9b1eb17)), closes [#18](https://github.com/maxgfr/ultraindex/issues/18)
+
 ## [7.13.15](https://github.com/maxgfr/ultraindex/compare/v7.13.14...v7.13.15) (2026-11-20)
 
 
