@@ -29292,7 +29292,7 @@ ${HELP}`);
 init_text();
 
 // src/types.ts
-var VERSION = "7.16.3";
+var VERSION = "7.16.4";
 var SCHEMA_VERSION2 = 5;
 
 // src/build.ts
