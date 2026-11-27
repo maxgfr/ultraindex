@@ -1,5 +1,5 @@
 /*
-  ENGINE_VERSION = "7.16.2"
+  ENGINE_VERSION = "7.16.3"
   ultraindex's own version, announced first so vendoring tools that read the
   first ENGINE_VERSION statement get ultraindex's, not the embedded codeindex
   engine's (that one stays exported as codeindex.ENGINE_VERSION).
@@ -29521,7 +29521,7 @@ ${HELP}`);
 init_text();
 
 // src/types.ts
-var VERSION = "7.16.2";
+var VERSION = "7.16.3";
 var SCHEMA_VERSION2 = 5;
 
 // src/build.ts
